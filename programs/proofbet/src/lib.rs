@@ -21,4 +21,8 @@ pub mod proofbet {
     ) -> Result<()> {
         instructions::initialize_market::handler(ctx, fixture_id, market_id, args)
     }
+
+    pub fn place_bet(ctx: Context<PlaceBet>, bucket: u8, amount: u64) -> Result<()> {
+        instructions::place_bet::handler(ctx, bucket, amount)
+    }
 }
