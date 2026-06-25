@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+spike/node_modules/
+
+# env / secrets
+.env
+*.env
+!*.env.example
+.spike-auth.json
+**/id.json
+**/keypair.json
+**/wallet*.json
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
