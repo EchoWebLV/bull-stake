@@ -1,1 +1,2 @@
-// Instruction modules are added in Tasks 4–8.
+pub mod initialize_market;
+pub use initialize_market::*;
