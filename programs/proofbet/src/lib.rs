@@ -35,4 +35,8 @@ pub mod proofbet {
     ) -> Result<()> {
         instructions::settle::handler(ctx, winning_bucket, settled_seq, settled_ts, settled_value)
     }
+
+    pub fn void_market(ctx: Context<VoidMarket>, settled_seq: u32, settled_ts: i64) -> Result<()> {
+        instructions::void_market::handler(ctx, settled_seq, settled_ts)
+    }
 }

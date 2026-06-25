@@ -13,3 +13,6 @@ pub use place_bet::*;
 
 pub mod settle;
 pub use settle::*;
+
+pub mod void_market;
+pub use void_market::*;
