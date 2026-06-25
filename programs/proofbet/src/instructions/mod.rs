@@ -10,3 +10,6 @@ pub use initialize_market::*;
 
 pub mod place_bet;
 pub use place_bet::*;
+
+pub mod settle;
+pub use settle::*;

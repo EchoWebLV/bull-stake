@@ -25,4 +25,14 @@ pub mod proofbet {
     pub fn place_bet(ctx: Context<PlaceBet>, bucket: u8, amount: u64) -> Result<()> {
         instructions::place_bet::handler(ctx, bucket, amount)
     }
+
+    pub fn settle(
+        ctx: Context<Settle>,
+        winning_bucket: u8,
+        settled_seq: u32,
+        settled_ts: i64,
+        settled_value: i32,
+    ) -> Result<()> {
+        instructions::settle::handler(ctx, winning_bucket, settled_seq, settled_ts, settled_value)
+    }
 }
