@@ -39,4 +39,8 @@ pub mod proofbet {
     pub fn void_market(ctx: Context<VoidMarket>, settled_seq: u32, settled_ts: i64) -> Result<()> {
         instructions::void_market::handler(ctx, settled_seq, settled_ts)
     }
+
+    pub fn claim(ctx: Context<Claim>) -> Result<()> {
+        instructions::claim::handler(ctx)
+    }
 }
