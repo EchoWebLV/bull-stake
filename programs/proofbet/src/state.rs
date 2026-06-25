@@ -57,6 +57,8 @@ pub struct Market {
     /// Txoracle daily_scores PDA (epochDay = settled_ts / 86_400_000).
     pub settled_ts: i64,
     /// Resolved left-hand side: val_a, or (val_a op val_b) for two-stat predicates.
+    /// Only meaningful when `status == Settled` (and on settle's zero-winner void).
+    /// A standalone `void_market` leaves this 0 — an abandoned fixture has no stat.
     pub settled_value: i32,
     pub bump: u8,
     pub vault_bump: u8,

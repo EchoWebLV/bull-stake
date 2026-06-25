@@ -47,6 +47,8 @@ pub fn handler(ctx: Context<Claim>) -> Result<()> {
             // use a typed error rather than a panic to keep the money path graceful.
             let wb = ctx.accounts.market.winning_bucket
                 .ok_or(ProofBetError::NotClaimable)? as usize;
+            // Only the winning-bucket stake pays out. A bettor who hedged both
+            // sides forfeits the losing side (it funded the pool) — standard parimutuel.
             let stake = amounts[wb];
             if stake == 0 {
                 0
