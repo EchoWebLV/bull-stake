@@ -6,12 +6,22 @@
 import "dotenv/config";
 import { writeFileSync } from "node:fs";
 import { createContext, authenticate } from "../../spike/src/auth.js";
-import { getScoreHistory, resolvePhase } from "../../spike/src/discover.js";
+import { getScoreHistory } from "../../spike/src/discover.js";
 import { SOCCER_STAT } from "../../spike/src/config.js";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** TxLINE historical snapshots carry a flat status; derive a readable phase from
+ *  the match minute so the demo feed progresses NS → H1 → HT → H2 → F. */
+function phaseFromMinute(min: number): string {
+  if (min <= 0) return "NS";
+  if (min < 45) return "H1";
+  if (min === 45) return "HT";
+  if (min < 90) return "H2";
+  return "F";
 }
 
 async function main() {
@@ -29,10 +39,11 @@ async function main() {
     const g1 = ev.Stats?.[String(SOCCER_STAT.P1_GOALS)] ?? 0;
     const g2 = ev.Stats?.[String(SOCCER_STAT.P2_GOALS)] ?? 0;
     const realMs = Number(ev.Ts ?? t0) - t0;
+    const minute = Math.min(90, Math.round(realMs / 60000));
     return {
       tMs: i * 4000,                 // compress to ~4s/frame for the demo
-      minute: Math.min(90, Math.round(realMs / 60000)),
-      phase: resolvePhase(ev).label,
+      minute,
+      phase: phaseFromMinute(minute),
       scoreH: g1, scoreA: g2, corners1: c1, corners2: c2,
     };
   });

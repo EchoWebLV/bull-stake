@@ -3,9 +3,329 @@
   "home": "Brazil",
   "away": "Spain",
   "frames": [
-    { "tMs": 0,     "minute": 0,  "phase": "NS", "scoreH": 0, "scoreA": 0, "corners1": 0, "corners2": 0 },
-    { "tMs": 5000,  "minute": 30, "phase": "H1", "scoreH": 1, "scoreA": 0, "corners1": 3, "corners2": 2 },
-    { "tMs": 10000, "minute": 60, "phase": "H2", "scoreH": 1, "scoreA": 1, "corners1": 5, "corners2": 4 },
-    { "tMs": 15000, "minute": 90, "phase": "F",  "scoreH": 1, "scoreA": 1, "corners1": 6, "corners2": 4 }
+    {
+      "tMs": 0,
+      "minute": 0,
+      "phase": "NS",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 4000,
+      "minute": 2,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 8000,
+      "minute": 2,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 12000,
+      "minute": 2,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 16000,
+      "minute": 2,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 20000,
+      "minute": 20,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 24000,
+      "minute": 20,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 28000,
+      "minute": 20,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 32000,
+      "minute": 25,
+      "phase": "H1",
+      "scoreH": 0,
+      "scoreA": 0,
+      "corners1": 0,
+      "corners2": 0
+    },
+    {
+      "tMs": 36000,
+      "minute": 52,
+      "phase": "H2",
+      "scoreH": 0,
+      "scoreA": 1,
+      "corners1": 2,
+      "corners2": 0
+    },
+    {
+      "tMs": 40000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 0,
+      "scoreA": 1,
+      "corners1": 6,
+      "corners2": 1
+    },
+    {
+      "tMs": 44000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 7,
+      "corners2": 1
+    },
+    {
+      "tMs": 48000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 7,
+      "corners2": 1
+    },
+    {
+      "tMs": 52000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 7,
+      "corners2": 1
+    },
+    {
+      "tMs": 56000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 8,
+      "corners2": 1
+    },
+    {
+      "tMs": 60000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 8,
+      "corners2": 1
+    },
+    {
+      "tMs": 64000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 68000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 72000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 76000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 80000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 84000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 88000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 1
+    },
+    {
+      "tMs": 92000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 96000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 100000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 104000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 108000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 112000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 116000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 120000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 124000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 128000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 132000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 136000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    },
+    {
+      "tMs": 140000,
+      "minute": 90,
+      "phase": "F",
+      "scoreH": 1,
+      "scoreA": 1,
+      "corners1": 11,
+      "corners2": 2
+    }
   ]
 }
