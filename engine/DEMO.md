@@ -49,3 +49,35 @@ cd web && npm run dev           # serves http://localhost:5173
 - Settlement is **verifiable, single-source** (the on-chain record binds the exact proof inputs) — not "trustless"; full trustlessness is the CPI path (roadmap).
 - For the video, the deterministic replay (`engine/data/replay.json`, captured from the real fixture) means the feed plays the same every run.
 - Zero-winner markets auto-void on settle (full refunds via `claim`).
+
+---
+
+# M1 — Full-Tournament Auto-Market (live board)
+
+The engine now serves a **live board** of all upcoming World Cup fixtures, each with 8 auto-created markets (corners/goals/1X2/cards/halves). Run it self-sustaining:
+
+```bash
+# 1. engine (serves /api/matches, /api/markets; polls live data; loads the slate on boot)
+cd engine && npm run start
+
+# 2. web (the Live tab)
+cd web && npm run dev
+
+# 3. self-sustaining loops (separate shells, or background)
+./scripts/crons.sh catalog &   # create markets for new fixtures every 30 min
+./scripts/crons.sh settle  &   # two-wave settle (HT 1st-half, FT the rest) every 5 min
+```
+
+- **Auth caching:** `authenticateCached` persists `.txline-auth.json` (gitignored) so the crons don't re-subscribe each run.
+- **Live data:** corners/goals/cards only tick during real match windows; between matches the board shows upcoming (bettable) + recently-settled fixtures.
+- **Stop the loops:** `pkill -f crons.sh`.
+
+**Railway:** run the engine + web as services; run `scripts/crons.sh catalog` and `scripts/crons.sh settle` as two **worker** services (or Railway cron jobs invoking `run-catalog.ts` / `settle-all.ts` once). Set the same env as `engine/.env` + `keeper/.env`; put the operator key in a Railway secret.
+
+**Manual one-offs:**
+```bash
+cd engine && npm run create-market -- --fixture <id> --market <n> --close-mins <m>  # ad-hoc market
+cd engine && npx tsx scripts/run-catalog.ts        # create the current slate now
+cd keeper && npx tsx settle-all.ts --dry-run       # preview what would settle
+cd engine && npx tsx scripts/list-fixtures.ts      # what's live/upcoming on TxLINE
+```
