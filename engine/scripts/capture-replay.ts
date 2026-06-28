@@ -5,7 +5,8 @@
  */
 import "dotenv/config";
 import { writeFileSync } from "node:fs";
-import { createContext, authenticate } from "../../spike/src/auth.js";
+import { createContext } from "../../spike/src/auth.js";
+import { authenticateCached } from "../../spike/src/auth-cache.js";
 import { getScoreHistory } from "../../spike/src/discover.js";
 import { SOCCER_STAT } from "../../spike/src/config.js";
 
@@ -28,7 +29,7 @@ async function main() {
   const fixtureId = Number(flag("fixture"));
   if (!fixtureId) throw new Error("--fixture <id> required");
   const ctx = createContext();
-  const auth = await authenticate(ctx);
+  const auth = await authenticateCached(ctx);
   const events = await getScoreHistory(ctx, auth, fixtureId);
 
   const sorted = [...events].sort((a, b) => Number(a.Seq) - Number(b.Seq));

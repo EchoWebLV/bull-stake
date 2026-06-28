@@ -16,7 +16,8 @@ import * as anchor from "@coral-xyz/anchor";
 import anchorDefault from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
-import { createContext, authenticate } from "../spike/src/auth.js";
+import { createContext } from "../spike/src/auth.js";
+import { authenticateCached } from "../spike/src/auth-cache.js";
 import { getScoreHistory, resolvePhase } from "../spike/src/discover.js";
 import {
   fetchStatValidation, buildBaseArgs, viewValidate, dailyScoresPda,
@@ -56,7 +57,7 @@ type PredObj = { threshold: number; comparison: { [k: string]: object } };
 async function main() {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const ctx = createContext();
-  const auth = await authenticate(ctx);
+  const auth = await authenticateCached(ctx);
 
   // -- compute-only: reproduce the spike's result for explicit predicate flags --
   if (flags["compute-only"]) {

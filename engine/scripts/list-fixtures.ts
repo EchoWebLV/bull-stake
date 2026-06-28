@@ -3,12 +3,13 @@
  * Usage: tsx scripts/list-fixtures.ts
  */
 import "dotenv/config";
-import { createContext, authenticate } from "../../spike/src/auth.js";
+import { createContext } from "../../spike/src/auth.js";
+import { authenticateCached } from "../../spike/src/auth-cache.js";
 import { getFixtures, type Fixture } from "../../spike/src/discover.js";
 
 async function main() {
   const ctx = createContext();
-  const auth = await authenticate(ctx);
+  const auth = await authenticateCached(ctx);
   const now = Date.now();
   const epochDay = Math.floor(now / 86_400_000);
 
