@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { buildServer } from "../src/server.ts";
 
 vi.mock("../src/chain.ts", async (orig) => {
@@ -8,7 +8,7 @@ vi.mock("../src/chain.ts", async (orig) => {
     readMarket: vi.fn(async () => ({
       pubkey: "Mkt111", status: "open", fixtureId: 1, marketId: 1,
       bucketTotals: ["300", "100"], totalPool: "400", feeBps: 0, feeCollected: "0",
-      winningBucket: null, entryCloseTs: 9999999999, settledValue: null,
+      winningBucket: null, entryCloseTs: 9999999999, settledValue: 0,
     })),
   };
 });
@@ -41,4 +41,21 @@ describe("engine routes", () => {
     expect(body.impliedOdds.under).toBeCloseTo(4.0, 3);
     await app.close();
   });
+
+  it("GET /api/market returns 503 when M0_MARKET_PUBKEY is unset", async () => {
+    // M0.marketPubkey is read at config.ts module-load; clear the env and
+    // re-import a fresh server so config re-evaluates with no pubkey.
+    vi.stubEnv("M0_MARKET_PUBKEY", "");
+    vi.resetModules();
+    const { buildServer: freshBuildServer } = await import("../src/server.ts");
+    const app = freshBuildServer();
+    const res = await app.inject({ url: "/api/market" });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toHaveProperty("error");
+    await app.close();
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });

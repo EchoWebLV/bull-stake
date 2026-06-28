@@ -42,7 +42,7 @@ export interface MarketView {
   feeCollected: string;
   winningBucket: number | null;
   entryCloseTs: number;
-  settledValue: number | null;
+  settledValue: number; // on-chain i32 (not an Option); only meaningful when status === "settled"
 }
 
 function statusString(s: Record<string, unknown>): MarketView["status"] {
@@ -82,6 +82,7 @@ export async function readMarket(marketPubkey: string): Promise<MarketView> {
     feeCollected: m.feeCollected.toString(),
     winningBucket: m.winningBucket === null ? null : Number(m.winningBucket),
     entryCloseTs: Number(m.entryCloseTs),
-    settledValue: m.settledValue === null ? null : Number(m.settledValue),
+    // on-chain i32 (not an Option) — only meaningful when status === "settled" (0 otherwise)
+    settledValue: Number(m.settledValue),
   };
 }

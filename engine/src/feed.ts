@@ -22,6 +22,7 @@ export class Feed {
 
   private frameAt(elapsedMs: number): Frame {
     const { frames } = this.replay;
+    if (frames.length === 0) throw new Error("replay has no frames");
     let chosen = frames[0];
     for (const fr of frames) { if (fr.tMs <= elapsedMs) chosen = fr; else break; }
     return chosen;

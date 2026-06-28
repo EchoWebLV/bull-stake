@@ -9,9 +9,11 @@ describe("impliedOdds", () => {
     expect(impliedOdds([300n, 100n], 1, 0)).toBeCloseTo(4.0, 3);
   });
 
-  it("applies fee to the pot for the implied multiplier", () => {
-    // fee 1000 bps (10%): pot*(0.9)=360, over: 360/300=1.2
-    expect(impliedOdds([300n, 100n], 0, 1000)).toBeCloseTo(1.2, 3);
+  it("takes the fee from the LOSING pool only (matches on-chain payout)", () => {
+    // 1000 bps (10%): over wins → loser=UNDER(100), fee=10 → (400-10)/300 = 1.30
+    expect(impliedOdds([300n, 100n], 0, 1000)).toBeCloseTo(1.3, 3);
+    // under wins → loser=OVER(300), fee=30 → (400-30)/100 = 3.70
+    expect(impliedOdds([300n, 100n], 1, 1000)).toBeCloseTo(3.7, 3);
   });
 
   it("returns 0 for an empty bucket (no liquidity on that side)", () => {
