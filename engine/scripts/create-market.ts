@@ -6,13 +6,14 @@
  */
 import "dotenv/config";
 import * as anchor from "@coral-xyz/anchor";
+import anchorDefault from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
 import { createContext } from "../../spike/src/auth.js";
 import { deriveMarketPda, deriveVaultPda } from "../src/chain.ts";
 import { PROGRAM_ID } from "../src/config.ts";
 
-const BN = anchor.BN;
+const BN = anchorDefault.BN;
 
 function flag(name: string, def?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
