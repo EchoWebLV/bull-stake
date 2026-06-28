@@ -9,6 +9,9 @@ export default defineConfig({
     nodePolyfills({ globals: { Buffer: true, global: true, process: true }, protocolImports: true }),
     VitePWA({
       registerType: "autoUpdate",
+      // The Privy + Anchor + web3.js vendor bundle exceeds Workbox's default 2 MiB
+      // precache cap; raise it so the service worker generates and precaches it.
+      workbox: { maximumFileSizeToCacheInBytes: 4 * 1024 * 1024 },
       manifest: {
         name: "Streak",
         short_name: "Streak",
