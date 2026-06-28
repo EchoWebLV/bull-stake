@@ -1,12 +1,14 @@
 import "dotenv/config";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { registerRoutes } from "./routes.ts";
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({ logger: false });
   const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
   app.register(cors, { origin: [webOrigin] });
   app.get("/health", async () => ({ status: "ok" }));
+  registerRoutes(app);
   return app;
 }
 
