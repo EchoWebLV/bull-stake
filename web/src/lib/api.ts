@@ -12,6 +12,23 @@ export interface MarketState {
   meta: { home: string; away: string; line: number; label: string };
   impliedOdds: { over: number; under: number };
 }
+
+// --- M1 list endpoints -----------------------------------------------------
+export interface LiveMatch {
+  fixtureId: number; home: string; away: string; kickoffMs: number;
+  status: "live" | "upcoming" | "ft"; minute: number; phase: string;
+  scoreH: number; scoreA: number; corners: number; goals: number; yellows: number;
+}
+export interface LiveMarket {
+  marketId: number; label: string; group: "corners" | "goals" | "result" | "cards";
+  line: number; settleAt: "HT" | "FT"; status: "open" | "settled" | "voided" | "none";
+  bucketTotals: [string, string]; totalPool: string;
+  impliedOdds: { over: number; under: number }; winningBucket: number | null;
+}
+
 const json = async (r: Response) => { if (!r.ok) throw new Error(`engine ${r.status}`); return r.json(); };
 export const getMatch = (): Promise<MatchState> => fetch(`${ENGINE}/api/match`).then(json);
 export const getMarket = (): Promise<MarketState> => fetch(`${ENGINE}/api/market`).then(json);
+export const getMatches = (): Promise<LiveMatch[]> => fetch(`${ENGINE}/api/matches`).then(json);
+export const getMarkets = (fixtureId: number): Promise<LiveMarket[]> =>
+  fetch(`${ENGINE}/api/markets?fixtureId=${fixtureId}`).then(json);
