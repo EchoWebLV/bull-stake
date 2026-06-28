@@ -139,6 +139,15 @@ async function main() {
     const fixtureId = fixture.FixtureId;
     const label = `${fixture.Participant1} vs ${fixture.Participant2} [${fixtureId}]`;
 
+    // Cheap pre-check: skip fixtures with no markets before any TxLINE call.
+    // The catalog always creates marketId 0 first, so if it's absent there are none.
+    const probePda = deriveMarketPda(proofbet.programId, fixtureId, MARKET_TEMPLATE[0].marketId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((await (proofbet.account as any).market.fetchNullable(probePda)) === null) {
+      totalNotCreated += MARKET_TEMPLATE.length;
+      continue;
+    }
+
     // Resolve the latest phase for this fixture
     const events = await getScoreHistory(ctx, auth, fixtureId);
     if (!events.length) {

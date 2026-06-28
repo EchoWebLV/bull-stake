@@ -208,4 +208,6 @@ async function main() {
   await settleMarketByPubkey(ctx, auth, proofbet, marketKey, { dryRun });
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run the CLI when invoked directly — settle-all.ts imports the exports above.
+const isMain = process.argv[1]?.endsWith("settle.ts");
+if (isMain) main().catch((e) => { console.error(e); process.exit(1); });
