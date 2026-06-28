@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { getMatches, type LiveMatch } from "../lib/api.ts";
 import { MatchRow } from "./MatchRow.tsx";
 
-const RANK: Record<LiveMatch["status"], number> = { live: 0, upcoming: 1, ft: 2 };
+const SECTIONS: { status: LiveMatch["status"]; label: string; tag?: string }[] = [
+  { status: "live", label: "Live now", tag: "● settling on proof" },
+  { status: "upcoming", label: "Upcoming" },
+  { status: "ft", label: "Recently finished" },
+];
 
 export function MatchList() {
   const [matches, setMatches] = useState<LiveMatch[]>();
@@ -20,19 +24,29 @@ export function MatchList() {
   }, []);
 
   if (!matches) {
-    return <div className="card"><span className="muted">{err ? "Engine warming up…" : "Loading matches…"}</span></div>;
+    return <div className="card empty-card">{err ? "Engine warming up…" : "Loading matches…"}</div>;
   }
   if (matches.length === 0) {
-    return <div className="card"><span className="muted">No matches yet.</span></div>;
+    return <div className="card empty-card">No World Cup matches scheduled right now.</div>;
   }
-
-  const sorted = [...matches].sort(
-    (a, b) => RANK[a.status] - RANK[b.status] || a.kickoffMs - b.kickoffMs,
-  );
 
   return (
     <>
-      {sorted.map((m) => <MatchRow key={m.fixtureId} match={m} />)}
+      {SECTIONS.map(({ status, label, tag }) => {
+        const inSection = matches
+          .filter((m) => m.status === status)
+          .sort((a, b) => a.kickoffMs - b.kickoffMs);
+        if (inSection.length === 0) return null;
+        return (
+          <div key={status}>
+            <div className="section">
+              <h3>{label}</h3>
+              {tag && <span className="tag" style={status === "live" ? { color: "var(--red)" } : undefined}>{tag}</span>}
+            </div>
+            {inSection.map((m) => <MatchRow key={m.fixtureId} match={m} />)}
+          </div>
+        );
+      })}
     </>
   );
 }

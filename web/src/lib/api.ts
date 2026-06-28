@@ -26,9 +26,36 @@ export interface LiveMarket {
   impliedOdds: { over: number; under: number }; winningBucket: number | null;
 }
 
+// --- Bet history ----------------------------------------------------------
+export type HistoryStatus =
+  | "pending" | "won" | "lost" | "refunded" | "claimable-won" | "claimable-refund";
+
+export interface HistoryEntry {
+  market: string;
+  fixtureId: number;
+  marketId: number;
+  label: string;
+  group: string;
+  line: number;
+  settleAt: "HT" | "FT";
+  home: string;
+  away: string;
+  side: string;
+  bucket: number;
+  stakeLamports: string;
+  payoutLamports: string;
+  status: HistoryStatus;
+  settledValue: number | null;
+  betSig: string;
+  claimSig: string | null;
+  tsMs: number;
+}
+
 const json = async (r: Response) => { if (!r.ok) throw new Error(`engine ${r.status}`); return r.json(); };
 export const getMatch = (): Promise<MatchState> => fetch(`${ENGINE}/api/match`).then(json);
 export const getMarket = (): Promise<MarketState> => fetch(`${ENGINE}/api/market`).then(json);
 export const getMatches = (): Promise<LiveMatch[]> => fetch(`${ENGINE}/api/matches`).then(json);
 export const getMarkets = (fixtureId: number): Promise<LiveMarket[]> =>
   fetch(`${ENGINE}/api/markets?fixtureId=${fixtureId}`).then(json);
+export const getHistory = (wallet: string): Promise<HistoryEntry[]> =>
+  fetch(`${ENGINE}/api/history?wallet=${wallet}`).then(json);
