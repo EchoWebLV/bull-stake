@@ -9,6 +9,9 @@ skip-lint = false
 [programs.localnet]
 proofbet = "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
 
+[programs.devnet]
+proofbet = "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+
 [registry]
 url = "https://api.apr.dev"
 
