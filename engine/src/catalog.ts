@@ -41,11 +41,24 @@ export interface EnsureResult {
 
 /**
  * Returns true when a fixture starting at `startMs` is inside the slate window:
- *   - kickoff is in the future relative to `nowMs`
- *   - kickoff is within `hoursAhead` hours from now
+ *   - kickoff is at most `hoursBehind` hours in the past (0 = upcoming-only)
+ *   - kickoff is within `hoursAhead` hours in the future
+ *
+ * `hoursBehind > 0` keeps in-play and recently-finished matches in the slate so
+ * the live board still shows a match you bet on after it kicks off (and a fresh
+ * engine boot re-loads matches already under way). Market *creation* uses the
+ * default (upcoming-only) — you can't open a bettable market after kickoff.
  */
-export function inSlateWindow(startMs: number, nowMs: number, hoursAhead: number): boolean {
-  return startMs > nowMs && startMs <= nowMs + hoursAhead * 3_600_000;
+export function inSlateWindow(
+  startMs: number,
+  nowMs: number,
+  hoursAhead: number,
+  hoursBehind = 0,
+): boolean {
+  return (
+    startMs > nowMs - hoursBehind * 3_600_000 &&
+    startMs <= nowMs + hoursAhead * 3_600_000
+  );
 }
 
 // ── Network / chain functions ─────────────────────────────────────────────────
@@ -60,34 +73,38 @@ export function inSlateWindow(startMs: number, nowMs: number, hoursAhead: number
 export async function fetchSlate(
   ctx: SpikeContext,
   auth: Auth,
-  opts: { hoursAhead?: number } = {},
+  opts: { hoursAhead?: number; hoursBehind?: number } = {},
 ): Promise<SlateFixture[]> {
   const hoursAhead = opts.hoursAhead ?? 36;
+  const hoursBehind = opts.hoursBehind ?? 0;
   const nowMs = Date.now();
   const todayEpochDay = Math.floor(nowMs / DAY_MS);
 
-  // Fetch fixtures for today and tomorrow in parallel.
-  const [today, tomorrow] = await Promise.all([
+  // Fetch yesterday + today + tomorrow in parallel. Yesterday covers in-play /
+  // recently-finished matches that kicked off late on the previous UTC day when
+  // hoursBehind > 0; it's harmlessly filtered out when hoursBehind === 0.
+  const [yesterday, today, tomorrow] = await Promise.all([
+    getFixtures(ctx, auth, { startEpochDay: todayEpochDay - 1 }),
     getFixtures(ctx, auth, { startEpochDay: todayEpochDay }),
     getFixtures(ctx, auth, { startEpochDay: todayEpochDay + 1 }),
   ]);
 
-  // Deduplicate by FixtureId (the two pages may overlap).
+  // Deduplicate by FixtureId (the pages may overlap).
   const seen = new Set<number>();
   const all: Fixture[] = [];
-  for (const f of [...today, ...tomorrow]) {
+  for (const f of [...yesterday, ...today, ...tomorrow]) {
     if (!seen.has(f.FixtureId)) {
       seen.add(f.FixtureId);
       all.push(f);
     }
   }
 
-  // Filter: World Cup only + upcoming within hoursAhead.
+  // Filter: World Cup only + inside the slate window.
   return all
     .filter(
       (f) =>
         f.Competition === "World Cup" &&
-        inSlateWindow(f.StartTime, nowMs, hoursAhead),
+        inSlateWindow(f.StartTime, nowMs, hoursAhead, hoursBehind),
     )
     .map((f) => ({
       fixtureId: f.FixtureId,

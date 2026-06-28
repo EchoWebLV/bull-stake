@@ -42,11 +42,14 @@ if (isMain) {
       const ctx = createContext();
       const auth = await authenticateCached(ctx);
 
-      // Load the live tournament slate (the catalog's upcoming WC fixtures).
+      // Load the live tournament slate. hoursBehind keeps in-play and
+      // recently-finished matches on the board (so a match you bet on stays
+      // visible after kickoff, and a fresh boot re-loads matches under way).
+      const BOARD_HOURS_BEHIND = 5;
       const { fetchSlate } = await import("./catalog.ts");
       let slate: { fixtureId: number; home: string; away: string; kickoffMs: number }[] = [];
       try {
-        slate = await fetchSlate(ctx, auth);
+        slate = await fetchSlate(ctx, auth, { hoursBehind: BOARD_HOURS_BEHIND });
       } catch (e) {
         console.warn("fetchSlate failed:", (e as Error).message);
       }
@@ -65,7 +68,7 @@ if (isMain) {
 
       // Refresh the slate periodically (fixtures roll over across days).
       setInterval(() => {
-        fetchSlate(ctx, auth)
+        fetchSlate(ctx, auth, { hoursBehind: BOARD_HOURS_BEHIND })
           .then((s) => { if (s.length) liveStore.setSlate(s); })
           .catch(() => {});
       }, 30 * 60_000);

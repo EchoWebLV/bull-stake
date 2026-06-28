@@ -67,6 +67,11 @@ function loadProgram(): anchor.Program {
   return cachedProgram;
 }
 
+/** Shared read-only Anchor program (cached). Used by history event parsing. */
+export function getProgram(): anchor.Program {
+  return loadProgram();
+}
+
 export async function readMarket(marketPubkey: string): Promise<MarketView> {
   const program = loadProgram();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

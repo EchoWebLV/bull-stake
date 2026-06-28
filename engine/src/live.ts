@@ -80,14 +80,26 @@ export class LiveStore {
   private slate: SlateEntry[] = [];
   private matchCache = new Map<number, LiveMatch>();
   private marketCache = new Map<number, LiveMarket[]>();
+  // fixtureId → team names, accumulated across slates and never pruned, so bet
+  // history can label fixtures even after they age out of the live board window.
+  private fixtureNames = new Map<number, { home: string; away: string }>();
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   /** Seed the store with fixture metadata (from the catalog slate). */
   setSlate(fixtures: SlateEntry[]): void {
     this.slate = fixtures;
-    // Initialise upcoming entries so /api/matches works before the first poll.
+    const ids = new Set(fixtures.map((f) => f.fixtureId));
+
+    // Prune board caches to the current window — fixtures that aged out drop off
+    // the board (they remain visible in bet history via fixtureNames below).
+    for (const id of [...this.matchCache.keys()]) if (!ids.has(id)) this.matchCache.delete(id);
+    for (const id of [...this.marketCache.keys()]) if (!ids.has(id)) this.marketCache.delete(id);
+
+    // Initialise entries so /api/matches works before the first poll, and record
+    // names persistently for history labelling.
     const nowMs = Date.now();
     for (const f of fixtures) {
+      this.fixtureNames.set(f.fixtureId, { home: f.home, away: f.away });
       if (!this.matchCache.has(f.fixtureId)) {
         this.matchCache.set(f.fixtureId, {
           fixtureId: f.fixtureId,
@@ -115,6 +127,11 @@ export class LiveStore {
   /** Return the 8-market list for a fixture (or [] if unknown). */
   getMarkets(fixtureId: number): LiveMarket[] {
     return this.marketCache.get(fixtureId) ?? [];
+  }
+
+  /** fixtureId → team names (accumulated, never pruned), for bet-history labels. */
+  getFixtureMeta(): Map<number, { home: string; away: string }> {
+    return this.fixtureNames;
   }
 
   /**

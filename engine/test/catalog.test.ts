@@ -38,6 +38,16 @@ describe("inSlateWindow", () => {
     expect(inSlateWindow(NOW + 1 * 3_600_000, NOW, 2)).toBe(true);
     expect(inSlateWindow(NOW + 3 * 3_600_000, NOW, 2)).toBe(false);
   });
+
+  it("with hoursBehind, keeps in-play and recently-finished matches", () => {
+    // kicked off 2h ago — excluded by default, included with hoursBehind=5
+    expect(inSlateWindow(NOW - 2 * 3_600_000, NOW, 36)).toBe(false);
+    expect(inSlateWindow(NOW - 2 * 3_600_000, NOW, 36, 5)).toBe(true);
+    // kicked off just now (live) is included with any hoursBehind > 0
+    expect(inSlateWindow(NOW, NOW, 36, 5)).toBe(true);
+    // older than hoursBehind drops off the board
+    expect(inSlateWindow(NOW - 6 * 3_600_000, NOW, 36, 5)).toBe(false);
+  });
 });
 
 // ── fetchSlate World Cup filter (mocked getFixtures) ─────────────────────────

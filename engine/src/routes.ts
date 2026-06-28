@@ -71,4 +71,24 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
     }
     return store.getMarkets(id);
   });
+
+  /**
+   * GET /api/history?wallet=<base58>
+   * Returns the wallet's bet/win history, reconstructed from on-chain events.
+   */
+  app.get("/api/history", async (req, reply) => {
+    const { wallet } = (req.query as Record<string, string>);
+    if (!wallet) {
+      reply.code(400);
+      return { error: "wallet query param required" };
+    }
+    const { fetchHistory } = await import("./history.ts");
+    const meta = store?.getFixtureMeta() ?? new Map();
+    try {
+      return await fetchHistory(wallet, meta);
+    } catch (e) {
+      reply.code(502);
+      return { error: `history fetch failed: ${(e as Error).message}` };
+    }
+  });
 }
