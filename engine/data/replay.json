@@ -1,0 +1,11 @@
+{
+  "fixtureId": 17952170,
+  "home": "Brazil",
+  "away": "Spain",
+  "frames": [
+    { "tMs": 0,     "minute": 0,  "phase": "NS", "scoreH": 0, "scoreA": 0, "corners1": 0, "corners2": 0 },
+    { "tMs": 5000,  "minute": 30, "phase": "H1", "scoreH": 1, "scoreA": 0, "corners1": 3, "corners2": 2 },
+    { "tMs": 10000, "minute": 60, "phase": "H2", "scoreH": 1, "scoreA": 1, "corners1": 5, "corners2": 4 },
+    { "tMs": 15000, "minute": 90, "phase": "F",  "scoreH": 1, "scoreA": 1, "corners1": 6, "corners2": 4 }
+  ]
+}
