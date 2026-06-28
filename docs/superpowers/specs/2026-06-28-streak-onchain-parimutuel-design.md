@@ -34,6 +34,7 @@ This iteration is a **front-end + service layer** on top of the already-built an
 | Betting window | **Close at kickoff (MVP)** | In-play (post-kickoff) betting is a clean stretch goal, not MVP. |
 | Frontend source | **Rebuild faithfully in React from the prototype's design; drop the generated bundle** | `Streak.html` is a 7.1MB generated `DCLogic`/`__bundler` artifact — not maintainable source. Reuse the *design* (`#FF6A1A` / `#07090d` / `#3DE08A`, Archivo, 4-tab layout, bet slip, confetti, receipts), not the bundle. |
 | Streak/leaderboard | **MVP feature, derived from on-chain settled positions** | It's the app's namesake; built on the same settlement pipeline, so it's verifiable not a DB claim. |
+| Login / wallet | **Privy — embedded social login + external-wallet linking** | Email/Google/SMS → non-custodial embedded Solana wallet (no seed phrase), best fan onboarding, works in PWA on iOS + Android; power users / Seeker can link Phantom or MWA. Satisfies "sign up through Solana." |
 
 ### Honest framing (inherited house rule)
 The program never calls Txoracle directly (Path A: keeper `.view()` + signed `settle`). The on-chain record (immutable predicate + bound proof inputs) makes a dishonest keeper **detectable**. We describe this as **"verifiable, single-source, no separate oracle, no dispute window"** — **never "trustless."** Full trustlessness (Path B: CPI into `validateStat`) stays on the roadmap.
@@ -78,7 +79,7 @@ Rebuilt from the prototype's design. Tabs:
 - **Wallet** — SOL balance, open positions, **Claim** (signs `claim`), activity log.
 - **Pool** *(simplified MVP placeholder)* — surfaces the active markets/leaderboard; full pool/contest formats are §13.
 
-Wallet via Solana **wallet-adapter** (Phantom/Solflare on web, **Mobile Wallet Adapter** on Seeker/Android). Bets and claims are signed **client-side**; the backend never custodies user funds.
+Login/wallet via **Privy** (§8): email/Google/SMS → embedded Solana wallet, with optional Phantom/MWA linking. Bets and claims are signed **client-side** by the Privy wallet; the backend never custodies user funds.
 
 ### 4.4 Data flow
 - **PWA ↔ backend:** market catalog, relayed live feed, pool-implied odds, streaks/leaderboard.
@@ -128,9 +129,19 @@ On every settlement, `streak-store` records each participating wallet's outcome 
 
 All derived from **on-chain settled positions**, so any value is independently reconstructable — the streak is verifiable, not a database assertion.
 
-## 8. Wallet & Solana sign-up
+## 8. Login & wallet (Privy)
 
-Solana **wallet-adapter**; **Mobile Wallet Adapter** for Seeker/Android, Phantom/Solflare for web. Connecting a wallet satisfies the track's "sign up through Solana" requirement. No custody: every value transfer (`place_bet`, `claim`) is a user-signed transaction. The backend's keypair only creates and settles markets (the immutable predicate + bound proof keep it honest-by-construction).
+Onboarding is **Privy** — embedded social login plus external-wallet linking:
+- **Embedded path (default, fan-facing):** email / Google / SMS login provisions a **non-custodial** Solana wallet (key-sharded, no seed phrase). Works inside the PWA on **iOS and Android**. This is what makes the demo "log in with Google → you have a wallet → place a bet."
+- **External path (power users / Seeker):** link **Phantom/Solflare**, or use **Mobile Wallet Adapter** (and the Seed Vault) on Seeker.
+
+Either path creates/connects a Solana wallet, satisfying the track's **"sign up through Solana"** requirement.
+
+**Custody & signing:** no custody — every value transfer (`place_bet`, `claim`) is a user-signed transaction. The Privy embedded wallet signs the Anchor tx client-side exactly as an external wallet would; the app builds the instruction, the wallet signs and sends. The backend keypair only creates and settles markets (the immutable predicate + bound proof keep it honest-by-construction).
+
+**Funding:** on devnet, wallets are funded by airdrop / a demo faucet (Privy can display the deposit address). Fiat on-ramp via Privy funding is mainnet-only and out of scope (§13).
+
+**Identity:** the leaderboard/streak is keyed by **wallet pubkey** (reconstructable from on-chain positions); Privy's user record is a convenience layer, not the source of truth.
 
 ## 9. Platform: PWA + Seeker APK
 
@@ -161,6 +172,7 @@ World Cup 2026 runs **through** 2026-07-19, so live TxLINE data is available dur
 - **Settlement liveness:** Path A keeper can stall (detectable, not forgeable); production posture is a Squads multisig `settle_authority`, full trustlessness via CPI is roadmap.
 - **Demo dependency:** mitigated by the deterministic replay (§10).
 - **Token safety:** TxLINE API token lives only in the backend; never shipped to clients.
+- **Onboarding dependency:** Privy is a third-party SDK and a trust surface (non-custodial via key-sharding, but still external); embedded-wallet recovery and per-bet signing UX need testing, and a paid tier applies at scale. Acceptable for the hackathon; external-wallet linking is the fallback if Privy is unavailable.
 
 ## 13. Roadmap / Future
 
