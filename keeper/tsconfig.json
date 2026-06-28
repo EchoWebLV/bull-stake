@@ -12,5 +12,5 @@
     "types": ["node"],
     "allowImportingTsExtensions": false
   },
-  "include": ["settle.ts"]
+  "include": ["settle.ts", "settle-all.ts", "test/**/*.ts", "vitest.config.ts"]
 }
