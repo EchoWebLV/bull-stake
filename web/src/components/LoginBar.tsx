@@ -1,9 +1,10 @@
 import { usePrivy, useLogin } from "@privy-io/react-auth";
 import { useWallets } from "@privy-io/react-auth/solana";
+import { pickPrivyWallet } from "../lib/wallet.ts";
 
 export function useSolanaAddress(): string | undefined {
   const { wallets } = useWallets();
-  return wallets.find((w) => w.standardWallet?.name === "Privy")?.address ?? wallets[0]?.address;
+  return pickPrivyWallet(wallets)?.address;
 }
 
 export function LoginBar() {

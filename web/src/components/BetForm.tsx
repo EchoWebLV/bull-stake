@@ -14,9 +14,11 @@ export function BetForm({ market, onDone }: { market: MarketState; onDone: () =>
 
   async function placeBet() {
     if (!address) { setMsg("log in first"); return; }
+    const n = Number(sol);
+    if (!Number.isFinite(n) || n <= 0) { setMsg("enter a valid amount"); return; }
     setBusy(true); setMsg(undefined);
     try {
-      const lamports = BigInt(Math.round(Number(sol) * LAMPORTS));
+      const lamports = BigInt(Math.round(n * LAMPORTS));
       const tx = await buildPlaceBetTx(address, market.fixtureId, market.marketId, bucket, lamports);
       const sig = await signAndSend(tx);
       setMsg(`bet placed: ${sig.slice(0, 8)}…`);

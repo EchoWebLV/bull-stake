@@ -11,7 +11,10 @@ export default function App() {
   const [match, setMatch] = useState<MatchState>();
 
   async function refresh() {
-    try { setMarket(await getMarket()); setMatch(await getMatch()); } catch { /* engine warming up */ }
+    try {
+      const [m, mt] = await Promise.all([getMarket(), getMatch()]);
+      setMarket(m); setMatch(mt);
+    } catch { /* engine warming up */ }
   }
   useEffect(() => { refresh(); const id = setInterval(refresh, 3000); return () => clearInterval(id); }, []);
 

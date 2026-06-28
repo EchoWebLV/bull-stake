@@ -12,5 +12,6 @@ export interface MarketState {
   meta: { home: string; away: string; line: number; label: string };
   impliedOdds: { over: number; under: number };
 }
-export const getMatch = (): Promise<MatchState> => fetch(`${ENGINE}/api/match`).then((r) => r.json());
-export const getMarket = (): Promise<MarketState> => fetch(`${ENGINE}/api/market`).then((r) => r.json());
+const json = async (r: Response) => { if (!r.ok) throw new Error(`engine ${r.status}`); return r.json(); };
+export const getMatch = (): Promise<MatchState> => fetch(`${ENGINE}/api/match`).then(json);
+export const getMarket = (): Promise<MarketState> => fetch(`${ENGINE}/api/market`).then(json);
