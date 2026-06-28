@@ -36,7 +36,8 @@ export interface MarketView {
   status: "open" | "settled" | "voided";
   fixtureId: number;
   marketId: number;
-  bucketTotals: [string, string]; // lamports as strings (avoid BigInt JSON issues)
+  numBuckets: number;
+  bucketTotals: string[]; // length numBuckets; lamports as strings (avoid BigInt JSON issues)
   totalPool: string;
   feeBps: number;
   feeCollected: string;
@@ -76,12 +77,15 @@ export async function readMarket(marketPubkey: string): Promise<MarketView> {
   const program = loadProgram();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m: any = await (program.account as any).market.fetch(new PublicKey(marketPubkey));
+  const numBuckets = Number(m.numBuckets);
   return {
     pubkey: marketPubkey,
     status: statusString(m.status),
     fixtureId: Number(m.fixtureId),
     marketId: Number(m.marketId),
-    bucketTotals: [m.bucketTotals[0].toString(), m.bucketTotals[1].toString()],
+    numBuckets,
+    // on-chain array is fixed-size 3; expose only the active buckets.
+    bucketTotals: (m.bucketTotals as any[]).slice(0, numBuckets).map((b) => b.toString()),
     totalPool: m.totalPool.toString(),
     feeBps: Number(m.feeBps),
     feeCollected: m.feeCollected.toString(),

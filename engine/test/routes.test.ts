@@ -163,17 +163,18 @@ describe("GET /api/markets", () => {
     await app.close();
   });
 
-  it("returns market rows with the expected shape including impliedOdds", async () => {
+  it("returns binary market rows with the expected shape including odds", async () => {
     const marketRow = {
       marketId: 0,
       label: "Total Corners O/U 9.5",
       group: "corners" as const,
       line: 9.5,
       settleAt: "FT" as const,
+      numBuckets: 2,
       status: "open" as const,
-      bucketTotals: ["300", "100"] as [string, string],
+      bucketTotals: ["300", "100"],
       totalPool: "400",
-      impliedOdds: { over: 1.3333, under: 4.0 },
+      odds: [1.3333, 4.0],
       winningBucket: null,
     };
     const store = makeMockStore({ getMarkets: vi.fn(() => [marketRow]) });
@@ -186,15 +187,37 @@ describe("GET /api/markets", () => {
     expect(m).toHaveProperty("marketId", 0);
     expect(m).toHaveProperty("label", "Total Corners O/U 9.5");
     expect(m).toHaveProperty("group", "corners");
-    expect(m).toHaveProperty("line", 9.5);
-    expect(m).toHaveProperty("settleAt", "FT");
+    expect(m).toHaveProperty("numBuckets", 2);
     expect(m).toHaveProperty("status", "open");
     expect(m).toHaveProperty("bucketTotals");
     expect(m).toHaveProperty("totalPool", "400");
-    expect(m.impliedOdds).toHaveProperty("over");
-    expect(m.impliedOdds).toHaveProperty("under");
-    expect(m.impliedOdds.over).toBeCloseTo(1.3333, 3);
+    expect(m.odds[0]).toBeCloseTo(1.3333, 3);
+    expect(m.odds[1]).toBeCloseTo(4.0, 3);
     expect(m).toHaveProperty("winningBucket", null);
+    await app.close();
+  });
+
+  it("returns a three-way result market with three odds", async () => {
+    const resultRow = {
+      marketId: 2,
+      label: "Match Result",
+      group: "result" as const,
+      line: 0,
+      settleAt: "FT" as const,
+      numBuckets: 3,
+      status: "open" as const,
+      bucketTotals: ["200", "100", "100"],
+      totalPool: "400",
+      odds: [2.0, 4.0, 4.0],
+      winningBucket: null,
+    };
+    const store = makeMockStore({ getMarkets: vi.fn(() => [resultRow]) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/markets?fixtureId=42" });
+    const body = res.json() as typeof resultRow[];
+    expect(body[0].numBuckets).toBe(3);
+    expect(body[0].bucketTotals).toHaveLength(3);
+    expect(body[0].odds).toHaveLength(3);
     await app.close();
   });
 
@@ -205,10 +228,11 @@ describe("GET /api/markets", () => {
       group: "goals" as const,
       line: 2.5,
       settleAt: "FT" as const,
+      numBuckets: 2,
       status: "none" as const,
-      bucketTotals: ["0", "0"] as [string, string],
+      bucketTotals: ["0", "0"],
       totalPool: "0",
-      impliedOdds: { over: 0, under: 0 },
+      odds: [0, 0],
       winningBucket: null,
     };
     const store = makeMockStore({ getMarkets: vi.fn(() => [noneMarket]) });
@@ -216,8 +240,7 @@ describe("GET /api/markets", () => {
     const res = await app.inject({ url: "/api/markets?fixtureId=1" });
     const body = res.json() as typeof noneMarket[];
     expect(body[0].status).toBe("none");
-    expect(body[0].impliedOdds.over).toBe(0);
-    expect(body[0].impliedOdds.under).toBe(0);
+    expect(body[0].odds[0]).toBe(0);
     await app.close();
   });
 });

@@ -16,7 +16,7 @@ import { getScoreHistory, resolvePhase } from "../../spike/src/discover.js";
 import { FINISHED_PHASES } from "../../spike/src/config.js";
 import { MARKET_TEMPLATE } from "./markets.ts";
 import { deriveMarketPda } from "./chain.ts";
-import { impliedOdds } from "./odds.ts";
+import { impliedOddsN } from "./odds.ts";
 import { PROGRAM_ID } from "./config.ts";
 import type { MarketDef } from "./markets.ts";
 
@@ -45,10 +45,12 @@ export interface LiveMarket {
   group: MarketDef["group"];
   line: number;
   settleAt: MarketDef["settleAt"];
+  numBuckets: number;
   status: "open" | "settled" | "voided" | "none";
-  bucketTotals: [string, string];
+  bucketTotals: string[];
   totalPool: string;
-  impliedOdds: { over: number; under: number };
+  /** Per-bucket implied multiplier (length numBuckets). */
+  odds: number[];
   winningBucket: number | null;
 }
 
@@ -242,20 +244,18 @@ export class LiveStore {
 
       try {
         const view = await readMarket(pda.toBase58());
-        const totals: [bigint, bigint] = [BigInt(view.bucketTotals[0]), BigInt(view.bucketTotals[1])];
+        const totals = view.bucketTotals.map((b) => BigInt(b));
         markets.push({
           marketId: def.marketId,
           label: def.label,
           group: def.group,
           line: def.line,
           settleAt: def.settleAt,
+          numBuckets: view.numBuckets,
           status: view.status,
           bucketTotals: view.bucketTotals,
           totalPool: view.totalPool,
-          impliedOdds: {
-            over: impliedOdds(totals, 0, view.feeBps),
-            under: impliedOdds(totals, 1, view.feeBps),
-          },
+          odds: totals.map((_, i) => impliedOddsN(totals, i, view.feeBps)),
           winningBucket: view.winningBucket,
         });
       } catch {
@@ -266,10 +266,11 @@ export class LiveStore {
           group: def.group,
           line: def.line,
           settleAt: def.settleAt,
+          numBuckets: def.numBuckets,
           status: "none",
-          bucketTotals: ["0", "0"],
+          bucketTotals: Array(def.numBuckets).fill("0"),
           totalPool: "0",
-          impliedOdds: { over: 0, under: 0 },
+          odds: Array(def.numBuckets).fill(0),
           winningBucket: null,
         });
       }

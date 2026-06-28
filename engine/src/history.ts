@@ -59,7 +59,7 @@ export interface HistoryEntry {
 export interface MarketSnapshot {
   status: "open" | "settled" | "voided";
   winningBucket: number | null;
-  bucketTotals: [bigint, bigint];
+  bucketTotals: bigint[];
   totalPool: bigint;
   feeCollected: bigint;
 }
@@ -85,7 +85,7 @@ export function winningPayout(stake: bigint, market: MarketSnapshot): bigint {
  * Pure — no I/O.
  */
 export function reconstructStatus(
-  stake: [bigint, bigint],
+  stake: bigint[],
   market: MarketSnapshot,
   claim: ClaimInfo | null,
 ): { status: HistoryStatus; payout: bigint } {
@@ -99,7 +99,7 @@ export function reconstructStatus(
   if (market.status === "open") return { status: "pending", payout: 0n };
 
   if (market.status === "voided") {
-    return { status: "claimable-refund", payout: stake[0] + stake[1] };
+    return { status: "claimable-refund", payout: stake.reduce((a, b) => a + b, 0n) };
   }
 
   // settled
@@ -171,15 +171,19 @@ function snapshotFrom(mv: MarketView): MarketSnapshot {
   return {
     status: mv.status,
     winningBucket: mv.winningBucket,
-    bucketTotals: [BigInt(mv.bucketTotals[0]), BigInt(mv.bucketTotals[1])],
+    bucketTotals: mv.bucketTotals.map((b) => BigInt(b)),
     totalPool: BigInt(mv.totalPool),
     feeCollected: BigInt(mv.feeCollected),
   };
 }
 
-function sideLabel(group: string, bucket: number): string {
-  if (bucket < 0) return "Both";
-  if (group === "result") return bucket === 0 ? "Yes" : "No";
+function sideLabel(group: string, bucket: number, home: string, away: string): string {
+  if (bucket < 0) return "Multiple";
+  if (group === "result") {
+    if (bucket === 1) return "Draw";
+    const team = bucket === 0 ? home : away;
+    return team && !team.startsWith("Fixture ") ? team : bucket === 0 ? "Home" : "Away";
+  }
   return bucket === 0 ? "Over" : "Under";
 }
 
@@ -194,11 +198,12 @@ export async function fetchHistory(
 ): Promise<HistoryEntry[]> {
   const { bets, claims } = await gatherEvents(wallet, nowMs);
 
-  // Aggregate stakes per market (oldest bet sig is the "placed" receipt).
-  const byMarket = new Map<string, { stake: [bigint, bigint]; firstSig: string; tsMs: number }>();
+  // Aggregate stakes per market into a per-bucket array (oldest bet sig is the
+  // "placed" receipt). Three outcome slots cover both binary and 3-way markets.
+  const byMarket = new Map<string, { stake: bigint[]; firstSig: string; tsMs: number }>();
   for (const b of bets) {
-    const agg = byMarket.get(b.market) ?? { stake: [0n, 0n] as [bigint, bigint], firstSig: b.sig, tsMs: b.tsMs };
-    agg.stake[b.bucket === 1 ? 1 : 0] += b.amount;
+    const agg = byMarket.get(b.market) ?? { stake: [0n, 0n, 0n], firstSig: b.sig, tsMs: b.tsMs };
+    if (b.bucket >= 0 && b.bucket < agg.stake.length) agg.stake[b.bucket] += b.amount;
     agg.tsMs = Math.max(agg.tsMs, b.tsMs);
     byMarket.set(b.market, agg);
   }
@@ -217,11 +222,14 @@ export async function fetchHistory(
 
     const claimEv = claimByMarket.get(market) ?? null;
     const claim: ClaimInfo | null = claimEv ? { payout: claimEv.payout, voided: claimEv.voided } : null;
-    const { status, payout } = reconstructStatus(agg.stake, snapshotFrom(mv), claim);
+    const stake = agg.stake.slice(0, mv.numBuckets);
+    const { status, payout } = reconstructStatus(stake, snapshotFrom(mv), claim);
 
     const def = MARKET_TEMPLATE.find((d) => d.marketId === mv.marketId);
     const meta = fixtureMeta.get(mv.fixtureId);
-    const betBuckets = [0, 1].filter((b) => agg.stake[b] > 0n);
+    const home = meta?.home ?? `Fixture ${mv.fixtureId}`;
+    const away = meta?.away ?? "";
+    const betBuckets = stake.map((s, i) => (s > 0n ? i : -1)).filter((i) => i >= 0);
     const primaryBucket = betBuckets.length === 1 ? betBuckets[0] : -1;
 
     entries.push({
@@ -232,11 +240,11 @@ export async function fetchHistory(
       group: def?.group ?? "",
       line: def?.line ?? 0,
       settleAt: def?.settleAt ?? "FT",
-      home: meta?.home ?? `Fixture ${mv.fixtureId}`,
-      away: meta?.away ?? "",
-      side: sideLabel(def?.group ?? "", primaryBucket),
+      home,
+      away,
+      side: sideLabel(def?.group ?? "", primaryBucket, home, away),
       bucket: primaryBucket,
-      stakeLamports: (agg.stake[0] + agg.stake[1]).toString(),
+      stakeLamports: stake.reduce((a, b) => a + b, 0n).toString(),
       payoutLamports: payout.toString(),
       status,
       settledValue: mv.status === "settled" ? mv.settledValue : null,

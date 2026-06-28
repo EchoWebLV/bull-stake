@@ -138,9 +138,18 @@ export async function ensureMarkets(
     const market = deriveMarketPda(PROGRAM_ID, fixture.fixtureId, def.marketId);
     const vault = deriveVaultPda(PROGRAM_ID, market);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const exists = await (program.account as any).market.fetchNullable(market);
-    if (exists !== null) {
+    // Treat the PDA as occupied if it already holds an account — including a
+    // legacy pre-upgrade market whose old layout the current IDL can't decode
+    // (fetchNullable throws ERR_OUT_OF_RANGE rather than returning it). Either
+    // way the address is taken, so skip it.
+    let occupied: boolean;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      occupied = (await (program.account as any).market.fetchNullable(market)) !== null;
+    } catch {
+      occupied = true;
+    }
+    if (occupied) {
       existing++;
       continue;
     }

@@ -140,40 +140,40 @@ describe("marketsToSettle", () => {
     }
   });
 
-  it("phase F (full-time): all 8 markets are eligible (HT + FT both settle)", () => {
+  it("phase F (full-time): all 6 markets are eligible (HT + FT both settle)", () => {
     const result = marketsToSettle(PHASE.F, MARKET_TEMPLATE);
-    expect(result).toHaveLength(8);
+    expect(result).toHaveLength(6);
     const allMarketIds = MARKET_TEMPLATE.map((d) => d.marketId).sort((a, b) => a - b);
     const resultIds = result.map((r) => r.marketId).sort((a, b) => a - b);
     expect(resultIds).toEqual(allMarketIds);
     expect(result.every((r) => r.action === "settle")).toBe(true);
   });
 
-  it("phase FET (finished after extra time): all 8 eligible", () => {
+  it("phase FET (finished after extra time): all 6 eligible", () => {
     const result = marketsToSettle(PHASE.FET, MARKET_TEMPLATE);
-    expect(result).toHaveLength(8);
+    expect(result).toHaveLength(6);
   });
 
-  it("phase FPE (finished after penalties): all 8 eligible", () => {
+  it("phase FPE (finished after penalties): all 6 eligible", () => {
     const result = marketsToSettle(PHASE.FPE, MARKET_TEMPLATE);
-    expect(result).toHaveLength(8);
+    expect(result).toHaveLength(6);
   });
 
-  it("void phase (A): all 8 markets returned as void", () => {
+  it("void phase (A): all 6 markets returned as void", () => {
     const result = marketsToSettle(PHASE.A, MARKET_TEMPLATE);
-    expect(result).toHaveLength(8);
+    expect(result).toHaveLength(6);
     expect(result.every((r) => r.action === "void")).toBe(true);
   });
 
-  it("void phase (C): all 8 markets returned as void", () => {
+  it("void phase (C): all 6 markets returned as void", () => {
     const result = marketsToSettle(PHASE.C, MARKET_TEMPLATE);
-    expect(result).toHaveLength(8);
+    expect(result).toHaveLength(6);
     expect(result.every((r) => r.action === "void")).toBe(true);
   });
 
-  it("void phase (P): all 8 markets returned as void", () => {
+  it("void phase (P): all 6 markets returned as void", () => {
     const result = marketsToSettle(PHASE.P, MARKET_TEMPLATE);
-    expect(result).toHaveLength(8);
+    expect(result).toHaveLength(6);
     expect(result.every((r) => r.action === "void")).toBe(true);
   });
 

@@ -58,6 +58,31 @@ describe("reconstructStatus — already claimed (position closed)", () => {
   });
 });
 
+const threeWayAwayWon: MarketSnapshot = {
+  status: "settled",
+  winningBucket: 2, // away
+  bucketTotals: [1_000_000_000n, 1_000_000_000n, 2_000_000_000n], // home/draw/away, total 4
+  totalPool: 4_000_000_000n,
+  feeCollected: 0n,
+};
+
+describe("reconstructStatus — three-way result market", () => {
+  it("away backer (bucket 2) wins and can claim the whole pool", () => {
+    const r = reconstructStatus([0n, 0n, 2_000_000_000n], threeWayAwayWon, null);
+    // stake 2 on away (winner pool 2) of a 4 pool → 2 * 4 / 2 = 4
+    expect(r).toEqual({ status: "claimable-won", payout: 4_000_000_000n });
+  });
+  it("home/draw backers lost", () => {
+    expect(reconstructStatus([1_000_000_000n, 0n, 0n], threeWayAwayWon, null).status).toBe("lost");
+    expect(reconstructStatus([0n, 1_000_000_000n, 0n], threeWayAwayWon, null).status).toBe("lost");
+  });
+  it("voided three-way refunds the full stake across all buckets", () => {
+    const voided: MarketSnapshot = { ...threeWayAwayWon, status: "voided", winningBucket: null };
+    const r = reconstructStatus([1_000_000_000n, 500_000_000n, 0n], voided, null);
+    expect(r).toEqual({ status: "claimable-refund", payout: 1_500_000_000n });
+  });
+});
+
 describe("reconstructStatus — unclaimed", () => {
   it("open market → pending", () => {
     const r = reconstructStatus([1_000_000_000n, 0n], openMkt, null);

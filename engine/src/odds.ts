@@ -18,3 +18,21 @@ export function impliedOdds(
   const feeCollected = (Number(loser) * feeBps) / 10_000;
   return (Number(total) - feeCollected) / Number(side);
 }
+
+/**
+ * N-outcome generalization: the payout multiplier a backer of `bucket` would get
+ * if the market settled now. "Losers" = every other bucket combined, so the fee
+ * is `(total - side) * feeBps/10000`. Returns 0 when the bucket or pool is empty.
+ */
+export function impliedOddsN(
+  bucketTotals: bigint[],
+  bucket: number,
+  feeBps: number,
+): number {
+  const total = bucketTotals.reduce((a, b) => a + b, 0n);
+  const side = bucketTotals[bucket] ?? 0n;
+  if (total === 0n || side === 0n) return 0;
+  const loser = total - side;
+  const feeCollected = (Number(loser) * feeBps) / 10_000;
+  return (Number(total) - feeCollected) / Number(side);
+}

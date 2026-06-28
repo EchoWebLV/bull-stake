@@ -139,16 +139,27 @@ export async function settleMarketByPubkey(
   }
 
   const seq = finished.ev.Seq;
+  const numBuckets = (market.numBuckets ?? 2) as number;
   const v = await fetchStatValidation(ctx, auth, { fixtureId, seq, statKey, statKey2 });
   const base = buildBaseArgs(v, ctx.program.programId, op);
-  const pred: PredObj = { threshold: market.threshold as number, comparison: market.comparison };
-  const truthy = await viewValidate(ctx.program, base, pred, op);
-  const winningBucket = truthy ? 0 : 1;
   const settledTs = v.summary.updateStats.minTimestamp; // ms (matches on-chain settled_ts unit)
   const settledValue = base.lhs;
 
+  // Map the proved stat to a winning bucket. Binary markets apply the predicate
+  // (TRUE → 0, FALSE → 1). Three-way result markets map the goal difference's
+  // sign: HOME (0) when lhs > 0, DRAW (1) when 0, AWAY (2) when < 0.
+  let winningBucket: number;
+  let truthy: boolean | null = null;
+  if (numBuckets === 3) {
+    winningBucket = base.lhs > 0 ? 0 : base.lhs === 0 ? 1 : 2;
+  } else {
+    const pred: PredObj = { threshold: market.threshold as number, comparison: market.comparison };
+    truthy = await viewValidate(ctx.program, base, pred, op);
+    winningBucket = truthy ? 0 : 1;
+  }
+
   console.log(JSON.stringify({
-    action: "settle", fixtureId, seq, statKey, statKey2, op,
+    action: "settle", fixtureId, seq, numBuckets, statKey, statKey2, op,
     threshold: market.threshold, lhs: base.lhs, predicateTrue: truthy,
     winningBucket, settledTs, settledValue,
     dailyScoresPda: dailyScoresPda(ctx.program.programId, settledTs).toBase58(),
