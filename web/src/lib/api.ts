@@ -30,7 +30,7 @@ export interface LiveMarket {
 
 // --- Bet history ----------------------------------------------------------
 export type HistoryStatus =
-  | "pending" | "won" | "lost" | "refunded" | "claimable-won" | "claimable-refund";
+  | "pending" | "won" | "lost" | "refunded" | "claimable-won" | "claimable-refund" | "legacy";
 
 export interface HistoryEntry {
   market: string;

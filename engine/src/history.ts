@@ -31,7 +31,8 @@ export type HistoryStatus =
   | "lost"             // settled, losing side (claimed or not — nothing to collect)
   | "refunded"         // voided, refund already claimed
   | "claimable-won"    // settled, winning side, not yet claimed
-  | "claimable-refund"; // voided, not yet claimed
+  | "claimable-refund" // voided, not yet claimed
+  | "legacy";          // bet on a pre-upgrade market the current program can't read
 
 export interface HistoryEntry {
   market: string;          // market PDA (base58) — for explorer link
@@ -213,11 +214,27 @@ export async function fetchHistory(
 
   const entries: HistoryEntry[] = [];
   for (const [market, agg] of byMarket) {
+    const claimEvForMarket = claimByMarket.get(market) ?? null;
     let mv: MarketView;
     try {
       mv = await readMarket(market);
     } catch {
-      continue; // market unreadable — skip
+      // Pre-upgrade market the current IDL can't decode. Don't drop the bet —
+      // surface it as a read-only "legacy" receipt from the event data alone.
+      const stake = agg.stake.reduce((a, b) => a + b, 0n);
+      entries.push({
+        market, fixtureId: 0, marketId: -1, label: "Pre-upgrade market", group: "",
+        line: 0, settleAt: "FT", home: "Legacy bet", away: "",
+        side: "—", bucket: -1,
+        stakeLamports: stake.toString(),
+        payoutLamports: (claimEvForMarket?.payout ?? 0n).toString(),
+        status: "legacy",
+        settledValue: null,
+        betSig: agg.firstSig,
+        claimSig: claimEvForMarket?.sig ?? null,
+        tsMs: Math.max(agg.tsMs, claimEvForMarket?.tsMs ?? 0),
+      });
+      continue;
     }
 
     const claimEv = claimByMarket.get(market) ?? null;

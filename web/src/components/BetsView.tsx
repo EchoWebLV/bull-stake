@@ -14,6 +14,7 @@ const STATUS_META: Record<HistoryStatus, { label: string; cls: string; claim?: b
   refunded: { label: "Refunded", cls: "blue" },
   "claimable-won": { label: "Won · claim", cls: "green", claim: true },
   "claimable-refund": { label: "Refund · claim", cls: "blue", claim: true },
+  legacy: { label: "Legacy", cls: "dim" },
 };
 
 function Receipt({ entry, onClaimed }: { entry: HistoryEntry; onClaimed: () => void }) {
@@ -123,7 +124,7 @@ export function BetsView() {
   const won = entries
     .filter((e) => e.status === "won" || e.status === "claimable-won")
     .reduce((s, e) => s + Number(e.payoutLamports), 0);
-  const settled = entries.filter((e) => e.status !== "pending");
+  const settled = entries.filter((e) => e.status !== "pending" && e.status !== "legacy");
   const wins = entries.filter((e) => e.status === "won" || e.status === "claimable-won").length;
 
   return (

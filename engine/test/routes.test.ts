@@ -265,6 +265,12 @@ describe("classifyStatus", () => {
     expect(classifyStatus(NOW - 3600_000, 2, NOW)).toBe("live"); // phase 2 = H1
   });
 
+  it("falls back to 'ft' for a stale match with no finished phase (no 139' live)", async () => {
+    const { classifyStatus } = await import("../src/live.ts");
+    // kicked off 4h ago, phase never resolved → must not stay "live"
+    expect(classifyStatus(NOW - 4 * 3600_000, null, NOW)).toBe("ft");
+  });
+
   it("returns 'live' when kickoff has passed and phaseCode is null", async () => {
     const { classifyStatus } = await import("../src/live.ts");
     expect(classifyStatus(NOW - 1, null, NOW)).toBe("live");

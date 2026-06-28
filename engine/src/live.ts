@@ -63,10 +63,17 @@ interface SlateEntry {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** No football match plausibly runs past this; beyond it, assume finished. */
+const MAX_LIVE_MS = 3 * 60 * 60 * 1000;
+
 /** Classify a fixture into live / upcoming / ft. */
 export function classifyStatus(kickoffMs: number, phaseCode: number | null, nowMs: number): MatchStatus {
   if (nowMs < kickoffMs) return "upcoming";
   if (phaseCode !== null && FINISHED_PHASES.has(phaseCode)) return "ft";
+  // Backstop: if kickoff was hours ago and we still see no finished phase (e.g.
+  // TxLINE's latest event is a stats-only update), treat it as finished rather
+  // than perpetually "live" with an ever-growing minute.
+  if (nowMs - kickoffMs > MAX_LIVE_MS) return "ft";
   return "live";
 }
 
@@ -188,11 +195,17 @@ export class LiveStore {
         try {
           const events = await getScoreHistory(ctx, auth, f.fixtureId);
           if (events.length > 0) {
-            // Highest Seq is most complete.
+            // Stats from the highest-Seq (most complete) event.
             const latest = events.reduce((best, ev) => (ev.Seq > best.Seq ? ev : best), events[0]);
-            const phase = resolvePhase(latest);
-            phaseCode = phase.code;
-            phaseLabel = phase.label;
+            // Phase from the highest-Seq event that actually carries a phase code.
+            // A trailing stats-only update can lack one, which would otherwise make
+            // a finished match read as "live" with an absurd minute.
+            const coded = events
+              .map((ev) => ({ ev, ...resolvePhase(ev) }))
+              .filter((e) => e.code !== null)
+              .sort((a, b) => b.ev.Seq - a.ev.Seq)[0];
+            phaseCode = coded?.code ?? null;
+            phaseLabel = coded?.label ?? null;
 
             const stats = latest.Stats ?? {};
             scoreH = stats["1"] ?? 0;
@@ -201,7 +214,6 @@ export class LiveStore {
             goals = (stats["1"] ?? 0) + (stats["2"] ?? 0);
             yellows = (stats["3"] ?? 0) + (stats["4"] ?? 0);
 
-            // Best-effort minute from Seq (TxLINE Seq ≈ sequential event count, not time).
             minute = latest.Ts ? Math.floor((latest.Ts - f.kickoffMs) / 60_000) : null;
           }
         } catch {
@@ -210,6 +222,9 @@ export class LiveStore {
       }
 
       const status = classifyStatus(f.kickoffMs, phaseCode, nowMs);
+      // Only show a minute for a genuinely-live match, and clamp implausible values.
+      if (status !== "live") minute = null;
+      else if (minute != null && minute > 120) minute = 120;
 
       this.matchCache.set(f.fixtureId, {
         fixtureId: f.fixtureId,
