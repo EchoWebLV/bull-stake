@@ -26,7 +26,7 @@ async function main() {
   if (!fixtureId) throw new Error("--fixture <id> is required");
 
   const ctx = createContext();
-  const idlPath = process.env.PROOFBET_IDL ?? "../target/idl/proofbet.json";
+  const idlPath = process.env.PROOFBET_IDL ?? "../../target/idl/proofbet.json";
   const idl = JSON.parse(readFileSync(new URL(idlPath, import.meta.url), "utf8"));
   const program = new anchor.Program(idl as anchor.Idl, ctx.provider);
 

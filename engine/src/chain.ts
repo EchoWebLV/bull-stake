@@ -54,7 +54,7 @@ function statusString(s: Record<string, unknown>): MarketView["status"] {
 let cachedProgram: anchor.Program | null = null;
 function loadProgram(): anchor.Program {
   if (cachedProgram) return cachedProgram;
-  const idlPath = process.env.PROOFBET_IDL ?? "../target/idl/proofbet.json";
+  const idlPath = process.env.PROOFBET_IDL ?? "../../target/idl/proofbet.json";
   const idl = JSON.parse(readFileSync(new URL(idlPath, import.meta.url), "utf8"));
   const connection = new Connection(RPC_URL, "confirmed");
   // Read-only provider: a dummy wallet is fine, we never sign here.
