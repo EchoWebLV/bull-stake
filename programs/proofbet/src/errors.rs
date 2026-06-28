@@ -14,8 +14,10 @@ pub enum ProofBetError {
     EntryClosed,
     #[msg("entry window is still open")]
     EntryNotClosed,
-    #[msg("invalid bucket (must be 0 or 1)")]
+    #[msg("invalid bucket for this market's outcome count")]
     InvalidBucket,
+    #[msg("num_buckets must be 2 (binary) or 3 (three-way)")]
+    InvalidBucketCount,
     #[msg("bet amount must be greater than zero")]
     ZeroAmount,
     #[msg("market is not in a claimable state")]

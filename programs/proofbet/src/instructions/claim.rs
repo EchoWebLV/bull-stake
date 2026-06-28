@@ -39,8 +39,10 @@ pub fn handler(ctx: Context<Claim>) -> Result<()> {
 
     let amounts = ctx.accounts.position.amounts;
     let payout: u64 = match status {
-        MarketStatus::Voided => amounts[0]
-            .checked_add(amounts[1])
+        // Refund every bucket the bettor staked (unused buckets are zero).
+        MarketStatus::Voided => amounts
+            .iter()
+            .try_fold(0u64, |acc, &a| acc.checked_add(a))
             .ok_or(ProofBetError::MathOverflow)?,
         MarketStatus::Settled => {
             // Always Some for a Settled market (settle sets it before transitioning);

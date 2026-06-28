@@ -13,6 +13,7 @@ pub struct MarketCreated {
     pub threshold: i32,
     pub entry_close_ts: i64,
     pub fee_bps: u16,
+    pub num_buckets: u8,
     pub settle_authority: Pubkey,
 }
 
@@ -22,7 +23,7 @@ pub struct BetPlaced {
     pub bettor: Pubkey,
     pub bucket: u8,
     pub amount: u64,
-    pub bucket_totals: [u64; 2],
+    pub bucket_totals: [u64; crate::state::MAX_BUCKETS],
     pub total_pool: u64,
 }
 

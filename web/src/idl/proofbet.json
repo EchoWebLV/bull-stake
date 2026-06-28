@@ -618,25 +618,30 @@
     {
       "code": 6006,
       "name": "InvalidBucket",
-      "msg": "invalid bucket (must be 0 or 1)"
+      "msg": "invalid bucket for this market's outcome count"
     },
     {
       "code": 6007,
+      "name": "InvalidBucketCount",
+      "msg": "num_buckets must be 2 (binary) or 3 (three-way)"
+    },
+    {
+      "code": 6008,
       "name": "ZeroAmount",
       "msg": "bet amount must be greater than zero"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "NotClaimable",
       "msg": "market is not in a claimable state"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "Unauthorized",
       "msg": "signer is not authorized for this action"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "MathOverflow",
       "msg": "arithmetic overflow"
     }
@@ -668,7 +673,7 @@
             "type": {
               "array": [
                 "u64",
-                2
+                3
               ]
             }
           },
@@ -788,6 +793,13 @@
           {
             "name": "fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "num_buckets",
+            "docs": [
+              "2 = binary over/under, 3 = three-way home/draw/away."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -864,6 +876,14 @@
             "type": "u16"
           },
           {
+            "name": "num_buckets",
+            "docs": [
+              "Number of outcomes (2 = binary over/under, 3 = home/draw/away). Indices",
+              "`>= num_buckets` of `bucket_totals` / `amounts` stay zero."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "status",
             "type": {
               "defined": {
@@ -882,7 +902,7 @@
             "type": {
               "array": [
                 "u64",
-                2
+                3
               ]
             }
           },
@@ -982,6 +1002,10 @@
           {
             "name": "fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "num_buckets",
+            "type": "u8"
           },
           {
             "name": "settle_authority",
@@ -1128,7 +1152,7 @@
             "type": {
               "array": [
                 "u64",
-                2
+                3
               ]
             }
           },

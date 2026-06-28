@@ -39,7 +39,10 @@ pub fn handler(ctx: Context<PlaceBet>, bucket: u8, amount: u64) -> Result<()> {
     );
     let now = Clock::get()?.unix_timestamp;
     require!(now < ctx.accounts.market.entry_close_ts, ProofBetError::EntryClosed);
-    require!((bucket as usize) < 2, ProofBetError::InvalidBucket);
+    require!(
+        (bucket as usize) < ctx.accounts.market.num_buckets as usize,
+        ProofBetError::InvalidBucket
+    );
     require!(amount > 0, ProofBetError::ZeroAmount);
 
     // Escrow lamports: bettor -> vault (bettor signs, system CPI).

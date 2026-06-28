@@ -15,6 +15,8 @@ pub struct InitMarketArgs {
     pub threshold: i32,
     pub entry_close_ts: i64,
     pub fee_bps: u16,
+    /// 2 = binary over/under, 3 = three-way home/draw/away.
+    pub num_buckets: u8,
 }
 
 #[derive(Accounts)]
@@ -54,6 +56,10 @@ pub fn handler(
         args.stat_key2.is_some() == args.op.is_some(),
         ProofBetError::PredicateMismatch
     );
+    require!(
+        args.num_buckets == 2 || (args.num_buckets as usize) == MAX_BUCKETS,
+        ProofBetError::InvalidBucketCount
+    );
 
     let creator_key = ctx.accounts.creator.key();
     let market = &mut ctx.accounts.market;
@@ -69,9 +75,10 @@ pub fn handler(
     market.threshold = args.threshold;
     market.entry_close_ts = args.entry_close_ts;
     market.fee_bps = args.fee_bps;
+    market.num_buckets = args.num_buckets;
     market.status = MarketStatus::Open;
     market.winning_bucket = None;
-    market.bucket_totals = [0, 0];
+    market.bucket_totals = [0; MAX_BUCKETS];
     market.total_pool = 0;
     market.fee_collected = 0;
     market.settled_seq = 0;
@@ -95,6 +102,7 @@ pub fn handler(
         threshold: args.threshold,
         entry_close_ts: args.entry_close_ts,
         fee_bps: args.fee_bps,
+        num_buckets: args.num_buckets,
         settle_authority: args.settle_authority,
     });
     Ok(())

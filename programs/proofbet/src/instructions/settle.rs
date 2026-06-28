@@ -38,7 +38,10 @@ pub fn handler(
     );
     let now = Clock::get()?.unix_timestamp;
     require!(now >= ctx.accounts.market.entry_close_ts, ProofBetError::EntryNotClosed);
-    require!((winning_bucket as usize) < 2, ProofBetError::InvalidBucket);
+    require!(
+        (winning_bucket as usize) < ctx.accounts.market.num_buckets as usize,
+        ProofBetError::InvalidBucket
+    );
 
     let total_pool = ctx.accounts.market.total_pool;
     let winner_total = ctx.accounts.market.bucket_totals[winning_bucket as usize];

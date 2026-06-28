@@ -1,9 +1,14 @@
 use anchor_lang::prelude::*;
 
 /// Bucket indices into `bucket_totals[idx]` and `Position::amounts[idx]`.
-/// OVER (0) = predicate TRUE, UNDER (1) = predicate FALSE.
+///
+/// Binary markets (num_buckets = 2): OVER (0) = predicate TRUE, UNDER (1) = FALSE.
+/// Three-way result markets (num_buckets = 3): HOME (0), DRAW (1), AWAY (2) —
+/// the keeper maps the goal difference's sign to the winning bucket.
 pub const OVER: u8 = 0;
 pub const UNDER: u8 = 1;
+/// Maximum outcomes a market can have. Binary uses 2; 1X2 result uses 3.
+pub const MAX_BUCKETS: usize = 3;
 /// Hard ceiling on the losing-pool fee (10%).
 pub const MAX_FEE_BPS: u16 = 1000;
 
@@ -46,9 +51,12 @@ pub struct Market {
     /// Entry deadline in UNIX SECONDS (Clock::unix_timestamp). Bets rejected at/after.
     pub entry_close_ts: i64,
     pub fee_bps: u16,
+    /// Number of outcomes (2 = binary over/under, 3 = home/draw/away). Indices
+    /// `>= num_buckets` of `bucket_totals` / `amounts` stay zero.
+    pub num_buckets: u8,
     pub status: MarketStatus,
     pub winning_bucket: Option<u8>,
-    pub bucket_totals: [u64; 2],
+    pub bucket_totals: [u64; MAX_BUCKETS],
     pub total_pool: u64,
     pub fee_collected: u64,
     // ── proof-binding (set at settle/void) ──
@@ -77,6 +85,6 @@ pub struct Vault {
 #[derive(InitSpace)]
 pub struct Position {
     pub bettor: Pubkey,
-    pub amounts: [u64; 2],
+    pub amounts: [u64; MAX_BUCKETS],
     pub bump: u8,
 }

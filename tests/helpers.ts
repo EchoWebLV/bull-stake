@@ -5,6 +5,7 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   SystemProgram,
+  Transaction,
 } from "@solana/web3.js";
 import { assert } from "chai";
 import { Proofbet } from "../target/types/proofbet";
@@ -37,9 +38,17 @@ export function positionPda(market: PublicKey, bettor: PublicKey): PublicKey {
 }
 
 export async function airdrop(pubkey: PublicKey, sol = 100): Promise<void> {
-  const sig = await connection.requestAirdrop(pubkey, sol * LAMPORTS_PER_SOL);
-  const bh = await connection.getLatestBlockhash();
-  await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+  // The local test-validator faucet is unreliable on this CLI build, so fund
+  // from the genesis-minted provider wallet (started via --mint) with a plain
+  // transfer instead of connection.requestAirdrop.
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: provider.wallet.publicKey,
+      toPubkey: pubkey,
+      lamports: sol * LAMPORTS_PER_SOL,
+    }),
+  );
+  await provider.sendAndConfirm(tx);
 }
 
 export async function freshFunded(sol = 100): Promise<Keypair> {
@@ -62,6 +71,7 @@ export function goalsArgs(opts: {
   entryCloseTs: number;
   feeBps?: number;
   feeRecipient?: PublicKey | null;
+  numBuckets?: number;
 }) {
   return {
     settleAuthority: opts.settleAuthority,
@@ -73,6 +83,28 @@ export function goalsArgs(opts: {
     threshold: opts.threshold,
     entryCloseTs: new BN(opts.entryCloseTs),
     feeBps: opts.feeBps ?? 0,
+    numBuckets: opts.numBuckets ?? 2,
+  };
+}
+
+/** Predicate fields for a 1X2 result market (goal diff, three-way). */
+export function resultArgs(opts: {
+  settleAuthority: PublicKey;
+  entryCloseTs: number;
+  feeBps?: number;
+  feeRecipient?: PublicKey | null;
+}) {
+  return {
+    settleAuthority: opts.settleAuthority,
+    feeRecipient: opts.feeRecipient ?? null,
+    statKey: 1,
+    statKey2: 2,
+    op: { subtract: {} }, // val_a - val_b = home - away goals
+    comparison: { greaterThan: {} },
+    threshold: 0,
+    entryCloseTs: new BN(opts.entryCloseTs),
+    feeBps: opts.feeBps ?? 0,
+    numBuckets: 3,
   };
 }
 
