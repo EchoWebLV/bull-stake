@@ -42,17 +42,33 @@ if (isMain) {
       const ctx = createContext();
       const auth = await authenticateCached(ctx);
 
-      // Seed from env-set fixture if provided (M0 compat), else an empty slate.
-      if (process.env.M0_FIXTURE_ID) {
-        liveStore.setSlate([{
+      // Load the live tournament slate (the catalog's upcoming WC fixtures).
+      const { fetchSlate } = await import("./catalog.ts");
+      let slate: { fixtureId: number; home: string; away: string; kickoffMs: number }[] = [];
+      try {
+        slate = await fetchSlate(ctx, auth);
+      } catch (e) {
+        console.warn("fetchSlate failed:", (e as Error).message);
+      }
+      // Fallback to the M0 single fixture if the slate is empty (between match days).
+      if (slate.length === 0 && process.env.M0_FIXTURE_ID) {
+        slate = [{
           fixtureId: Number(process.env.M0_FIXTURE_ID),
           home: process.env.M0_HOME ?? "Home",
           away: process.env.M0_AWAY ?? "Away",
-          kickoffMs: Date.now(), // approximate — will be refreshed
-        }]);
+          kickoffMs: Date.now(),
+        }];
       }
-
+      liveStore.setSlate(slate);
+      console.log(`live slate: ${slate.length} fixture(s)`);
       liveStore.start(ctx, auth);
+
+      // Refresh the slate periodically (fixtures roll over across days).
+      setInterval(() => {
+        fetchSlate(ctx, auth)
+          .then((s) => { if (s.length) liveStore.setSlate(s); })
+          .catch(() => {});
+      }, 30 * 60_000);
     } catch (e) {
       console.warn("LiveStore poll loop could not start:", (e as Error).message);
     }
