@@ -4,15 +4,18 @@ import { Feed, type Replay } from "./feed.ts";
 import { readMarket } from "./chain.ts";
 import { impliedOdds } from "./odds.ts";
 import { M0 } from "./config.ts";
+import type { LiveStore } from "./live.ts";
 
 function loadReplay(): Replay {
   const url = new URL("../data/replay.json", import.meta.url);
   return JSON.parse(readFileSync(url, "utf8")) as Replay;
 }
 
-export function registerRoutes(app: FastifyInstance): void {
+export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
   const feed = new Feed(loadReplay());
   feed.start(); // demo clock starts when the engine boots
+
+  // ── M0 back-compat routes (single-fixture skeleton) ─────────────────────
 
   app.get("/api/match", async () => feed.current());
 
@@ -31,5 +34,41 @@ export function registerRoutes(app: FastifyInstance): void {
         under: impliedOdds(totals, 1, m.feeBps),
       },
     };
+  });
+
+  // ── List endpoints (Task 4) ───────────────────────────────────────────────
+
+  /**
+   * GET /api/matches
+   * Returns all slate fixtures sorted live → upcoming → ft.
+   */
+  app.get("/api/matches", async (_req, reply) => {
+    if (!store) {
+      reply.code(503);
+      return { error: "LiveStore not available" };
+    }
+    return store.getMatches();
+  });
+
+  /**
+   * GET /api/markets?fixtureId=<number>
+   * Returns the 8 markets for a fixture, with pool-implied odds.
+   */
+  app.get("/api/markets", async (req, reply) => {
+    if (!store) {
+      reply.code(503);
+      return { error: "LiveStore not available" };
+    }
+    const { fixtureId } = (req.query as Record<string, string>);
+    if (!fixtureId) {
+      reply.code(400);
+      return { error: "fixtureId query param required" };
+    }
+    const id = Number(fixtureId);
+    if (!Number.isFinite(id)) {
+      reply.code(400);
+      return { error: "fixtureId must be a number" };
+    }
+    return store.getMarkets(id);
   });
 }

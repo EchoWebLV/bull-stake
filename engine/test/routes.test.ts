@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { buildServer } from "../src/server.ts";
+import type { LiveStore } from "../src/live.ts";
 
 vi.mock("../src/chain.ts", async (orig) => {
   const real = await orig<typeof import("../src/chain.ts")>();
@@ -53,6 +54,211 @@ describe("engine routes", () => {
     expect(res.statusCode).toBe(503);
     expect(res.json()).toHaveProperty("error");
     await app.close();
+  });
+});
+
+// ── LiveStore mock helpers ────────────────────────────────────────────────────
+
+function makeMockStore(overrides: Partial<LiveStore> = {}): LiveStore {
+  return {
+    setSlate: vi.fn(),
+    getMatches: vi.fn(() => []),
+    getMarkets: vi.fn(() => []),
+    start: vi.fn(),
+    stop: vi.fn(),
+    _poll: vi.fn(),
+    ...overrides,
+  } as unknown as LiveStore;
+}
+
+// ── /api/matches tests ────────────────────────────────────────────────────────
+
+describe("GET /api/matches", () => {
+  it("returns an empty array when no fixtures are loaded", async () => {
+    const store = makeMockStore({ getMatches: vi.fn(() => []) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/matches" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+    await app.close();
+  });
+
+  it("returns matches in live → upcoming → ft order", async () => {
+    // The store is responsible for sorting; the route proxies it.
+    // Return already-sorted data from the mock (live→upcoming→ft).
+    const matches = [
+      {
+        fixtureId: 2, home: "X", away: "Y", kickoffMs: Date.now() - 3600_000,
+        status: "live" as const, minute: 35, phase: "H1", scoreH: 0, scoreA: 0,
+        corners: 4, goals: 0, yellows: 1,
+      },
+      {
+        fixtureId: 1, home: "A", away: "B", kickoffMs: Date.now() + 3600_000,
+        status: "upcoming" as const, minute: null, phase: null, scoreH: 0, scoreA: 0,
+        corners: 0, goals: 0, yellows: 0,
+      },
+      {
+        fixtureId: 3, home: "C", away: "D", kickoffMs: Date.now() - 7200_000,
+        status: "ft" as const, minute: 90, phase: "F", scoreH: 1, scoreA: 0,
+        corners: 10, goals: 1, yellows: 2,
+      },
+    ];
+    const store = makeMockStore({ getMatches: vi.fn(() => matches) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/matches" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // The store.getMatches() returns pre-sorted data; route just proxies it
+    expect(body).toHaveLength(3);
+    expect(body[0].fixtureId).toBe(2); // live first
+    expect(body[1].fixtureId).toBe(1); // upcoming second
+    expect(body[2].fixtureId).toBe(3); // ft last
+    await app.close();
+  });
+
+  it("each match row has the expected shape", async () => {
+    const match = {
+      fixtureId: 42, home: "Brazil", away: "Spain", kickoffMs: Date.now() - 1000,
+      status: "live" as const, minute: 5, phase: "H1", scoreH: 1, scoreA: 0,
+      corners: 2, goals: 1, yellows: 0,
+    };
+    const store = makeMockStore({ getMatches: vi.fn(() => [match]) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/matches" });
+    const body = res.json() as typeof match[];
+    const row = body[0];
+    expect(row).toHaveProperty("fixtureId", 42);
+    expect(row).toHaveProperty("home", "Brazil");
+    expect(row).toHaveProperty("away", "Spain");
+    expect(row).toHaveProperty("kickoffMs");
+    expect(row).toHaveProperty("status", "live");
+    expect(row).toHaveProperty("minute", 5);
+    expect(row).toHaveProperty("phase", "H1");
+    expect(row).toHaveProperty("scoreH", 1);
+    expect(row).toHaveProperty("scoreA", 0);
+    expect(row).toHaveProperty("corners", 2);
+    expect(row).toHaveProperty("goals", 1);
+    expect(row).toHaveProperty("yellows", 0);
+    await app.close();
+  });
+});
+
+// ── /api/markets tests ────────────────────────────────────────────────────────
+
+describe("GET /api/markets", () => {
+  it("returns 400 when fixtureId is missing", async () => {
+    const store = makeMockStore();
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/markets" });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("returns empty array for unknown fixtureId", async () => {
+    const store = makeMockStore({ getMarkets: vi.fn(() => []) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/markets?fixtureId=9999" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+    await app.close();
+  });
+
+  it("returns market rows with the expected shape including impliedOdds", async () => {
+    const marketRow = {
+      marketId: 0,
+      label: "Total Corners O/U 9.5",
+      group: "corners" as const,
+      line: 9.5,
+      settleAt: "FT" as const,
+      status: "open" as const,
+      bucketTotals: ["300", "100"] as [string, string],
+      totalPool: "400",
+      impliedOdds: { over: 1.3333, under: 4.0 },
+      winningBucket: null,
+    };
+    const store = makeMockStore({ getMarkets: vi.fn(() => [marketRow]) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/markets?fixtureId=42" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as typeof marketRow[];
+    expect(body).toHaveLength(1);
+    const m = body[0];
+    expect(m).toHaveProperty("marketId", 0);
+    expect(m).toHaveProperty("label", "Total Corners O/U 9.5");
+    expect(m).toHaveProperty("group", "corners");
+    expect(m).toHaveProperty("line", 9.5);
+    expect(m).toHaveProperty("settleAt", "FT");
+    expect(m).toHaveProperty("status", "open");
+    expect(m).toHaveProperty("bucketTotals");
+    expect(m).toHaveProperty("totalPool", "400");
+    expect(m.impliedOdds).toHaveProperty("over");
+    expect(m.impliedOdds).toHaveProperty("under");
+    expect(m.impliedOdds.over).toBeCloseTo(1.3333, 3);
+    expect(m).toHaveProperty("winningBucket", null);
+    await app.close();
+  });
+
+  it("returns status:'none' for a market that hasn't been created yet", async () => {
+    const noneMarket = {
+      marketId: 1,
+      label: "Total Goals O/U 2.5",
+      group: "goals" as const,
+      line: 2.5,
+      settleAt: "FT" as const,
+      status: "none" as const,
+      bucketTotals: ["0", "0"] as [string, string],
+      totalPool: "0",
+      impliedOdds: { over: 0, under: 0 },
+      winningBucket: null,
+    };
+    const store = makeMockStore({ getMarkets: vi.fn(() => [noneMarket]) });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/markets?fixtureId=1" });
+    const body = res.json() as typeof noneMarket[];
+    expect(body[0].status).toBe("none");
+    expect(body[0].impliedOdds.over).toBe(0);
+    expect(body[0].impliedOdds.under).toBe(0);
+    await app.close();
+  });
+});
+
+// ── live.ts unit tests (classifyStatus + sortMatches) ─────────────────────────
+
+describe("classifyStatus", () => {
+  const NOW = 1_750_000_000_000;
+
+  it("returns 'upcoming' when kickoff is in the future", async () => {
+    const { classifyStatus } = await import("../src/live.ts");
+    expect(classifyStatus(NOW + 3600_000, null, NOW)).toBe("upcoming");
+  });
+
+  it("returns 'ft' when phase is in FINISHED_PHASES (5 = F)", async () => {
+    const { classifyStatus } = await import("../src/live.ts");
+    expect(classifyStatus(NOW - 9000_000, 5, NOW)).toBe("ft");
+  });
+
+  it("returns 'live' when kickoff has passed and phase is not finished", async () => {
+    const { classifyStatus } = await import("../src/live.ts");
+    expect(classifyStatus(NOW - 3600_000, 2, NOW)).toBe("live"); // phase 2 = H1
+  });
+
+  it("returns 'live' when kickoff has passed and phaseCode is null", async () => {
+    const { classifyStatus } = await import("../src/live.ts");
+    expect(classifyStatus(NOW - 1, null, NOW)).toBe("live");
+  });
+});
+
+describe("sortMatches", () => {
+  it("orders live → upcoming → ft", async () => {
+    const { sortMatches } = await import("../src/live.ts");
+    const base = { home: "A", away: "B", kickoffMs: 0, minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 };
+    const matches = [
+      { ...base, fixtureId: 1, status: "ft" as const },
+      { ...base, fixtureId: 2, status: "upcoming" as const },
+      { ...base, fixtureId: 3, status: "live" as const },
+    ];
+    const sorted = sortMatches(matches);
+    expect(sorted.map((m) => m.status)).toEqual(["live", "upcoming", "ft"]);
   });
 });
 
