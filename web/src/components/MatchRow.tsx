@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getMarkets, type LiveMatch, type LiveMarket } from "../lib/api.ts";
 import { MarketRow } from "./MarketRow.tsx";
+import { ResultSelector } from "./ResultSelector.tsx";
 
 const GROUP_ORDER: LiveMarket["group"][] = ["result", "goals", "corners", "cards"];
 const GROUP_LABEL: Record<LiveMarket["group"], string> = {
@@ -135,9 +136,18 @@ export function MatchRow({ match }: { match: LiveMatch }) {
             return (
               <div key={group}>
                 <div className="group-label">{GROUP_LABEL[group]}</div>
-                {inGroup.map((m) => (
-                  <MarketRow key={m.marketId} fixtureId={match.fixtureId} market={m} />
-                ))}
+                {group === "result" ? (
+                  <ResultSelector
+                    fixtureId={match.fixtureId}
+                    home={match.home}
+                    away={match.away}
+                    market={inGroup[0]}
+                  />
+                ) : (
+                  inGroup.map((m) => (
+                    <MarketRow key={m.marketId} fixtureId={match.fixtureId} market={m} />
+                  ))
+                )}
               </div>
             );
           })}

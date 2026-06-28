@@ -21,9 +21,11 @@ export interface LiveMatch {
 }
 export interface LiveMarket {
   marketId: number; label: string; group: "corners" | "goals" | "result" | "cards";
-  line: number; settleAt: "HT" | "FT"; status: "open" | "settled" | "voided" | "none";
-  bucketTotals: [string, string]; totalPool: string;
-  impliedOdds: { over: number; under: number }; winningBucket: number | null;
+  line: number; settleAt: "HT" | "FT"; numBuckets: number;
+  status: "open" | "settled" | "voided" | "none";
+  bucketTotals: string[]; totalPool: string;
+  /** Per-bucket implied multiplier (length numBuckets). */
+  odds: number[]; winningBucket: number | null;
 }
 
 // --- Bet history ----------------------------------------------------------

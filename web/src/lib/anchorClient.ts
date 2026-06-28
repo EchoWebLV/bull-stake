@@ -27,7 +27,7 @@ async function withBlockhash(tx: Transaction, payer: PublicKey): Promise<Transac
 
 /** Build an unsigned place_bet transaction. amountLamports as bigint. */
 export async function buildPlaceBetTx(
-  payerAddress: string, fixtureId: number, marketId: number, bucket: 0 | 1, amountLamports: bigint,
+  payerAddress: string, fixtureId: number, marketId: number, bucket: number, amountLamports: bigint,
 ): Promise<Transaction> {
   const payer = new PublicKey(payerAddress);
   const program = readonlyProgram(payer);

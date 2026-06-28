@@ -2,31 +2,7 @@ import { useState } from "react";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildPlaceBetTx, buildClaimTx } from "../lib/anchorClient.ts";
 import type { LiveMarket } from "../lib/api.ts";
-
-const LAMPORTS = 1_000_000_000;
-const SOL = "◎";
-
-const fmtMult = (n: number) => (n > 0 ? `${n.toFixed(2)}×` : "—");
-const fmtSol = (lamports: number) => {
-  const sol = lamports / LAMPORTS;
-  return sol >= 1 ? sol.toFixed(2) : sol.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-};
-
-/**
- * Parimutuel projected payout if `bucket` wins, after adding `stakeLamports`.
- * feeBps is 0 for these markets, so distributable = entire pool:
- *   payout = stake * (total + stake) / (sidePool + stake)
- */
-function projectedPayout(
-  totals: [number, number],
-  bucket: 0 | 1,
-  stakeLamports: number,
-): number {
-  if (stakeLamports <= 0) return 0;
-  const total = totals[0] + totals[1] + stakeLamports;
-  const side = totals[bucket] + stakeLamports;
-  return (stakeLamports * total) / side;
-}
+import { LAMPORTS, SOL, fmtMult, fmtSol, projectedPayout, buttonMultiplier } from "../lib/odds.ts";
 
 /** "Total Corners O/U 9.5" → "Total Corners"; result markets keep their label. */
 function cleanTitle(label: string): string {
@@ -55,16 +31,10 @@ export function MarketRow({ fixtureId, market }: { fixtureId: number; market: Li
   const stakeLamports = Number.isFinite(stakeNum) && stakeNum > 0 ? Math.round(stakeNum * LAMPORTS) : 0;
   const projected = projectedPayout([overStake, underStake], bucket, stakeLamports);
 
-  // Per-button multiplier the bettor would actually realize for the current stake.
-  // This is stake-aware so an empty/one-sided pool shows its true value (e.g. the
-  // empty side of a one-sided pool reads its real high multiplier, not "—"), instead
-  // of the static pool odds which collapse to 0/"—" on an unfunded side.
-  const sideMult = (side: 0 | 1) =>
-    stakeLamports > 0
-      ? projectedPayout([overStake, underStake], side, stakeLamports) / stakeLamports
-      : market.impliedOdds[side === 0 ? "over" : "under"];
-  const overMult = sideMult(0);
-  const underMult = sideMult(1);
+  // Stake-aware per-button multiplier (shows a real value on an empty/one-sided
+  // pool instead of collapsing to "—"); see lib/odds.ts.
+  const overMult = buttonMultiplier(market.bucketTotals, 0, stakeLamports, market.odds[0] ?? 0);
+  const underMult = buttonMultiplier(market.bucketTotals, 1, stakeLamports, market.odds[1] ?? 0);
 
   function flash(text: string, err = false) { setMsg(text); setMsgErr(err); }
 

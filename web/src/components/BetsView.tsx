@@ -3,13 +3,8 @@ import { getHistory, type HistoryEntry, type HistoryStatus } from "../lib/api.ts
 import { useSolanaAddress } from "./LoginBar.tsx";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildClaimTx } from "../lib/anchorClient.ts";
+import { SOL, fmtSol } from "../lib/odds.ts";
 
-const LAMPORTS = 1_000_000_000;
-const SOL = "◎";
-const fmtSol = (lamports: string | number) => {
-  const sol = Number(lamports) / LAMPORTS;
-  return sol >= 1 ? sol.toFixed(2) : sol.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-};
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
 const STATUS_META: Record<HistoryStatus, { label: string; cls: string; claim?: boolean }> = {
