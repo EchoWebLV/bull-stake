@@ -32,14 +32,14 @@ async function main() {
   const events = await getScoreHistory(ctx, auth, fixtureId);
 
   const sorted = [...events].sort((a, b) => Number(a.Seq) - Number(b.Seq));
-  const t0 = Number(sorted[0]?.Ts ?? 0);
   const frames = sorted.map((ev, i) => {
     const c1 = ev.Stats?.[String(SOCCER_STAT.P1_CORNERS)] ?? 0;
     const c2 = ev.Stats?.[String(SOCCER_STAT.P2_CORNERS)] ?? 0;
     const g1 = ev.Stats?.[String(SOCCER_STAT.P1_GOALS)] ?? 0;
     const g2 = ev.Stats?.[String(SOCCER_STAT.P2_GOALS)] ?? 0;
-    const realMs = Number(ev.Ts ?? t0) - t0;
-    const minute = Math.min(90, Math.round(realMs / 60000));
+    // Pace the displayed clock by frame index (like tMs) so it climbs 0'→90'
+    // smoothly; the corner/score VALUES are the fixture's real data.
+    const minute = sorted.length > 1 ? Math.round((i / (sorted.length - 1)) * 90) : 0;
     return {
       tMs: i * 4000,                 // compress to ~4s/frame for the demo
       minute,
