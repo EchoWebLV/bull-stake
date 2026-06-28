@@ -35,6 +35,7 @@ This iteration is a **front-end + service layer** on top of the already-built an
 | Frontend source | **Rebuild faithfully in React from the prototype's design; drop the generated bundle** | `Streak.html` is a 7.1MB generated `DCLogic`/`__bundler` artifact — not maintainable source. Reuse the *design* (`#FF6A1A` / `#07090d` / `#3DE08A`, Archivo, 4-tab layout, bet slip, confetti, receipts), not the bundle. |
 | Streak/leaderboard | **MVP feature, derived from on-chain settled positions** | It's the app's namesake; built on the same settlement pipeline, so it's verifiable not a DB claim. |
 | Login / wallet | **Privy — embedded social login + external-wallet linking** | Email/Google/SMS → non-custodial embedded Solana wallet (no seed phrase), best fan onboarding, works in PWA on iOS + Android; power users / Seeker can link Phantom or MWA. Satisfies "sign up through Solana." |
+| Stack / hosting | **Vite PWA + Fastify `engine` + Railway Postgres, on Railway** | Railway runs always-on processes (no serverless split) — what the SSE relay + keeper need. Vite (not Next.js): client-rendered app, the `engine` owns server logic, simplest TWA wrap. |
 
 ### Honest framing (inherited house rule)
 The program never calls Txoracle directly (Path A: keeper `.view()` + signed `settle`). The on-chain record (immutable predicate + bound proof inputs) makes a dishonest keeper **detectable**. We describe this as **"verifiable, single-source, no separate oracle, no dispute window"** — **never "trustless."** Full trustlessness (Path B: CPI into `validateStat`) stays on the roadmap.
@@ -50,7 +51,7 @@ The program never calls Txoracle directly (Path A: keeper `.view()` + signed `se
 - `streak-engine` backend (Node/TS) — §4.
 - `streak-pwa` frontend (React/Vite) — §4.
 - Pool-implied odds indexer, streak/leaderboard store — §6, §7.
-- Wallet integration (wallet-adapter + Mobile Wallet Adapter) — §8.
+- Login/wallet via **Privy** (embedded + external linking) — §8.
 - PWA manifest/service worker + TWA APK wrap — §9.
 
 **Retired (not deleted; out of scope this iteration):** fixed-odds mechanics, 48-second window markets, survivor-pool economics from the prototype. Code untouched so a future Consumer-track entry can draw on it.
@@ -69,7 +70,7 @@ The **only** holder of the TxLINE API token. Submodules, each with one purpose:
 - **`market-catalog`** — on a schedule, reads `/api/fixtures/snapshot`, and for each in-scope fixture creates the standard market set (§5) via `initialize_market`, signed by a backend **creator/settle-authority keypair**. Idempotent (skips existing markets).
 - **`settlement-keeper`** — wraps `keeper/settle.ts`; fires at half-time (1st-half markets) and full-time (match markets) when TxLINE marks the relevant stats final, settling or voiding each market.
 - **`odds-indexer`** — reads `bucket_totals` / `total_pool` from on-chain `Market` accounts, computes pool-implied odds (§5), pushes updates to clients.
-- **`streak-store`** — SQLite. On each settlement, records every participating wallet's win/loss → current streak, best streak, global leaderboard, receipt cache.
+- **`streak-store`** — Railway Postgres. On each settlement, records every participating wallet's win/loss → current streak, best streak, global leaderboard, receipt cache.
 - **`api`** — REST/WS surface for the PWA: market catalog, live feed relay, odds, streaks/leaderboard, a wallet's open/settled positions.
 
 ### 4.3 `streak-pwa` frontend (React/Vite, new)
@@ -143,10 +144,22 @@ Either path creates/connects a Solana wallet, satisfying the track's **"sign up 
 
 **Identity:** the leaderboard/streak is keyed by **wallet pubkey** (reconstructable from on-chain positions); Privy's user record is a convenience layer, not the source of truth.
 
-## 9. Platform: PWA + Seeker APK
+## 9. Platform & hosting
 
-- **PWA** — Vite PWA plugin: web manifest + service worker, installable, offline app shell, cached static assets. Live data is always network (SSE relay).
-- **Seeker / Android** — wrap the deployed PWA as a **TWA** (Trusted Web Activity, via Bubblewrap) APK and submit to the **Solana dApp Store**. MWA handles on-device signing. (Native React-Native rebuild remains a future option, not needed for submission.)
+**Hosting — one Railway project, 2 services + Postgres:**
+```
+Railway project "streak"
+├── web      → Vite React PWA (static, custom domain)        ← TWA wraps this
+├── engine   → Node/Fastify, always-on:
+│                api (REST/WS) · sse-relay (TxLINE→clients)
+│                odds-indexer · settlement-keeper + market-catalog
+└── Postgres  (Railway plugin) → streak-store + leaderboard
+```
+Railway runs always-on processes, so the SSE relay and keeper live in `engine` with no serverless split. For the hackathon the keeper runs inside `engine`; splitting it into its own service to isolate the settle-authority key is a noted follow-up.
+
+**PWA** — `vite-plugin-pwa`: manifest + service worker, installable, offline app shell. Live data is always network.
+
+**Seeker / Android** — wrap the deployed `web` domain as a **TWA** (Bubblewrap) APK; host `/.well-known/assetlinks.json` for Digital Asset Links verification; publish to the **Solana dApp Store** (NFT-based publishing flow). Privy embedded login works in the TWA (it's web); external linking fires an Android intent to Phantom / Seed Vault via MWA. A TWA is the PWA in a Chrome shell — *not* a native Solana Mobile app; a native React-Native rebuild stays a future option.
 
 ## 10. Demo strategy
 
@@ -154,16 +167,26 @@ World Cup 2026 runs **through** 2026-07-19, so live TxLINE data is available dur
 - Record/replay a **deterministic TxLINE feed** (captured SSE + `stat-validation` responses for one or two fixtures) so the full flow — create → bet → live odds → settle-from-proof → claim → streak update — can be demoed on command on **devnet**.
 - Keep a "live mode" toggle that points the `txline-client` at the real streams for a genuine live segment if a match is in play during recording.
 
-## 11. Scope
+## 11. Scope & milestones
 
-**MVP (demo-ready, devnet):**
-- Reused `proofbet` program + `keeper`.
-- `streak-engine`: `txline-client`, `sse-relay`, `market-catalog`, `settlement-keeper`, `odds-indexer`, `streak-store`, `api`.
-- `streak-pwa`: Live + Streak + Wallet tabs (+ simplified Pool), wallet-adapter, install/PWA.
-- TWA APK build for Seeker.
-- 1–2 demo fixtures with the standard market set.
+Build as **vertical slices** — get one market working end-to-end through the real UI, then widen. Everything past M0 is **additive**, not a rewrite.
 
-**Out (this iteration → §13):** Daily Streak Contest, USDC, in-play betting, 48s windows, survivor economics, mainnet, fiat on-ramp.
+### Milestone 0 — walking skeleton (smallest product)
+**One fixture, one market (Total Corners O/U 9.5), the complete on-chain lifecycle through the real UI, on devnet.**
+- Reused `proofbet` program + keeper, deployed to devnet *(already built + tested — the hard part is done)*.
+- Minimal **Vite PWA**: Privy login → one market card (fixture + live corners from TxLINE + Over/Under pool totals) → place a bet → claim after settlement → a "1/1" win indicator.
+- Thin **Fastify `engine`**: TxLINE auth + that fixture's live feed relayed to the client (polling acceptable in M0; SSE when widening), reads the on-chain pool, runs the keeper to settle.
+- **Deterministic replay** of the fixture's TxLINE feed so the demo runs on command.
+- Public Railway URL.
+
+Demo (~90s): Google-login → bet 0.1 SOL on Over → corners tick to 10 → settles from the `validateStat` proof (show the receipt) → claim.
+
+**M0 cut-to-the-bone levers:** start with TxLINE *polling* before the full SSE relay; Phantom (wallet-adapter) is the fallback if Privy slips, with Privy as the immediate next step.
+
+### Milestone 1+ — widen (in order)
+Goals O/U + 1X2 result markets → half markets (HT settlement wave) → leaderboard + shareable streak card → live pool-implied odds over WS → **Seeker TWA APK** → multiple fixtures.
+
+**Out (this iteration → §13):** Daily Streak Contest, USDC, post-kickoff in-play betting, 48s windows, survivor economics, mainnet, fiat on-ramp.
 
 ## 12. Risks & honest posture
 
@@ -199,6 +222,5 @@ Assign WC teams to a friend group; a live leaderboard updates off the same settl
 - Mainnet + Squads multisig settle authority; Path B CPI settlement for full trustlessness.
 
 ## 14. Open questions
-- Exact in-scope fixture list for the demo (depends on the WC schedule near recording date).
+- Exact in-scope fixture for the M0 demo (depends on the WC schedule near recording date) — any fixture with a captured feed works for replay.
 - Default `threshold` values per market (e.g., corners 9.5, goals 2.5) — confirm at catalog-build time.
-- Backend hosting target (single VM vs. serverless functions + a small always-on keeper).
