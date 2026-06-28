@@ -1013,7 +1013,7 @@ git commit -m "feat(engine): capture real corners timeline for demo replay"
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -1488,7 +1488,7 @@ export async function buildClaimTx(
 
 - [ ] **Step 3: Type-check (no test — these touch the wallet/RPC)**
 
-Run: `cd web && npx tsc -b`
+Run: `cd web && npx tsc --noEmit`
 Expected: no type errors.
 
 - [ ] **Step 4: Commit**
@@ -1680,7 +1680,7 @@ export default function App() {
 
 - [ ] **Step 6: Type-check + unit tests**
 
-Run: `cd web && npx tsc -b && npm test`
+Run: `cd web && npx tsc --noEmit && npm test`
 Expected: no type errors; lib tests PASS.
 
 - [ ] **Step 7: Commit**
