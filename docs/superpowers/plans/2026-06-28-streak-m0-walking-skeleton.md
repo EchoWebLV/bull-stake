@@ -335,9 +335,11 @@ describe("impliedOdds", () => {
     expect(impliedOdds([300n, 100n], 1, 0)).toBeCloseTo(4.0, 3);
   });
 
-  it("applies fee to the pot for the implied multiplier", () => {
-    // fee 1000 bps (10%): pot*(0.9)=360, over: 360/300=1.2
-    expect(impliedOdds([300n, 100n], 0, 1000)).toBeCloseTo(1.2, 3);
+  it("takes the fee from the LOSING pool only (matches on-chain payout)", () => {
+    // 1000 bps (10%): over wins → loser=UNDER(100), fee=10 → (400-10)/300 = 1.30
+    expect(impliedOdds([300n, 100n], 0, 1000)).toBeCloseTo(1.3, 3);
+    // under wins → loser=OVER(300), fee=30 → (400-30)/100 = 3.70
+    expect(impliedOdds([300n, 100n], 1, 1000)).toBeCloseTo(3.7, 3);
   });
 
   it("returns 0 for an empty bucket (no liquidity on that side)", () => {
@@ -360,7 +362,9 @@ Expected: FAIL — `impliedOdds` not found.
 ```ts
 /**
  * Pool-implied odds = the payout multiplier a backer of `bucket` would get if the
- * market settled now: (total_pool * (1 - fee)) / bucket_total.
+ * market settled now and `bucket` won. Mirrors the on-chain payout exactly:
+ *   fee_collected = loser_total * feeBps/10000   (fee taken from the LOSING pool only)
+ *   payout        = (total_pool - fee_collected) / bucket_total
  * Indicative only — the realized payout is fixed at entry close.
  * Returns 0 when there is no liquidity on the bucket or no pool at all.
  */
@@ -372,8 +376,9 @@ export function impliedOdds(
   const total = bucketTotals[0] + bucketTotals[1];
   const side = bucketTotals[bucket];
   if (total === 0n || side === 0n) return 0;
-  const potAfterFee = Number(total) * (1 - feeBps / 10_000);
-  return potAfterFee / Number(side);
+  const loser = bucketTotals[bucket === 0 ? 1 : 0];
+  const feeCollected = (Number(loser) * feeBps) / 10_000;
+  return (Number(total) - feeCollected) / Number(side);
 }
 ```
 
@@ -1239,7 +1244,9 @@ export function impliedOdds(bucketTotals: [bigint, bigint], bucket: 0 | 1, feeBp
   const total = bucketTotals[0] + bucketTotals[1];
   const side = bucketTotals[bucket];
   if (total === 0n || side === 0n) return 0;
-  return (Number(total) * (1 - feeBps / 10_000)) / Number(side);
+  const loser = bucketTotals[bucket === 0 ? 1 : 0]; // fee is taken from the LOSING pool only
+  const feeCollected = (Number(loser) * feeBps) / 10_000;
+  return (Number(total) - feeCollected) / Number(side);
 }
 ```
 
