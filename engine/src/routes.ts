@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { readFileSync } from "node:fs";
 import { Feed, type Replay } from "./feed.ts";
-import { readMarket } from "./chain.ts";
+import { readMarket, readActiveContest, readJackpotVault, listEntriesForWallet } from "./chain.ts";
 import { impliedOdds } from "./odds.ts";
 import { M0 } from "./config.ts";
 import type { LiveStore } from "./live.ts";
@@ -89,6 +89,70 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
     } catch (e) {
       reply.code(502);
       return { error: `history fetch failed: ${(e as Error).message}` };
+    }
+  });
+
+  // ── Contest endpoints (daily sweepstake) ──────────────────────────────────
+
+  /**
+   * GET /api/contest/today
+   * The live contest joined with team names/kickoffs, plus the live free pot.
+   * `{ status: "paused", pot, contest: null }` when no contest is live.
+   */
+  app.get("/api/contest/today", async (_req, reply) => {
+    let vault, contest;
+    try {
+      [vault, contest] = await Promise.all([readJackpotVault(), readActiveContest()]);
+    } catch (e) {
+      reply.code(502);
+      return { error: `contest read failed: ${(e as Error).message}` };
+    }
+    if (!contest) return { status: "paused", pot: vault.pot, contest: null };
+
+    const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
+    const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
+    const card = contest.fixtures.map((fixtureId) => {
+      const live = byId.get(fixtureId);
+      const meta = names.get(fixtureId);
+      return {
+        fixtureId,
+        home: live?.home ?? meta?.home ?? `#${fixtureId}`,
+        away: live?.away ?? meta?.away ?? "",
+        kickoffMs: live?.kickoffMs ?? null,
+      };
+    });
+
+    return {
+      status: contest.status,
+      contestId: contest.contestId,
+      pot: vault.pot,
+      entryPrice: contest.entryPrice,
+      lockTs: contest.lockTs,
+      settleAfterTs: contest.settleAfterTs,
+      entryCount: contest.entryCount,
+      numMatches: contest.numMatches,
+      perfectCount: contest.perfectCount,
+      distributable: contest.distributable,
+      winningBuckets: contest.winningBuckets,
+      card,
+    };
+  });
+
+  /**
+   * GET /api/contest/entries?wallet=<base58>
+   * The wallet's Entry tickets for the live contest (empty if none).
+   */
+  app.get("/api/contest/entries", async (req, reply) => {
+    const { wallet } = req.query as Record<string, string>;
+    if (!wallet) {
+      reply.code(400);
+      return { error: "wallet query param required" };
+    }
+    try {
+      return await listEntriesForWallet(wallet);
+    } catch (e) {
+      reply.code(502);
+      return { error: `entries fetch failed: ${(e as Error).message}` };
     }
   });
 }

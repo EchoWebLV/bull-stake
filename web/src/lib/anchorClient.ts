@@ -3,7 +3,10 @@ import {
   Connection, PublicKey, SystemProgram, Transaction,
 } from "@solana/web3.js";
 import idl from "../idl/proofbet.json";
-import { deriveMarketPda, deriveVaultPda, derivePositionPda } from "./pdas.ts";
+import {
+  deriveMarketPda, deriveVaultPda, derivePositionPda,
+  deriveJackpotVaultPda, deriveContestPda, deriveEntryPda,
+} from "./pdas.ts";
 
 const RPC = import.meta.env.VITE_RPC_URL ?? "https://api.devnet.solana.com";
 export const PROGRAM_ID = new PublicKey((idl as { address: string }).address);
@@ -53,6 +56,40 @@ export async function buildClaimTx(
   const tx = await program.methods
     .claim()
     .accountsStrict({ bettor: payer, market, vault, position, systemProgram: SystemProgram.programId })
+    .transaction();
+  return withBlockhash(tx, payer);
+}
+
+/** Build an unsigned enter(nonce, picks) transaction. `picks` is per-match 0/1/2, padded to length 5. */
+export async function buildEnterTx(
+  payerAddress: string, contestId: number, nonce: number, picks: number[],
+): Promise<Transaction> {
+  const payer = new PublicKey(payerAddress);
+  const program = readonlyProgram(payer);
+  const vault = deriveJackpotVaultPda(PROGRAM_ID);
+  const contest = deriveContestPda(PROGRAM_ID, contestId);
+  const entry = deriveEntryPda(PROGRAM_ID, contest, payer, nonce);
+  const padded = [...picks];
+  while (padded.length < 5) padded.push(0);
+  const tx = await program.methods
+    .enter(new anchor.BN(nonce), padded.slice(0, 5))
+    .accountsStrict({ bettor: payer, vault, contest, entry, systemProgram: SystemProgram.programId })
+    .transaction();
+  return withBlockhash(tx, payer);
+}
+
+/** Build an unsigned claim_contest transaction for one ticket (nonce). */
+export async function buildClaimContestTx(
+  payerAddress: string, contestId: number, nonce: number,
+): Promise<Transaction> {
+  const payer = new PublicKey(payerAddress);
+  const program = readonlyProgram(payer);
+  const vault = deriveJackpotVaultPda(PROGRAM_ID);
+  const contest = deriveContestPda(PROGRAM_ID, contestId);
+  const entry = deriveEntryPda(PROGRAM_ID, contest, payer, nonce);
+  const tx = await program.methods
+    .claimContest()
+    .accountsStrict({ bettor: payer, vault, contest, entry, systemProgram: SystemProgram.programId })
     .transaction();
   return withBlockhash(tx, payer);
 }
