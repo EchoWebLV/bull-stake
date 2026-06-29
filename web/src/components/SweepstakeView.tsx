@@ -40,6 +40,7 @@ export function SweepstakeView() {
   }
 
   const card = today.card ?? [];
+  const contestId = today.contestId;
   const settled = today.status === "settled" || today.status === "rolledOver" || today.status === "voided";
   const allPicked = card.every((m) => picks[m.fixtureId] != null);
   const entryPriceSol = fmtSol(Number(today.entryPrice ?? 0));
@@ -47,11 +48,11 @@ export function SweepstakeView() {
   async function enter() {
     if (!address) { flash("Log in to enter", true); return; }
     if (!allPicked) { flash("Pick every match", true); return; }
-    if (!today) return;
+    if (contestId == null) { flash("No active contest", true); return; }
     setBusy(true); setMsg(undefined);
     try {
       const orderedPicks = card.map((m) => picks[m.fixtureId]);
-      const tx = await buildEnterTx(address, today.contestId!, 0, orderedPicks);
+      const tx = await buildEnterTx(address, contestId, 0, orderedPicks);
       const sig = await signAndSend(tx);
       flash(`Entered · ${sig.slice(0, 8)}…`);
       await refresh();
@@ -60,10 +61,11 @@ export function SweepstakeView() {
   }
 
   async function claim(nonce: number) {
-    if (!address || !today) return;
+    if (!address) return;
+    if (contestId == null) { flash("No active contest", true); return; }
     setBusy(true); setMsg(undefined);
     try {
-      const tx = await buildClaimContestTx(address, today.contestId!, nonce);
+      const tx = await buildClaimContestTx(address, contestId, nonce);
       const sig = await signAndSend(tx);
       flash(`Claimed · ${sig.slice(0, 8)}…`);
       await refresh();
