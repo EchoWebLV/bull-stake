@@ -19,3 +19,6 @@ pub use void_market::*;
 
 pub mod claim;
 pub use claim::*;
+
+pub mod initialize_vault;
+pub use initialize_vault::*;
