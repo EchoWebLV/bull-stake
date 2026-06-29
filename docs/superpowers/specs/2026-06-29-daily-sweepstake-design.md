@@ -10,26 +10,26 @@
 
 ## 1. Overview
 
-**The daily sweepstake is a perfect-parlay jackpot.** Every day a keeper auto-curates a small **card** of top matches (default **4**, range 3–5). Anyone enters once for a fixed **0.02 SOL** and submits one **1X2 pick** (Home / Draw / Away) per match. After the last match settles:
+**The daily sweepstake is a perfect-parlay jackpot.** Every day a keeper auto-curates a small **card** of top matches (default **4**, range 3–5). Anyone enters for a fixed **0.02 SOL per ticket** and submits one **1X2 pick** (Home / Draw / Away) per match — and may buy **multiple tickets** to cover more scenarios. After the last match settles:
 
 - **Someone went perfect** (all picks correct) → all perfect cards **split the pot equally** (minus a 5% rake).
 - **Nobody went perfect** → the pot **rolls over** into tomorrow's contest. No rake is taken. The jackpot grows.
 
 This is a contest-a-day with a growing pot — the purest expression of the "Streak" name, and a much sharper hook than the per-match board (one shared pot, one daily ritual, a number that climbs until someone cracks it).
 
-This iteration adds a **new on-chain construct** (jackpot vault + per-day contest + per-wallet entry) and a **new front-end tab**, while reusing `proofbet`'s escrow/claim patterns, the TxLINE settlement keeper, the engine relay, and the Privy signing path.
+This iteration adds a **new on-chain construct** (jackpot vault + per-day contest + per-ticket entries) and a **new front-end tab**, while reusing `proofbet`'s escrow/claim patterns, the TxLINE settlement keeper, the engine relay, and the Privy signing path.
 
 ### Goals
-- A user can: open the app → see today's card + the live jackpot → pick 1X2 on each match → pay 0.02 SOL once → watch a live "still alive" board as matches settle → claim a split of the pot if perfect, or see it roll over.
+- A user can: open the app → see today's card + the live jackpot → pick 1X2 on each match → pay 0.02 SOL per ticket (one or more) → watch a live "still alive" board as matches settle → claim a split of the pot if perfect, or see it roll over.
 - The pot **rolls across days for free** (it simply stays escrowed), with a visible "rolled N days" badge.
 - **Real-SOL mechanics on devnet** — actual escrow, actual split, actual rollover (not play-money).
 - Reuse the proven escrow + settlement plumbing; the only genuinely new code is the contest program + the contest tab/engine routes.
 
 ### Non-goals (this iteration)
 - The tradeable LMSR per-match market — parked ([../secondary-prediction-market.md](../secondary-prediction-market.md)).
-- Multiple entries per wallet, a full global leaderboard, friend leagues — roadmap (§16).
+- A full global leaderboard and friend leagues — roadmap (§14).
 - Fully trustless winner-set / divisor (merkle or on-chain registration) — designed as a hardening path (§9), not built in v1.
-- Mainnet, USDC collateral, fiat on-ramp, legal/compliance — roadmap (§16).
+- Mainnet, USDC collateral, fiat on-ramp, legal/compliance — roadmap (§14).
 
 ## 2. Key decisions (approved)
 
@@ -40,7 +40,8 @@ This iteration adds a **new on-chain construct** (jackpot vault + per-day contes
 | Pick type | **1X2 per match (Home / Draw / Away)** | Reuses the 3-way bucket model already in `ResultSelector`; provable via `goals1 − goals2`. |
 | Card size | **4 matches default (3–5 configurable)** | Enough that a perfect parlay is rare (pot rolls and grows) but not impossible. |
 | Card curation | **Auto-picked by the keeper, biased toward uncertainty** | No manual ops; uncertain matches make perfect parlays rarer → bigger rollovers. |
-| Entry price | **0.02 SOL, fixed per contest** | Cheap enough to be casual; the locked range was 0.02–0.03. |
+| Entry price | **0.02 SOL per ticket, fixed per contest** | Cheap enough to be casual; the locked range was 0.02–0.03. |
+| Tickets per wallet | **Multiple allowed** | Buy more lines to cover more scenarios — grows the pot, lottery feel. A wallet still wins only one share per real outcome (only the matching line is perfect, §8). |
 | Collateral | **Native SOL / lamports** | Reuses `proofbet`'s lamport escrow; zero token setup; devnet airdrop. |
 | Rake | **5% on payout only** | Taken from the pot **only when someone wins**. A rollover day takes 0% — the full pot carries. |
 | Economic split | **Equal split among perfect cards** | `floor(distributable / perfect_count)` each; dust rolls forward. |
@@ -104,7 +105,7 @@ struct Contest {
   fee_bps:        u16,            // 500 = 5%; <= MAX_FEE_BPS (1000)
   status:         ContestStatus,  // Open | Settled | RolledOver | Voided
   winning_buckets:[u8; 5],        // 0=Home 1=Draw 2=Away; first `num_matches` valid
-  entry_count:    u64,            // # entries (informational)
+  entry_count:    u64,            // # tickets entered (informational; drives void-refund accounting)
   perfect_count:  u64,            // # perfect cards; the split divisor
   pot_snapshot:   u64,            // vault lamports captured at settle (rolled-in + entries)
   settled_ts:     i64,
@@ -114,18 +115,19 @@ enum ContestStatus { Open, Settled, RolledOver, Voided }
 ```
 `contest_id = epoch_day` makes the day's contest address deterministic (the client/keeper can derive it without a registry) and guarantees one contest per day.
 
-### 5.3 `Entry` (one per wallet per contest)
+### 5.3 `Entry` (one per ticket: wallet + contest + nonce)
 ```
-seeds = ["entry", contest.key(), bettor.key()]
+seeds = ["entry", contest.key(), bettor.key(), nonce.to_le_bytes()]
 struct Entry {
   bettor:  Pubkey,
   contest: Pubkey,
+  nonce:   u64,       // ticket index for this wallet in this contest (0, 1, 2, …)
   picks:   [u8; 5],   // 0/1/2 per match; first `num_matches` valid
   amount:  u64,       // lamports paid (= contest.entry_price at entry time)
   bump:    u8,
 }
 ```
-One card per wallet (multi-entry is roadmap). Created with `init_if_needed` so picks are **editable until `lock_ts`** (re-`enter` overwrites `picks` without paying again). Closed on `claim_contest` (rent back to bettor; blocks double-claim).
+A wallet may hold **multiple tickets**: each `nonce` is a distinct `Entry` PDA = a distinct ticket = a distinct payment. The client assigns `nonce` sequentially (0 for the first ticket, 1 for the next, …). Created with `init_if_needed` so a ticket's picks are **editable until `lock_ts`** (re-`enter` with the **same** `nonce` overwrites `picks` without paying again; a **new** `nonce` is a new ticket and a new payment). Closed on `claim_contest` (rent back to bettor; blocks double-claim per ticket).
 
 ## 6. Instructions
 
@@ -134,11 +136,11 @@ One card per wallet (multi-entry is roadmap). Created with `init_if_needed` so p
 - Inits the `Contest` for `contest_id`, status `Open`. The pot starts from whatever is **already in the vault** (yesterday's rollover) — no transfer needed.
 - Validates `3 <= num_matches <= 5`, `fee_bps <= MAX_FEE_BPS`, `entry_price > 0`, `lock_ts > now`.
 
-### 6.2 `enter(picks)`
+### 6.2 `enter(nonce, picks)`
 - Signer: **player.** Requires `status == Open` and `now < lock_ts` (else `EntryClosed`).
 - Validates each `picks[i] < 3` for `i < num_matches`.
-- `init_if_needed` the `Entry`; if newly created, transfer `entry_price` player→`JackpotVault` and set `amount`. If it already exists (re-entry before lock), **overwrite `picks` only** — no second payment.
-- Writes `picks`, increments `entry_count` on first creation.
+- `init_if_needed` the `Entry` at `["entry", contest, bettor, nonce]`. If newly created (a **new** ticket), transfer `entry_price` player→`JackpotVault`, set `amount` and `nonce`, and increment `entry_count`. If that `nonce` already exists (**editing** this ticket before lock), **overwrite `picks` only** — no second payment.
+- A wallet buys an extra ticket by calling `enter` with the next unused `nonce`; it edits a ticket by reusing that ticket's `nonce`.
 
 ### 6.3 `settle_contest(winning_buckets, perfect_count)`
 - Signer: **keeper** (`has_one = settle_authority`). Requires `status == Open` and `now >= lock_ts` (last match done, enforced by keeper timing).
@@ -177,9 +179,10 @@ The vault is the single source of continuity: **rollover is just "don't move the
 
 ## 8. Economics
 
-- **Entry:** fixed `entry_price` (0.02 SOL) per wallet, paid once into the vault.
+- **Entry:** fixed `entry_price` (0.02 SOL) **per ticket**, paid into the vault; a wallet may buy multiple tickets, each a separate `Entry`.
+- **Multi-entry fairness:** only the line matching the one real set of results is perfect, so a wallet collects at most **one share per distinct perfect card**. Extra tickets buy more *chances* (cover more scenarios), not a bigger slice of one scenario — and each ticket adds `entry_price` to the pot. A literal duplicate of a perfect card is allowed and simply buys a second share (it was paid for); there is no on-chain dedupe.
 - **Rake:** `pot_snapshot * fee_bps / 10000` (5%), taken **only on a winning day**, at settle. Rollover days take 0%.
-- **Split:** each perfect card claims `floor((pot_snapshot − rake) / perfect_count)`.
+- **Split:** each perfect ticket claims `floor((pot_snapshot − rake) / perfect_count)`.
 - **Solvency invariant:** `perfect_count * floor(distributable/perfect_count) ≤ distributable ≤ pot_snapshot`. Holds **iff `perfect_count ≥ actual perfect cards`** — see §9 for why that's the one thing to protect. Dust (the floor remainder) stays escrowed and rolls forward.
 - **Void:** refunds total `entry_count * entry_price`; the rolled-in remainder stays in the vault.
 
@@ -205,7 +208,7 @@ The keeper builds the day's card with **no manual ops**:
 
 New `/api/contest` surface (reads the on-chain accounts via `chain.ts`; no custody):
 - `GET /api/contest/today` → today's `Contest`: card fixtures (+ team names/kickoffs from the feed), `entry_price`, `lock_ts`, `status`, live **pot** (vault balance), **rolled-days** count, `entry_count`.
-- `GET /api/contest/entry?wallet=…` → that wallet's `Entry` (picks, amount) for today's contest, if any.
+- `GET /api/contest/entries?wallet=…` → that wallet's `Entry` tickets for today's contest (each with `nonce`, picks, amount); empty if none.
 - `GET /api/contest/alive` → the live **"still alive"** board: for each entry (or aggregate), how many picks are still correct given matches settled so far — derived from entries + per-match results. (Aggregate counts for v1; per-wallet detail for the signed-in user.)
 
 Live match state continues to flow through the existing TxLINE relay. The engine never holds user funds — `enter`/`claim_contest` are signed client-side by the Privy wallet.
@@ -228,7 +231,7 @@ A daily job (the existing keeper process, extended):
 ### 13.2 `SweepstakeView` (new)
 - **Jackpot header:** the live pot (vault balance) + a "rolled N days" badge + a countdown to `lock_ts`.
 - **Today's card:** one row per match (team names, kickoff) with **1X2 pick buttons** (reuse `ResultSelector`'s button styling; these are picks, not parimutuel odds — no per-pick multiplier).
-- **Entry:** "Enter — 0.02 ◎" button → signs `enter(picks)`. Editable until lock (re-`enter` overwrites picks, no second charge); shows a locked state after `lock_ts`.
+- **Entry / tickets:** "Enter — 0.02 ◎" signs `enter(nonce, picks)`. A wallet can hold **multiple tickets** — an "+ Add another ticket" action opens the next `nonce`; each existing ticket stays editable until lock (re-`enter` the same `nonce`, no second charge). After `lock_ts` the card locks; the view lists the wallet's tickets with each one's live status.
 - **Live "still alive" board:** as matches settle, show how many of your picks are still alive and how many entries remain in contention; a clear win/rolled-over result at the end.
 - **Streak chip:** the user's consecutive-day participation/correct streak (cheap, on-brand — it's the app's name).
 - **Share card:** a shareable image/route of the user's card + result (the "I'm 4/4 going into the last match" moment).
@@ -241,26 +244,28 @@ Build as vertical slices; everything past M0 is additive.
 
 ### Milestone 0 — walking skeleton
 **One contest, the full lifecycle on devnet, through the real UI.**
-- Program: `JackpotVault` + `Contest` + `Entry`, `create_contest` / `enter` / `settle_contest` / `claim_contest`, deployed to devnet.
+- Program: `JackpotVault` + `Contest` + `Entry` (**with the multi-ticket `nonce` seed from day one** — so multi-entry needs no later migration), `create_contest` / `enter` / `settle_contest` / `claim_contest`, deployed to devnet.
 - Keeper: manual/scripted `create_contest` for one card (auto-pick can be a fixed list in M0), `settle_contest` after the matches.
-- Engine: `GET /api/contest/today` + `entry`.
-- Web: `SweepstakeView` (jackpot header, card with 1X2 picks, enter, claim) + the nav change.
+- Engine: `GET /api/contest/today` + `entries`.
+- Web: `SweepstakeView` (jackpot header, card with 1X2 picks, enter one ticket, claim) + the nav change. The "+ Add another ticket" UI is M1.
 - Demo (~90s): land on Sweepstake → see pot → pick 4 → enter 0.02 ◎ → matches settle → either split-and-claim or watch it roll into tomorrow's pot.
 
 ### Milestone 1+ — widen (in order)
-Auto-card curation (§10) → live "still alive" board → `void_contest` refund path → read winning buckets from result markets (§9) → streak chip + share card → rolled-days badge polish.
+Auto-card curation (§10) → multi-ticket UI ("+ Add another ticket") → live "still alive" board → `void_contest` refund path → read winning buckets from result markets (§9) → streak chip + share card → rolled-days badge polish.
 
-### Out (this iteration → §16)
-Trustless `perfect_count` (registration window / merkle), multi-entry, full leaderboard/friend leagues, mainnet, USDC, fiat on-ramp.
+### Out (this iteration)
+Trustless `perfect_count` (registration window / merkle), full leaderboard/friend leagues, mainnet, USDC, fiat on-ramp.
 
 ## 15. Testing
 
 **Anchor (program):**
-- `enter` escrows `entry_price`; re-`enter` before lock overwrites picks **without** a second charge.
+- `enter` escrows `entry_price`; re-`enter` the **same `nonce`** before lock overwrites picks **without** a second charge.
+- Multi-ticket: same wallet, two **different** `nonce`s → two `Entry` PDAs and two payments; `entry_count` increments per new ticket.
 - `enter` after `lock_ts` rejects (`EntryClosed`).
 - `settle_contest` with a perfect winner → `Settled`, rake to `fee_recipient`, `distributable` correct.
 - `settle_contest` with `perfect_count == 0` → `RolledOver`, **vault balance unchanged** (rollover).
-- `claim_contest` pays `distributable / perfect_count` to a perfect card; **rejects a non-perfect card's payout**.
+- `claim_contest` pays `distributable / perfect_count` to a perfect ticket; **rejects a non-perfect ticket's payout**.
+- Multi-ticket payout: a wallet holding several lines collects exactly **one** share (only the matching line is perfect); a wallet that submits a **duplicate** perfect card collects **two** shares (both lines match).
 - Double-claim blocked (entry closed).
 - Two perfect winners → each gets the equal split; dust ≤ `perfect_count` lamports remains in the vault.
 - `void_contest` → each entry refunds `amount`; rolled-in remainder stays in the vault.
