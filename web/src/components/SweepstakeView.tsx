@@ -141,6 +141,17 @@ export function SweepstakeView() {
                     Ticket #{e.nonce} · {fmtSol(Number(e.amount))}{SOL}
                   </button>
                   {settled && (
+                    <span className={`ticket-status ${today.status === "voided" ? "refund" : e.won ? "won" : "lost"}`}>
+                      {today.status === "voided"
+                        ? "Refund due"
+                        : e.won
+                          ? <>Won {fmtSol(Number(e.payout))}{SOL}</>
+                          : "No win"}
+                    </span>
+                  )}
+                  {/* Only winners (or void refunds) get a claim button — a loser's
+                      claim is a 0-payout close that just wastes a tx fee. */}
+                  {e.claimable && (
                     <button className="btn-sm" disabled={busy} onClick={() => claim(e.nonce)}>
                       {today.status === "voided" ? "Refund" : "Claim"}
                     </button>

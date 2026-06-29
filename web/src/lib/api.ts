@@ -91,7 +91,12 @@ export interface ContestToday {
   winningBuckets?: number[];
   card?: ContestCardMatch[];
 }
-export interface ContestEntry { pubkey: string; nonce: number; picks: number[]; amount: string }
+export interface ContestEntry {
+  pubkey: string; nonce: number; picks: number[]; amount: string;
+  won: boolean;        // all carded picks matched (settled contests only)
+  claimable: boolean;  // claiming now pays out (winner share or void refund)
+  payout: string;      // lamports paid if claimed now ("0" if none)
+}
 
 export const getContestToday = (): Promise<ContestToday> =>
   fetch(`${ENGINE}/api/contest/today`).then(json);

@@ -15,11 +15,14 @@ import anchorDefault from "@coral-xyz/anchor";
 import { createContext } from "../spike/src/auth.js";
 import { authenticateCached } from "../spike/src/auth-cache.js";
 import { loadProofbetProgram, settleMarketByPubkey } from "./settle.js";
-import { countPerfect } from "./contest.js";
+import { countPerfect, previewSettle } from "./contest.js";
 
 // Named ESM exports aren't exposed through anchor's ESM entry — use the default import.
 const BN = anchorDefault.BN;
 const RESULT_MARKET_ID = 12;
+// JackpotVault account size: 8 (disc) + active_contest_id(u64) + reserved(u64) + bump(u8).
+const JACKPOT_VAULT_SIZE = 8 + 8 + 8 + 1;
+const sol = (l: bigint) => (Number(l) / 1e9).toFixed(4);
 
 function i64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; }
 function u64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; }
@@ -77,10 +80,37 @@ async function main() {
   ]);
   const perfectCount = countPerfect(entries.map((e) => ({ picks: e.account.picks as number[] })), winningBuckets, nm);
 
+  // Audit: compute exactly what settle_contest will do for this perfect_count,
+  // so the operator can sanity-check the pot/rake/payout BEFORE broadcasting.
+  const connection = proofbet.provider.connection;
+  const vaultLamports = BigInt(await connection.getBalance(jackpotVault));
+  const rentFloor = BigInt(await connection.getMinimumBalanceForRentExemption(JACKPOT_VAULT_SIZE));
+  const preview = previewSettle({
+    vaultLamports,
+    rentFloor,
+    reserved: BigInt(v.reserved.toString()),
+    entryCount: BigInt(c.entryCount.toString()),
+    entryPrice: BigInt(c.entryPrice.toString()),
+    feeBps: Number(c.feeBps),
+    perfectCount: BigInt(perfectCount),
+  });
+
   console.log(JSON.stringify({
     action: "settle_contest", contestId: activeId, fixtures, winningBuckets,
-    entries: entries.length, perfectCount, dryRun,
+    entries: entries.length, perfectCount,
+    preview: {
+      potSnapshot: preview.potSnapshot.toString(), rake: preview.rake.toString(),
+      distributable: preview.distributable.toString(), share: preview.share.toString(),
+      payable: preview.payable.toString(), dust: preview.dust.toString(),
+      rolledOver: preview.rolledOver,
+    },
+    dryRun,
   }, null, 2));
+  console.log(
+    `settle preview · pot ${sol(preview.potSnapshot)} ◎ · rake ${sol(preview.rake)} ◎ · ` +
+    `distributable ${sol(preview.distributable)} ◎ · ${perfectCount} winner(s) → ${sol(preview.share)} ◎ each` +
+    (preview.rolledOver ? " · ROLLOVER (no winners, pot rolls forward)" : ` · dust ${sol(preview.dust)} ◎`),
+  );
 
   if (dryRun) { console.log("dry-run: not sending settle_contest"); return; }
 

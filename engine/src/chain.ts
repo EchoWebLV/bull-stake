@@ -147,6 +147,59 @@ export interface EntryView {
   nonce: number;
   picks: number[];              // raw [u8; 5]
   amount: string;
+  won: boolean;                 // all carded picks match the winning buckets (settled contests only)
+  claimable: boolean;          // a claim_contest now would transfer lamports (winner share or void refund)
+  payout: string;              // lamports paid if claimed now ("0" if none) — mirrors claim_contest.rs
+}
+
+/** The settled-state fields entryOutcome needs (a subset of ContestView). */
+type ContestOutcomeCtx = Pick<
+  ContestView,
+  "status" | "numMatches" | "winningBuckets" | "perfectCount" | "distributable" | "claimedCount" | "claimedTotal"
+>;
+
+/**
+ * Pure mirror of `claim_contest.rs`: given a ticket's picks + stake and the
+ * contest's settled state, decide whether the ticket won, whether claiming NOW
+ * actually pays out, and the exact lamport payout. Kept free of I/O so it can be
+ * unit-tested directly against the on-chain handler's math.
+ *
+ *   - Voided   → every ticket refunds its own stake (claim_contest.rs:46-49).
+ *   - Settled  → perfect ticket (all carded picks == winning buckets) earns
+ *                floor(distributable / perfect_count), bounded by the on-chain
+ *                solvency caps (claimed_count < perfect_count AND
+ *                claimed_total + share <= distributable). Non-perfect pays 0.
+ *   - Open / RolledOver → nothing payable (close-only on-chain).
+ */
+export function entryOutcome(
+  picks: number[],
+  amount: bigint,
+  c: ContestOutcomeCtx,
+): { won: boolean; claimable: boolean; payout: bigint } {
+  if (c.status === "voided") {
+    return { won: false, claimable: amount > 0n, payout: amount };
+  }
+  if (c.status !== "settled") {
+    return { won: false, claimable: false, payout: 0n };
+  }
+  // Perfect = all carded picks equal the winning buckets. Tail picks beyond
+  // numMatches are ignored, matching the on-chain loop `for i in 0..num_matches`.
+  for (let i = 0; i < c.numMatches; i++) {
+    if (picks[i] !== c.winningBuckets[i]) return { won: false, claimable: false, payout: 0n };
+  }
+  // Perfect ticket. perfect_count is >0 in a settled contest (==0 ⇒ RolledOver),
+  // but guard defensively to mirror the on-chain PerfectCountZero check.
+  if (c.perfectCount <= 0) return { won: true, claimable: false, payout: 0n };
+  const distributable = BigInt(c.distributable);
+  const share = distributable / BigInt(c.perfectCount); // floor div; dust stays in the vault
+  const capOk =
+    c.claimedCount < c.perfectCount &&
+    BigInt(c.claimedTotal) + share <= distributable;
+  const claimable = capOk && share > 0n;
+  // payout = what a claim NOW would actually transfer. On-chain the solvency caps
+  // revert a blocked claim (no lamports move), so a won-but-unclaimable ticket
+  // (e.g. perfect_count under-reported, pool exhausted) reports 0 — not its share.
+  return { won: true, claimable, payout: claimable ? share : 0n };
 }
 
 /** Paused sentinel returned before the jackpot_vault singleton is initialized on-chain. */
@@ -211,16 +264,17 @@ export async function readActiveContest(): Promise<ContestView | null> {
   };
 }
 
-/** Every Entry the wallet holds in the live contest (empty if none / no live contest). */
+/** Every Entry the wallet holds in the live contest (empty if none / no live contest).
+ *  Each entry is enriched with won/claimable/payout from the contest's settled
+ *  state so the UI can show winners and gate the Claim button without re-deriving
+ *  the on-chain payout math. */
 export async function listEntriesForWallet(wallet: string): Promise<EntryView[]> {
   const program = loadProgram();
-  const vPda = deriveJackpotVaultPda(program.programId);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v: any = await (program.account as any).jackpotVault.fetchNullable(vPda);
-  if (v === null) return []; // vault not initialized yet → no entries
-  const activeId = Number(v.activeContestId);
-  if (activeId === 0) return [];
-  const cPda = deriveContestPda(program.programId, activeId);
+  // readActiveContest handles the vault-uninit / no-live-contest cases (→ null)
+  // and gives us the settled state needed to score each ticket.
+  const contest = await readActiveContest();
+  if (!contest) return [];
+  const cPda = new PublicKey(contest.pubkey);
   const bettor = new PublicKey(wallet);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const accts: any[] = await (program.account as any).entry.all([
@@ -228,12 +282,20 @@ export async function listEntriesForWallet(wallet: string): Promise<EntryView[]>
     { memcmp: { offset: 8 + 32, bytes: cPda.toBase58() } },     // contest at offset 40
   ]);
   return accts
-    .map((a) => ({
-      pubkey: a.publicKey.toBase58(),
-      nonce: Number(a.account.nonce),
-      picks: (a.account.picks as number[]).map(Number),
-      amount: a.account.amount.toString(),
-    }))
+    .map((a) => {
+      const picks = (a.account.picks as number[]).map(Number);
+      const amount = BigInt(a.account.amount.toString());
+      const o = entryOutcome(picks, amount, contest);
+      return {
+        pubkey: a.publicKey.toBase58(),
+        nonce: Number(a.account.nonce),
+        picks,
+        amount: amount.toString(),
+        won: o.won,
+        claimable: o.claimable,
+        payout: o.payout.toString(),
+      };
+    })
     .sort((x, y) => x.nonce - y.nonce);
 }
 
