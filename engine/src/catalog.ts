@@ -117,6 +117,41 @@ export async function fetchSlate(
 }
 
 /**
+ * Fetch allow-listed fixtures across a span of consecutive epochDays.
+ *
+ * Used to resolve a CONTEST card whose matches may sit beyond the live board's
+ * ~36h window (the board's fetchSlate only pulls yesterday/today/tomorrow).
+ * Returns names+kickoffs for every allow-listed fixture in the range; the caller
+ * filters to the specific contest fixtureIds.
+ */
+export async function fetchFixturesAcross(
+  ctx: SpikeContext,
+  auth: Auth,
+  startEpochDay: number,
+  days: number,
+): Promise<SlateFixture[]> {
+  const pages = await Promise.all(
+    Array.from({ length: Math.max(0, days) }, (_, i) =>
+      getFixtures(ctx, auth, { startEpochDay: startEpochDay + i }),
+    ),
+  );
+  const seen = new Set<number>();
+  const out: SlateFixture[] = [];
+  for (const f of pages.flat()) {
+    if (seen.has(f.FixtureId) || !COMPETITION_ALLOWLIST.includes(f.Competition)) continue;
+    seen.add(f.FixtureId);
+    out.push({
+      fixtureId: f.FixtureId,
+      home: f.Participant1,
+      away: f.Participant2,
+      kickoffMs: f.StartTime,
+      competitionId: f.CompetitionId,
+    });
+  }
+  return out;
+}
+
+/**
  * For a single fixture, derive each of the 8 market PDAs, check whether the
  * account already exists on-chain, and create any missing ones.
  *

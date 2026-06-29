@@ -49,7 +49,7 @@ if (isMain) {
       // recently-finished matches on the board (so a match you bet on stays
       // visible after kickoff, and a fresh boot re-loads matches under way).
       const BOARD_HOURS_BEHIND = 5;
-      const { fetchSlate } = await import("./catalog.ts");
+      const { fetchSlate, fetchFixturesAcross } = await import("./catalog.ts");
       let slate: { fixtureId: number; home: string; away: string; kickoffMs: number }[] = [];
       try {
         slate = await fetchSlate(ctx, auth, { hoursBehind: BOARD_HOURS_BEHIND });
@@ -75,6 +75,30 @@ if (isMain) {
           .then((s) => { if (s.length) liveStore.setSlate(s); })
           .catch(() => {});
       }, 30 * 60_000);
+
+      // Resolve the live contest's CARD names independently of the 36h board
+      // window — a daily contest's matches can be days out, so fetch the days
+      // spanning the contest (centered on its earliest kickoff) and merge ONLY
+      // those names into the store (no extra board rows). Without this the card
+      // shows "#<fixtureId>" for matches beyond the board window.
+      const DAY_SEC = 86_400;
+      const refreshContestNames = async () => {
+        try {
+          const { readActiveContest } = await import("./chain.ts");
+          const contest = await readActiveContest();
+          if (!contest) return;
+          const lockEpochDay = Math.floor(contest.lockTs / DAY_SEC);
+          const fixtures = await fetchFixturesAcross(ctx, auth, lockEpochDay - 1, 4);
+          const wanted = new Set(contest.fixtures);
+          const matched = fixtures.filter((f) => wanted.has(f.fixtureId));
+          liveStore.addFixtureNames(matched);
+          console.log(`contest card: resolved ${matched.length}/${contest.fixtures.length} fixture name(s)`);
+        } catch (e) {
+          console.warn("contest-card name resolve failed:", (e as Error).message);
+        }
+      };
+      await refreshContestNames();
+      setInterval(refreshContestNames, 30 * 60_000);
     } catch (e) {
       console.warn("LiveStore poll loop could not start:", (e as Error).message);
     }

@@ -143,6 +143,15 @@ export class LiveStore {
     return this.fixtureNames;
   }
 
+  /** Merge fixture names into the persistent map WITHOUT touching the live board
+   *  (matchCache/slate). Used to resolve a contest card whose matches are beyond
+   *  the board's ~36h window — names only, no extra board rows. */
+  addFixtureNames(fixtures: { fixtureId: number; home: string; away: string }[]): void {
+    for (const f of fixtures) {
+      this.fixtureNames.set(f.fixtureId, { home: f.home, away: f.away });
+    }
+  }
+
   /**
    * Start the background poll loop (called once when the server boots,
    * NOT in tests).

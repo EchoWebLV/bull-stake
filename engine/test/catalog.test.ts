@@ -165,3 +165,45 @@ describe("fetchSlate — World Cup filter", () => {
     expect(slate).toHaveLength(0);
   });
 });
+
+// ── fetchFixturesAcross — multi-day contest-card resolver ────────────────────
+
+describe("fetchFixturesAcross — resolves a contest card beyond the board window", () => {
+  let getFixturesMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const mod = await import("../../spike/src/discover.js");
+    getFixturesMock = mod.getFixtures as ReturnType<typeof vi.fn>;
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  function fx(id: number, competition: string, competitionId: number) {
+    return {
+      FixtureId: id, Competition: competition, CompetitionId: competitionId,
+      Participant1: "Home" + id, Participant2: "Away" + id,
+      StartTime: 1_750_000_000_000 + 80 * 3_600_000, // 80h out — well past the 36h board
+    };
+  }
+
+  it("fetches `days` consecutive epochDays, dedups, keeps allow-listed only, ignores time window", async () => {
+    getFixturesMock
+      .mockResolvedValueOnce([fx(1, "World Cup", 99), fx(2, "Premier League", 1)])
+      .mockResolvedValueOnce([fx(3, "World Cup", 99), fx(1, "World Cup", 99)]) // dup id 1 across days
+      .mockResolvedValueOnce([fx(4, "World Cup", 99)]);
+
+    const fakeCtx = { baseUrl: "http://fake" } as never;
+    const fakeAuth = { jwt: "j", apiToken: "a" };
+
+    const { fetchFixturesAcross } = await import("../src/catalog.ts");
+    const out = await fetchFixturesAcross(fakeCtx, fakeAuth, 100, 3);
+
+    // one getFixtures call per day, at consecutive epochDays
+    expect(getFixturesMock).toHaveBeenCalledTimes(3);
+    expect(getFixturesMock.mock.calls.map((c) => c[2].startEpochDay)).toEqual([100, 101, 102]);
+    // allow-listed only (2 dropped), deduped (1 once), regardless of 80h distance
+    expect(out.map((f) => f.fixtureId).sort((a, b) => a - b)).toEqual([1, 3, 4]);
+    const one = out.find((f) => f.fixtureId === 1)!;
+    expect(one.home).toBe("Home1");
+    expect(one.away).toBe("Away1");
+  });
+});
