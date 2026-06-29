@@ -63,3 +63,52 @@ pub struct Claimed {
     pub payout: u64,
     pub voided: bool,
 }
+
+#[event]
+pub struct ContestCreated {
+    pub contest: Pubkey,
+    pub contest_id: u64,
+    pub num_matches: u8,
+    pub entry_price: u64,
+    pub lock_ts: i64,
+    pub settle_after_ts: i64,
+    pub settle_authority: Pubkey,
+}
+
+#[event]
+pub struct EnteredContest {
+    pub contest: Pubkey,
+    pub bettor: Pubkey,
+    pub nonce: u64,
+    pub amount: u64,
+    pub entry_count: u64,
+    pub edited: bool,
+}
+
+#[event]
+pub struct ContestSettled {
+    pub contest: Pubkey,
+    pub contest_id: u64,
+    pub winning_buckets: [u8; crate::contest_state::MAX_MATCHES],
+    pub perfect_count: u64,
+    pub pot_snapshot: u64,
+    pub distributable: u64,
+    pub rake: u64,
+    pub rolled_over: bool,
+}
+
+#[event]
+pub struct ContestVoided {
+    pub contest: Pubkey,
+    pub contest_id: u64,
+}
+
+#[event]
+pub struct ContestClaimed {
+    pub contest: Pubkey,
+    pub bettor: Pubkey,
+    pub nonce: u64,
+    pub payout: u64,
+    /// 0 = no payout (loser/rolled), 1 = win share, 2 = void refund.
+    pub kind: u8,
+}

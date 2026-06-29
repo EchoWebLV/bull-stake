@@ -19,3 +19,21 @@ pub use void_market::*;
 
 pub mod claim;
 pub use claim::*;
+
+pub mod initialize_vault;
+pub use initialize_vault::*;
+
+pub mod create_contest;
+pub use create_contest::*;
+
+pub mod void_contest;
+pub use void_contest::*;
+
+pub mod enter;
+pub use enter::*;
+
+pub mod settle_contest;
+pub use settle_contest::*;
+
+pub mod claim_contest;
+pub use claim_contest::*;

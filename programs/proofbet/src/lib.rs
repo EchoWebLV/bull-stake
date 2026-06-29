@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+pub mod contest_state;
 pub mod errors;
 pub mod events;
 pub mod instructions;
@@ -42,5 +43,42 @@ pub mod proofbet {
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         instructions::claim::handler(ctx)
+    }
+
+    pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
+        instructions::initialize_vault::handler(ctx)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_contest(
+        ctx: Context<CreateContest>,
+        contest_id: u64,
+        fixtures: [i64; crate::contest_state::MAX_MATCHES],
+        num_matches: u8,
+        entry_price: u64,
+        lock_ts: i64,
+        settle_after_ts: i64,
+        fee_recipient: Pubkey,
+        fee_bps: u16,
+    ) -> Result<()> {
+        instructions::create_contest::handler(
+            ctx, contest_id, fixtures, num_matches, entry_price, lock_ts, settle_after_ts, fee_recipient, fee_bps,
+        )
+    }
+
+    pub fn void_contest(ctx: Context<VoidContest>) -> Result<()> {
+        instructions::void_contest::handler(ctx)
+    }
+
+    pub fn enter(ctx: Context<Enter>, nonce: u64, picks: [u8; crate::contest_state::MAX_MATCHES]) -> Result<()> {
+        instructions::enter::handler(ctx, nonce, picks)
+    }
+
+    pub fn settle_contest(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
+        instructions::settle_contest::handler(ctx, perfect_count)
+    }
+
+    pub fn claim_contest(ctx: Context<ClaimContest>) -> Result<()> {
+        instructions::claim_contest::handler(ctx)
     }
 }
