@@ -12,5 +12,5 @@
     "types": ["node"],
     "allowImportingTsExtensions": false
   },
-  "include": ["settle.ts", "settle-all.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": ["settle.ts", "settle-all.ts", "contest.ts", "create-contest.ts", "test/**/*.ts", "vitest.config.ts"]
 }
