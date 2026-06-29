@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add the on-chain daily perfect-parlay sweepstake to `programs/proofbet`: a persistent jackpot vault, per-contest records, per-ticket entries, and the create/enter/settle/claim/void lifecycle — with the spec's six safety must-fixes built in.
+**Goal:** Add the on-chain daily perfect-parlay sweepstake to `programs/proofbet`: a persistent jackpot vault, per-contest records, per-ticket entries, and the create/enter/settle/claim/void lifecycle — with the spec's six safety must-fixes **and the v3 audit fixes** built in: a cross-contest `reserved` liability fence on the vault (so a prior contest's unclaimed winnings/refunds can never be rolled or double-counted into a later contest), acceptance of a zero-stake `Voided`-with-bucket result leg at settle, and a permissionless `void_contest` backstop after a grace period.
 
 **Architecture:** A new `contest_state` module (`JackpotVault` singleton + `Contest` + `Entry`) and six new instructions alongside the existing parimutuel `Market` program. Rollover = the vault's lamports persist across contests. Settlement reads winning buckets from the card's already-settled per-match result markets (`market_id = 12`, 3-bucket), passed as `remaining_accounts` and bound by re-derived PDA. `perfect_count` is keeper-supplied but blast-radius-capped per contest. Mirrors the existing `Market`/`Vault`/`Position` patterns verbatim (lamport math via `sub_lamports`/`add_lamports`, `close = bettor`, `has_one`, `InitSpace`, checked arithmetic).
 
@@ -45,6 +45,10 @@ pub const MAX_MATCHES: usize = 5;
 /// market_id of the per-fixture 1X2 "Match Result" market (engine MARKET_TEMPLATE).
 /// settle_contest reads each card match's winning bucket from this 3-bucket market.
 pub const RESULT_MARKET_ID: u8 = 12;
+/// Grace period after `settle_after_ts` past which ANYONE may `void_contest`
+/// (permissionless liveness backstop for a lost/absent keeper). Generous enough
+/// to never race a live keeper, which settles within minutes of `settle_after_ts`.
+pub const VOID_GRACE_SECS: i64 = 3 * 24 * 60 * 60; // 3 days
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum ContestStatus {
@@ -61,6 +65,12 @@ pub enum ContestStatus {
 pub struct JackpotVault {
     /// contest_id of the live contest, or 0 when none is live (one-at-a-time guard).
     pub active_contest_id: u64,
+    /// Lamports owed to ALREADY-TERMINAL contests' unclaimed tickets (winner shares
+    /// + void refunds not yet claimed). Every pot read nets this out:
+    /// free pot = lamports − rent_floor − reserved. Fences a prior contest's money
+    /// so the next contest can never roll (and over-promise) lamports still owed.
+    /// += at settle/void by what will be paid; −= on each claim/refund.
+    pub reserved: u64,
     pub bump: u8,
 }
 
@@ -102,14 +112,14 @@ pub struct Entry {
 
 - [ ] **Step 2: Wire the module into lib.rs**
 
-In `programs/proofbet/src/lib.rs`, add `contest_state` to the module list (after `pub mod state;`):
+In `programs/proofbet/src/lib.rs`, add `contest_state` to the module list (keep the list alphabetical — `contest_state` sorts first):
 
 ```rust
+pub mod contest_state;
 pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod state;
-pub mod contest_state;
 ```
 
 - [ ] **Step 3: Add contest error variants**
@@ -300,6 +310,44 @@ export async function makeSettledResultMarket(
   return market;
 }
 
+/**
+ * Create a per-fixture result market and drive it to the ZERO-WINNER void path:
+ * the only stake sits on a NON-winning bucket, then `settle` declares
+ * `winningBucket` (which has no stake). settle.rs Voids the market but RECORDS
+ * `winning_bucket`. settle_contest must still read that bucket from the Voided
+ * market (audit fix B) — a match that played but drew no stake on the winning side
+ * settles the contest instead of bricking it.
+ */
+export async function makeZeroWinnerResultMarket(
+  fixtureId: number,
+  winningBucket: number,
+  settleAuth: Keypair,
+): Promise<PublicKey> {
+  const creator = await freshFunded();
+  const market = marketPda(fixtureId, RESULT_MARKET_ID);
+  const vault = vaultPda(market);
+  await program.methods
+    .initializeMarket(new BN(fixtureId), RESULT_MARKET_ID, resultArgs({
+      settleAuthority: settleAuth.publicKey,
+      entryCloseTs: nowSec() + 3,
+    }))
+    .accountsStrict({ creator: creator.publicKey, market, vault, systemProgram: SystemProgram.programId })
+    .signers([creator]).rpc();
+  // Stake on a bucket OTHER than the eventual winner → winner bucket has 0 stake.
+  const loserBucket = (winningBucket + 1) % 3;
+  const bettor = await freshFunded();
+  const position = positionPda(market, bettor.publicKey);
+  await program.methods.placeBet(loserBucket, new BN(1000))
+    .accountsStrict({ bettor: bettor.publicKey, market, vault, position, systemProgram: SystemProgram.programId })
+    .signers([bettor]).rpc();
+  await sleep(3500);
+  await program.methods
+    .settle(winningBucket, 1, new BN(1700000000000), 0)
+    .accountsStrict({ settleAuthority: settleAuth.publicKey, market, vault, feeRecipient: creator.publicKey })
+    .signers([settleAuth]).rpc();
+  return market;
+}
+
 export { LAMPORTS_PER_SOL };
 ```
 
@@ -322,6 +370,7 @@ describe("daily sweepstake — vault", () => {
       .signers([keeper]).rpc();
     const v = await program.account.jackpotVault.fetch(vault);
     assert.equal(v.activeContestId.toNumber(), 0);
+    assert.equal(v.reserved.toNumber(), 0);
 
     // Second init must fail — the singleton already exists.
     const keeper2 = await freshFunded();
@@ -367,6 +416,7 @@ pub struct InitializeVault<'info> {
 pub fn handler(ctx: Context<InitializeVault>) -> Result<()> {
     let v = &mut ctx.accounts.vault;
     v.active_contest_id = 0;
+    v.reserved = 0;
     v.bump = ctx.bumps.vault;
     Ok(())
 }
@@ -605,6 +655,11 @@ use crate::events::ContestVoided;
 
 #[derive(Accounts)]
 pub struct VoidContest<'info> {
+    /// The caller. Must equal `contest.settle_authority` (the keeper) UNLESS the
+    /// grace period past `settle_after_ts` has elapsed, in which case anyone may
+    /// void. Because that authorization is conditional it's checked in the handler,
+    /// not via a fixed `has_one` (the account stays named `settle_authority` so the
+    /// common keeper call sites read naturally).
     pub settle_authority: Signer<'info>,
     #[account(mut, seeds = [b"jackpot_vault"], bump = vault.bump)]
     pub vault: Account<'info, JackpotVault>,
@@ -612,7 +667,6 @@ pub struct VoidContest<'info> {
         mut,
         seeds = [b"contest", contest.contest_id.to_le_bytes().as_ref()],
         bump = contest.bump,
-        has_one = settle_authority @ ProofBetError::Unauthorized,
     )]
     pub contest: Account<'info, Contest>,
 }
@@ -623,7 +677,28 @@ pub fn handler(ctx: Context<VoidContest>) -> Result<()> {
         ProofBetError::ContestNotOpen
     );
     let now = Clock::get()?.unix_timestamp;
+    // Authorization: the keeper may void any time; ANYONE may void once the grace
+    // period past settle_after_ts has elapsed (permissionless liveness backstop so
+    // a lost/absent keeper can't freeze the whole vault forever).
+    let is_keeper =
+        ctx.accounts.settle_authority.key() == ctx.accounts.contest.settle_authority;
+    let grace_elapsed =
+        now > ctx.accounts.contest.settle_after_ts.saturating_add(VOID_GRACE_SECS);
+    require!(is_keeper || grace_elapsed, ProofBetError::Unauthorized);
+
+    // Fence the refundable stake (Σ entry.amount = entry_count * entry_price) as a
+    // cross-contest liability so the next contest can't roll lamports we owe back.
+    let refundable = (ctx.accounts.contest.entry_count as u128)
+        .checked_mul(ctx.accounts.contest.entry_price as u128)
+        .ok_or(ProofBetError::MathOverflow)? as u64;
+    ctx.accounts.vault.reserved = ctx
+        .accounts
+        .vault
+        .reserved
+        .checked_add(refundable)
+        .ok_or(ProofBetError::MathOverflow)?;
     ctx.accounts.vault.active_contest_id = 0;
+
     let c = &mut ctx.accounts.contest;
     c.status = ContestStatus::Voided;
     c.settled_ts = now;
@@ -943,13 +1018,15 @@ git commit -m "feat(program): enter — multi-ticket escrow + edit-before-lock"
 
 ---
 
-## Task 5: `settle_contest` (verified buckets, new-entry rake, rollover)
+## Task 5: `settle_contest` (verified buckets, new-entry rake, rollover, reserved fence)
 
 **Files:**
 - Create: `programs/proofbet/src/instructions/settle_contest.rs`
 - Modify: `programs/proofbet/src/instructions/mod.rs`
 - Modify: `programs/proofbet/src/lib.rs`
 - Create: `tests/contest_settle.ts`
+
+> **Prerequisite (audit fix B, already applied to the base):** the per-match `settle.rs` zero-winner branch records `market.winning_bucket = Some(winning_bucket)` before voting the market to `Voided`. `settle_contest` below accepts a result leg that is `Settled` **or** `Voided`-with-a-recorded-bucket, so a match that played but drew no stake on the winning side settles the contest instead of bricking it (a `Voided` market with no bucket = abandoned → `settle_contest` rejects, keeper voids). The existing `settle.ts` "voids when the winning bucket has no stake" test asserts the bucket is now recorded.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1127,13 +1204,23 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         let data = acc.try_borrow_data()?;
         let market = Market::try_deserialize(&mut &data[..])?;
         require!(market.num_buckets == 3, ProofBetError::ResultMarketMismatch);
-        require!(market.status == MarketStatus::Settled, ProofBetError::ResultMarketNotSettled);
+        // Accept Settled OR a zero-winner Voided market that still recorded its
+        // proof-determined winning_bucket (settle.rs sets it on the void). A Voided
+        // market with NO bucket is a genuinely abandoned match → ok_or below fails →
+        // settle_contest rejects and the keeper voids the contest instead.
+        require!(
+            market.status == MarketStatus::Settled || market.status == MarketStatus::Voided,
+            ProofBetError::ResultMarketNotSettled
+        );
         winning[i] = market.winning_bucket.ok_or(ProofBetError::ResultMarketNotSettled)?;
     }
 
     let floor = rent_floor()?;
+    let reserved = ctx.accounts.vault.reserved;
     let vault_lamports = ctx.accounts.vault.to_account_info().lamports();
-    let pot_snapshot = vault_lamports.saturating_sub(floor);
+    // The free pot nets out BOTH the rent floor and lamports already owed to prior
+    // terminal contests (reserved) — that free balance is all this contest may touch.
+    let pot_snapshot = vault_lamports.saturating_sub(floor).saturating_sub(reserved);
 
     // Rake on THIS contest's new entries only (never the rolled-in pot).
     let new_stakes = (ctx.accounts.contest.entry_count as u128)
@@ -1149,8 +1236,10 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     if rake > 0 {
         ctx.accounts.vault.sub_lamports(rake)?;
         ctx.accounts.fee_recipient.add_lamports(rake)?;
+        // Prior contests' owed funds must still be covered after the rake debit.
         require!(
-            ctx.accounts.vault.to_account_info().lamports() >= floor,
+            ctx.accounts.vault.to_account_info().lamports()
+                >= floor.checked_add(reserved).ok_or(ProofBetError::MathOverflow)?,
             ProofBetError::VaultInsolvent
         );
     }
@@ -1163,6 +1252,29 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     } else {
         pot_snapshot.checked_sub(rake).ok_or(ProofBetError::MathOverflow)?
     };
+
+    // Settled (winner): fence the payable amount (share * perfect_count) as a
+    // cross-contest liability so the next contest can't roll lamports owed to this
+    // contest's winners. Floor-division dust is NOT reserved — it stays free and
+    // rolls forward. RolledOver owes no one, so reserved is unchanged.
+    if !rolled_over {
+        let share = ((distributable as u128) / (perfect_count as u128)) as u64;
+        let payable = share.checked_mul(perfect_count).ok_or(ProofBetError::MathOverflow)?;
+        ctx.accounts.vault.reserved = ctx
+            .accounts
+            .vault
+            .reserved
+            .checked_add(payable)
+            .ok_or(ProofBetError::MathOverflow)?;
+    }
+    // Global solvency invariant holds after reserving (by construction it must).
+    require!(
+        ctx.accounts.vault.to_account_info().lamports()
+            >= floor
+                .checked_add(ctx.accounts.vault.reserved)
+                .ok_or(ProofBetError::MathOverflow)?,
+        ProofBetError::VaultInsolvent
+    );
 
     let c = &mut ctx.accounts.contest;
     c.winning_buckets = winning;
@@ -1447,8 +1559,22 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
     if payout > 0 {
         ctx.accounts.vault.sub_lamports(payout)?;
         ctx.accounts.bettor.add_lamports(payout)?;
+        // Release the reserved liability by exactly what left the vault (win share
+        // or void refund). vault.lamports and reserved drop together, so the
+        // invariant vault.lamports >= floor + reserved is preserved by construction
+        // — a legitimate winner/refund is always payable, even after a LATER contest
+        // has settled. checked_sub can only fire on a real accounting bug.
+        ctx.accounts.vault.reserved = ctx
+            .accounts
+            .vault
+            .reserved
+            .checked_sub(payout)
+            .ok_or(ProofBetError::MathOverflow)?;
         require!(
-            ctx.accounts.vault.to_account_info().lamports() >= floor,
+            ctx.accounts.vault.to_account_info().lamports()
+                >= floor
+                    .checked_add(ctx.accounts.vault.reserved)
+                    .ok_or(ProofBetError::MathOverflow)?,
             ProofBetError::VaultInsolvent
         );
         if kind == 1 {
@@ -1602,7 +1728,8 @@ import {
   BN, nowSec, sleep, LAMPORTS_PER_SOL,
 } from "./helpers";
 import {
-  jackpotVaultPda, contestPda, entryPda, fixtureArray, pickArray, makeSettledResultMarket,
+  jackpotVaultPda, contestPda, entryPda, fixtureArray, pickArray,
+  makeSettledResultMarket, makeZeroWinnerResultMarket,
 } from "./contest_helpers";
 
 async function ensureVault() {
@@ -1749,6 +1876,157 @@ describe("daily sweepstake — safety", () => {
       .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest: contestB })
       .signers([keeper]).rpc();
   });
+
+  it("cross-contest solvency: a prior contest's straggler is still paid after the next contest settles", async () => {
+    // THE audit regression. Without the `reserved` fence, contest B's pot_snapshot
+    // double-counts A's unclaimed winner share and the straggler reverts forever.
+    const vault = await ensureVault();
+    const keeper = await freshFunded();
+    const settleAuth = await freshFunded();
+
+    // Contest A: two perfect tickets (perfect_count = 2). Only ONE claims now.
+    const idA = 80005;
+    const cA = contestPda(idA);
+    const fA = [80050, 80051, 80052];
+    const resA = [0, 1, 2];
+    let lock = nowSec() + 5;
+    await program.methods
+      .createContest(new BN(idA), fixtureArray(fA), 3, new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+      .accountsStrict({ keeper: keeper.publicKey, vault, contest: cA, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    const a1 = await freshFunded();
+    const a2 = await freshFunded();
+    for (const p of [a1, a2]) {
+      await program.methods.enter(new BN(0), pickArray(resA))
+        .accountsStrict({ bettor: p.publicKey, vault, contest: cA, entry: entryPda(cA, p.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([p]).rpc();
+    }
+    const mA = [];
+    for (let i = 0; i < 3; i++) mA.push(await makeSettledResultMarket(fA[i], resA[i], settleAuth));
+    await sleep(6500);
+    await program.methods.settleContest(new BN(2))
+      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest: cA, feeRecipient: keeper.publicKey })
+      .remainingAccounts(mA.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+      .signers([keeper]).rpc();
+    const shareA = Math.floor((await program.account.contest.fetch(cA)).distributable.toNumber() / 2);
+
+    // a1 claims; a2 is the STRAGGLER (does not claim yet). reserved holds a2's share.
+    const a1VBefore = await balance(vault);
+    await program.methods.claimContest()
+      .accountsStrict({ bettor: a1.publicKey, vault, contest: cA, entry: entryPda(cA, a1.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([a1]).rpc();
+    assert.equal(a1VBefore - (await balance(vault)), shareA, "a1 paid its share from the vault");
+    assert.equal((await program.account.jackpotVault.fetch(vault)).reserved.toNumber(), shareA, "a2's share stays reserved");
+
+    // Contest B opens (active_contest_id == 0 after A settled), 2 perfect tickets, settles.
+    const idB = 80006;
+    const cB = contestPda(idB);
+    const fB = [80060, 80061, 80062];
+    const resB = [2, 0, 1];
+    lock = nowSec() + 5;
+    await program.methods
+      .createContest(new BN(idB), fixtureArray(fB), 3, new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+      .accountsStrict({ keeper: keeper.publicKey, vault, contest: cB, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    const b1 = await freshFunded();
+    const b2 = await freshFunded();
+    for (const p of [b1, b2]) {
+      await program.methods.enter(new BN(0), pickArray(resB))
+        .accountsStrict({ bettor: p.publicKey, vault, contest: cB, entry: entryPda(cB, p.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([p]).rpc();
+    }
+    const mB = [];
+    for (let i = 0; i < 3; i++) mB.push(await makeSettledResultMarket(fB[i], resB[i], settleAuth));
+    await sleep(6500);
+    await program.methods.settleContest(new BN(2))
+      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest: cB, feeRecipient: keeper.publicKey })
+      .remainingAccounts(mB.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+      .signers([keeper]).rpc();
+    // B's pot must EXCLUDE a2's reserved share: distributable_B = 2 SOL new − 5% rake
+    // = 1.9 SOL (NOT 2.95 SOL, which is the double-counting bug). Integer math, no float.
+    const expectedDistB = 2 * LAMPORTS_PER_SOL - Math.floor((2 * LAMPORTS_PER_SOL * 500) / 10000);
+    assert.equal((await program.account.contest.fetch(cB)).distributable.toNumber(), expectedDistB, "B's pot excludes A's reserved straggler share (1.9 SOL, not 2.95)");
+
+    // B's winners both claim.
+    for (const p of [b1, b2]) {
+      await program.methods.claimContest()
+        .accountsStrict({ bettor: p.publicKey, vault, contest: cB, entry: entryPda(cB, p.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([p]).rpc();
+    }
+
+    // THE REGRESSION: A's straggler a2 claims LAST and MUST be paid its full share.
+    const a2VBefore = await balance(vault);
+    await program.methods.claimContest()
+      .accountsStrict({ bettor: a2.publicKey, vault, contest: cA, entry: entryPda(cA, a2.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([a2]).rpc();
+    assert.equal(a2VBefore - (await balance(vault)), shareA, "straggler a2 paid its full share — no cross-contest insolvency");
+    assert.equal((await program.account.jackpotVault.fetch(vault)).reserved.toNumber(), 0, "all liabilities released");
+  });
+
+  it("settles a contest whose result leg is a zero-stake (voided-with-bucket) market", async () => {
+    const vault = await ensureVault();
+    const keeper = await freshFunded();
+    const settleAuth = await freshFunded();
+    const contestId = 80007;
+    const contest = contestPda(contestId);
+    const fixtures = [80070, 80071, 80072];
+    const results = [0, 1, 2];
+    const lock = nowSec() + 5;
+    await program.methods
+      .createContest(new BN(contestId), fixtureArray(fixtures), 3, new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    const winner = await freshFunded();
+    const e = entryPda(contest, winner.publicKey, 0);
+    await program.methods.enter(new BN(0), pickArray(results))
+      .accountsStrict({ bettor: winner.publicKey, vault, contest, entry: e, systemProgram: SystemProgram.programId })
+      .signers([winner]).rpc();
+    // Legs 0 & 1 settle normally; leg 2 is a ZERO-WINNER market → Voided WITH bucket.
+    const markets = [
+      await makeSettledResultMarket(fixtures[0], results[0], settleAuth),
+      await makeSettledResultMarket(fixtures[1], results[1], settleAuth),
+      await makeZeroWinnerResultMarket(fixtures[2], results[2], settleAuth),
+    ];
+    await sleep(6500);
+    await program.methods.settleContest(new BN(1))
+      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: keeper.publicKey })
+      .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+      .signers([keeper]).rpc();
+    const c = await program.account.contest.fetch(contest);
+    assert.deepEqual(c.status, { settled: {} }, "contest settles despite a zero-stake result leg");
+    assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0], "winning bucket read from the voided-with-bucket market");
+    const vBefore = await balance(vault);
+    await program.methods.claimContest()
+      .accountsStrict({ bettor: winner.publicKey, vault, contest, entry: e, systemProgram: SystemProgram.programId })
+      .signers([winner]).rpc();
+    assert.isAbove(vBefore - (await balance(vault)), 0, "perfect ticket paid");
+  });
+
+  it("rejects void_contest by a non-keeper before the grace period (deny path of the permissionless backstop)", async () => {
+    // The ALLOW-after-grace path (now > settle_after_ts + VOID_GRACE, 3 days) can't be
+    // wall-clock tested on a local validator; it is reviewed in void_contest.rs. Here we
+    // assert the deny path: a stranger cannot void early.
+    const vault = await ensureVault();
+    const keeper = await freshFunded();
+    const contestId = 80008;
+    const contest = contestPda(contestId);
+    const lock = nowSec() + 5;
+    await program.methods
+      .createContest(new BN(contestId), fixtureArray([80080, 80081, 80082]), 3, new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    const stranger = await freshFunded();
+    await expectError(
+      program.methods.voidContest()
+        .accountsStrict({ settleAuthority: stranger.publicKey, vault, contest })
+        .signers([stranger]).rpc(),
+      "Unauthorized",
+    );
+    // Keeper can still void any time (teardown).
+    await program.methods.voidContest()
+      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest })
+      .signers([keeper]).rpc();
+  });
 });
 ```
 
@@ -1768,9 +2046,10 @@ git commit -m "test(program): sweepstake safety + conservation + rollover invari
 
 ## Done criteria
 
-- `anchor test` runs the full suite green, including the existing `Market` tests (no regressions) and all new `contest_*` tests.
+- `anchor test` runs the full suite green, including the existing `Market` tests (no regressions — note the updated `settle.ts` zero-winner assertion) and all new `contest_*` tests.
 - Six new instructions exist and are wired in `lib.rs`: `initialize_vault`, `create_contest`, `enter`, `settle_contest`, `claim_contest`, `void_contest`.
-- Every spec §15 program invariant has a passing test: escrow + no-double-charge edit, multi-ticket, post-lock reject, verified buckets + wrong-market reject, new-entry-only rake, rollover, perfect split + double-claim block, rent-floor survival, solvency cap, void refund, conservation, rollover continuity, one-live-contest.
+- `JackpotVault` carries `reserved`; every pot read nets it out; settle/void increment it and each claim/refund decrements it, keeping `vault.lamports ≥ rent_floor + reserved` at all times.
+- Every spec §15 program invariant has a passing test: escrow + no-double-charge edit, multi-ticket, post-lock reject, verified buckets + wrong-market reject, new-entry-only rake, rollover, perfect split + double-claim block, rent-floor survival, solvency cap, void refund, conservation, rollover continuity, one-live-contest, **cross-contest solvency (straggler paid after the next contest settles), zero-stake result leg settles, permissionless-void deny-before-grace**.
 
 ## Follow-on plans (not in this plan)
 1. **Engine** — `/api/contest/{today,entries,alive}` reading the new accounts via `chain.ts`; the `COMPETITION_ALLOWLIST` is already wired in `catalog.ts`.

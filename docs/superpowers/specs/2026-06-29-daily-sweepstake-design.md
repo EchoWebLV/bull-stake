@@ -7,6 +7,7 @@
 **Relationship to the secondary feature:** the tradeable per-match LMSR prediction market is **parked** at [../secondary-prediction-market.md](../secondary-prediction-market.md). This sweepstake is the **main** product; the existing per-match parimutuel board becomes the **second** tab.
 
 ### Revision history
+- **v3 (2026-06-29):** Folded in an adversarial money-safety audit (7 lenses, each finding independently refutation-tested). Fixes: (1) **cross-contest solvency** — the singleton vault now carries a `reserved` liability counter; every pot read nets it out (`free pot = lamports − rent_floor − reserved`), so a later contest can never roll (and over-promise) lamports still owed to a prior contest's unclaimed winners/refunds. This closes the previously-false §9 "never cross-contest insolvency" guarantee (a winner claiming a day late could otherwise be permanently unpayable). (2) **Zero-stake result market** — the per-match `settle` now records the proof-determined `winning_bucket` even on its zero-winner void, and `settle_contest` accepts a result market that is `Settled` **or** `Voided-with-bucket`, so a real result with no stake on the winning side settles the contest instead of bricking it. (3) **Keeper-loss liveness** — `void_contest` gains a permissionless path after `settle_after_ts + VOID_GRACE` (3 days) so a lost/absent keeper can't freeze the whole vault forever. (Refuted, no change: a claimed `contest_id`=epoch-day collision — `contest_id` is a caller-supplied `u64`, not clock-derived.)
 - **v2 (2026-06-29):** Folded in a 5-lens adversarial design review + an empirical TxLINE match-supply probe. Material changes: (1) **rolling next-N-kickoffs card**, not a strict UTC calendar day; (2) **adaptive card size** (floor 3 / target 4 / cap 5) with an explicit **skip-on-thin → pot persists** rule; (3) **competition scope is a config allow-list** (World Cup for v1; year-round needs a broader feed — a data-entitlement step, not code); (4) **vault rent-floor netting** so draining to dust can't brick the singleton vault; (5) **per-contest solvency cap** (`claimed_total`/`claimed_count`) bounding a bad `perfect_count`; (6) **settlement bound to the card's result-market PDAs** (re-derived + checked), making "verified" true; (7) **rake moved off "payout only"** to **5% of each contest's new entries at settle** (always-on, never taxes the rolled-in pot); (8) misc safety fixes (deterministic new-ticket detection, stored `distributable`, `sub/add_lamports` for program-owned vault transfers, one-live-contest guard, array-tail guard).
 - **v1 (2026-06-29):** Initial design (persistent vault + per-day contest + per-ticket entry; perfect-parlay-splits-or-rolls; multi-ticket).
 
@@ -96,12 +97,15 @@ All PDAs program-owned. Lamport math reuses `proofbet`'s rent-floor-aware patter
 seeds = ["jackpot_vault"]
 struct JackpotVault {
   active_contest_id: u64,   // 0 = none live; enforces one contest at a time
+  reserved:          u64,   // lamports owed to already-terminal contests' unclaimed tickets
   bump: u8,
-}                            // jackpot = lamports − rent_floor; not a field
+}                            // free pot (jackpot) = lamports − rent_floor − reserved; not a field
 ```
-A program-owned escrow whose balance (net of its own rent-exempt minimum) is the rolling jackpot. Created **once** via `initialize_vault` (plain `init`, payer = keeper — no `init_if_needed` footgun). Its lamports persist across every contest — **this persistence is the rollover.** `active_contest_id` makes "one contest at a time" an on-chain invariant, not just a keeper convention.
+A program-owned escrow whose balance (net of its own rent-exempt minimum **and** `reserved`) is the rolling jackpot. Created **once** via `initialize_vault` (plain `init`, payer = keeper — no `init_if_needed` footgun). Its lamports persist across every contest — **this persistence is the rollover.** `active_contest_id` makes "one contest at a time" an on-chain invariant, not just a keeper convention.
 
-> **Rent floor.** The vault's own rent-exempt minimum (`Rent::minimum_balance(8 + JackpotVault::INIT_SPACE)`) is **never** part of the pot. Every pot read nets it out and every debit (`settle` rake, `claim` payout/refund) asserts `vault.lamports ≥ rent_floor` afterward. Without this, "distribute down to dust" would push the singleton below rent and the runtime would garbage-collect it mid-claim-cycle.
+> **Rent floor.** The vault's own rent-exempt minimum (`Rent::minimum_balance(8 + JackpotVault::INIT_SPACE)`) is **never** part of the pot. Every pot read nets it out and every debit (`settle` rake, `claim` payout/refund) asserts `vault.lamports ≥ rent_floor + reserved` afterward. Without this, "distribute down to dust" would push the singleton below rent and the runtime would garbage-collect it mid-claim-cycle.
+
+> **Reserved (cross-contest liability fence).** The vault is **one shared pot** across all contests, so a later contest must not roll forward lamports that are still owed to an *earlier* one. `reserved` is the running total of unclaimed obligations from already-**terminal** contests: at `settle_contest` of a winning contest it grows by the amount that will actually be paid out (`share × perfect_count`); at `void_contest` it grows by `entry_count × entry_price` (the refundable stake); each `claim_contest` payout/refund decrements it by exactly what leaves the vault. Because **every** pot read is `vault.lamports − rent_floor − reserved`, a new contest only ever rolls the genuinely-free balance, and the invariant `vault.lamports ≥ rent_floor + reserved` is preserved by construction on every claim (vault and `reserved` drop by the same amount) — so a legitimate winner/refund can **always** be paid, even one who claims days after the next contest has settled. Floor-division **dust** (`distributable − share × perfect_count`) is *not* reserved — it stays in the free pot and rolls forward.
 
 ### 5.2 `Contest` (one per contest)
 ```
@@ -120,7 +124,7 @@ struct Contest {
   winning_buckets:  [u8; 5],      // 0=Home 1=Draw 2=Away; first `num_matches` valid
   entry_count:      u64,          // # tickets entered (drives new-entry rake + void refund total)
   perfect_count:    u64,          // # perfect tickets; the split divisor (keeper-supplied, capped)
-  pot_snapshot:     u64,          // net pot (vault.lamports − rent_floor) captured at settle
+  pot_snapshot:     u64,          // net pot (vault.lamports − rent_floor − reserved) captured at settle
   distributable:    u64,          // pot_snapshot − rake, stored at settle so every claim reads one value
   claimed_count:    u64,          // # claims paid so far (caps payouts at perfect_count)
   claimed_total:    u64,          // lamports paid out so far (caps payouts at distributable)
@@ -148,11 +152,11 @@ A wallet may hold **multiple tickets**: each `nonce` is a distinct `Entry` PDA =
 ## 6. Instructions
 
 ### 6.0 `initialize_vault()`
-- Signer: **keeper** (payer). One-time `init` of the singleton `JackpotVault` (`active_contest_id = 0`). Plain `init`, not `init_if_needed` — removes the genesis race / feature-flag footgun and makes the rent funder explicit.
+- Signer: **keeper** (payer). One-time `init` of the singleton `JackpotVault` (`active_contest_id = 0`, `reserved = 0`). Plain `init`, not `init_if_needed` — removes the genesis race / feature-flag footgun and makes the rent funder explicit.
 
 ### 6.1 `create_contest(contest_id, fixtures, num_matches, entry_price, lock_ts, settle_after_ts, fee_bps)`
 - Signer: **keeper** (becomes `settle_authority`). Takes the `JackpotVault` as a seeds+bump-constrained account.
-- Requires `vault.active_contest_id == 0` (no live contest); sets it to `contest_id`. Inits the `Contest` (status `Open`). The pot starts from whatever is **already in the vault** (rollover) — no transfer.
+- Requires `vault.active_contest_id == 0` (no live contest); sets it to `contest_id`. Inits the `Contest` (status `Open`). The pot starts from the vault's **free balance** (`vault.lamports − rent_floor − reserved`) — the rollover — with no transfer. `reserved` is untouched at create (it belongs to prior terminal contests).
 - Validates `3 <= num_matches <= 5`, `fee_bps <= MAX_FEE_BPS`, `entry_price > 0`, `now < lock_ts < settle_after_ts`, and `fixtures[i] != 0` for `i < num_matches`.
 
 ### 6.2 `enter(nonce, picks)`
@@ -164,25 +168,26 @@ A wallet may hold **multiple tickets**: each `nonce` is a distinct `Entry` PDA =
 
 ### 6.3 `settle_contest(perfect_count)` — winning buckets read on-chain
 - Signer: **keeper** (`has_one = settle_authority`). Requires `status == Open` and `now >= settle_after_ts`.
-- **Winning buckets are not a parameter.** Pass exactly `num_matches` result-market accounts as remaining accounts. For each `i < num_matches`, the program **re-derives** the expected market PDA from `["market", contest.fixtures[i].to_le_bytes(), RESULT_MARKET_ID.to_le_bytes()]`, asserts `remaining_accounts[i].key() == that PDA`, `owner == this program`, `status == Settled`, `num_buckets == 3`, then **copies** that market's `winning_bucket` into `contest.winning_buckets[i]`. This binds the result to the card's actual fixtures (a shadow market can't be substituted). The all-markets-Settled requirement is also the real liveness gate.
-- `pot_snapshot = vault.lamports − rent_floor`.
-- **Rake (new-entries only):** `rake = (entry_count * entry_price) * fee_bps / 10000`, taken at settle on **both** Settled and RolledOver outcomes, paid vault→`fee_recipient` via `sub_lamports`/`add_lamports`, `fee_recipient` pinned by `address = contest.fee_recipient`. The rolled-in pot is never taxed (only this contest's new stakes). Assert `vault.lamports ≥ rent_floor` after the debit.
-- If `perfect_count == 0` → `status = RolledOver`. The net remainder (`pot_snapshot − rake`) stays and carries forward. `distributable = 0`.
-- Else → `status = Settled`. `distributable = pot_snapshot − rake`, stored on the `Contest`.
+- **Winning buckets are not a parameter.** Pass exactly `num_matches` result-market accounts as remaining accounts. For each `i < num_matches`, the program **re-derives** the expected market PDA from `["market", contest.fixtures[i].to_le_bytes(), RESULT_MARKET_ID.to_le_bytes()]`, asserts `remaining_accounts[i].key() == that PDA`, `owner == this program`, `num_buckets == 3`, and that its status is `Settled` **or** `Voided` (the per-match `settle` records the proof-determined `winning_bucket` even on its zero-winner void — a real result with no stake on the winning side), then **copies** that market's `winning_bucket` into `contest.winning_buckets[i]`. A `Voided` market with **no** recorded bucket (a genuinely abandoned match) yields no bucket → `settle_contest` rejects (`ResultMarketNotSettled`); the keeper voids the contest instead. This binds the result to the card's actual fixtures (a shadow market can't be substituted). The all-markets-resolved requirement is also the real liveness gate.
+- `pot_snapshot = vault.lamports − rent_floor − reserved` (the free pot; prior contests' owed funds are fenced off).
+- **Rake (new-entries only):** `rake = (entry_count * entry_price) * fee_bps / 10000`, clamped to `pot_snapshot`, taken at settle on **both** Settled and RolledOver outcomes, paid vault→`fee_recipient` via `sub_lamports`/`add_lamports`, `fee_recipient` pinned by `address = contest.fee_recipient`. The rolled-in pot is never taxed (only this contest's new stakes). Assert `vault.lamports ≥ rent_floor + reserved` after the debit.
+- If `perfect_count == 0` → `status = RolledOver`. The net remainder (`pot_snapshot − rake`) stays in the free pot and carries forward. `distributable = 0`; `reserved` unchanged (a rollover owes no one).
+- Else → `status = Settled`. `distributable = pot_snapshot − rake`, stored on the `Contest`; and `vault.reserved += (distributable / perfect_count) * perfect_count` — the payable amount is now fenced as a cross-contest liability (the dust stays free and rolls).
 - Records `winning_buckets`, `perfect_count`, `pot_snapshot`, `distributable`, `settled_ts`; clears `vault.active_contest_id = 0`.
 
 ### 6.4 `claim_contest()`
 - Signer: **player.** Requires a **terminal** status (`Settled`, `RolledOver`, or `Voided`). One instruction handles payout, refund, and rent-only close.
 - Branches by status; payouts are computed from **stored** `distributable` (never live `vault.lamports`):
-  - **Settled + perfect** (`entry.picks[i] == winning_buckets[i]` for all `i < num_matches`, verified on-chain) → `require!(perfect_count > 0)`; `payout = distributable / perfect_count` (u128 intermediate). **Solvency cap:** require `claimed_count < perfect_count` **and** `claimed_total + payout <= distributable`; then `claimed_count += 1`, `claimed_total += payout`, transfer vault→player, assert `vault.lamports ≥ rent_floor` after.
+  - **Settled + perfect** (`entry.picks[i] == winning_buckets[i]` for all `i < num_matches`, verified on-chain) → `require!(perfect_count > 0)`; `payout = distributable / perfect_count` (u128 intermediate). **Solvency cap:** require `claimed_count < perfect_count` **and** `claimed_total + payout <= distributable`; then `claimed_count += 1`, `claimed_total += payout`, `vault.reserved -= payout`, transfer vault→player, assert `vault.lamports ≥ rent_floor + reserved` after.
   - **Settled + not perfect** → no payout; close only.
   - **RolledOver** → no payout (stake is in the rolled-forward pot); close only.
-  - **Voided** → refund `entry.amount` vault→player (assert rent floor after).
-- `has_one = bettor` and `close = bettor` (mirrors `claim.rs`): only the ticket owner can claim, rent returns to them, and a second claim fails with `AccountNotInitialized`. The cap means a too-low `perfect_count` can at worst over-pay early claimers up to `distributable` — it can **never** reach another contest's funds or the rent floor.
+  - **Voided** → refund `entry.amount` vault→player; `vault.reserved -= entry.amount` (assert `vault.lamports ≥ rent_floor + reserved` after).
+- `has_one = bettor` and `close = bettor` (mirrors `claim.rs`): only the ticket owner can claim, rent returns to them, and a second claim fails with `AccountNotInitialized`. Each payout decrements `vault.reserved` by exactly what leaves the vault, so the invariant `vault.lamports ≥ rent_floor + reserved` holds by construction — a winner/refund can always be paid, even after a later contest has settled. The per-contest cap still bounds a too-low `perfect_count` to over-paying early claimers up to **this** contest's `distributable`; it can **never** reach another contest's reserved funds or the rent floor.
 
-### 6.5 `void_contest()` (abandoned card)
-- Signer: **keeper** (`has_one`). If any card match is abandoned/void (no provable result), set `status = Voided` and clear `vault.active_contest_id = 0`. No rake on void.
-- Each ticket then calls `claim_contest` → **refund `entry.amount`** (the actually-paid field, not a recomputed total), close entry. The **rolled-in** portion stays in the vault and carries forward.
+### 6.5 `void_contest()` (abandoned card + keeper-loss backstop)
+- Signer: the **keeper** (must equal `contest.settle_authority`) **or**, once `now > settle_after_ts + VOID_GRACE` (3 days), **anyone** (a permissionless liveness backstop — a lost/absent keeper can no longer freeze the whole vault forever; the grace is far longer than the keeper's normal settle latency, so it never races a live keeper). Authorization is checked in the handler (not a fixed `has_one`) to allow the after-grace path.
+- Requires `status == Open`. Sets `status = Voided`, clears `vault.active_contest_id = 0`, and **`vault.reserved += entry_count * entry_price`** — the refundable stake is now fenced as a cross-contest liability so the next contest can't roll it. No rake on void.
+- Each ticket then calls `claim_contest` → **refund `entry.amount`** (the actually-paid field, not a recomputed total), which decrements `reserved`, and closes the entry. The **rolled-in** portion stays in the free pot and carries forward.
 
 ## 7. Contest lifecycle & rollover
 
@@ -198,7 +203,7 @@ day N        create_contest(N)         status=Open, pot = vault balance (rollove
 (thin gap)   < 3 in-scope fixtures      keeper SKIPS create_contest; pot persists ("paused")
 next         create_contest(N+k)        pot = whatever's left in the vault
 ```
-The vault is the single source of continuity: **rollover is just "don't move the money."** A winning contest distributes the pot down to dust; the next starts from that dust (plus new entries). A no-winner contest carries the net pot forward. A thin window opens no contest at all — the pot simply waits.
+The vault is the single source of continuity: **rollover is just "don't move the money."** A winning contest distributes the pot down to dust; the next starts from that dust (plus new entries). A no-winner contest carries the net pot forward. A thin window opens no contest at all — the pot simply waits. Because winners may claim *after* the next contest opens, a winning/voided contest's owed lamports are tracked in `vault.reserved` and excluded from every pot read, so the next contest only ever rolls the genuinely-free balance (the cross-contest solvency fence, §5.1/§8).
 
 ## 8. Economics
 
@@ -206,15 +211,17 @@ The vault is the single source of continuity: **rollover is just "don't move the
 - **Multi-ticket = stake-weighted lottery (honest framing).** Only the line matching the one real outcome is perfect. Distinct cards covering *different* scenarios give you more **chances** (at most one of them can win → one share). A **duplicate** of the winning card genuinely buys a **second share** (it was paid for; there's no on-chain dedupe). So: more tickets = more chances, and stacking copies of one scenario scales your slice of that scenario. We describe it as a stake-weighted lottery — not "extra tickets never enlarge your slice."
 - **Rake:** `(entry_count * entry_price) * fee_bps / 10000` (5% of this contest's new entries), taken at settle on **win or roll**, never on the rolled-in pot. Always-on revenue; no perverse "operator wants no winner" incentive; no retroactive tax on the accumulated jackpot. No rake on void.
 - **Split:** each perfect ticket claims `floor(distributable / perfect_count)`, where `distributable = pot_snapshot − rake` (stored at settle).
-- **Solvency invariant:** enforced on-chain per contest — `claimed_count ≤ perfect_count` and `claimed_total ≤ distributable ≤ pot_snapshot ≤ vault.lamports − rent_floor`. A bad `perfect_count` (§9) cannot exceed `distributable` or touch the rent floor / other contests. Dust (floor remainder) stays escrowed and rolls forward.
-- **Void:** refunds `Σ entry.amount` (= `entry_count * entry_price`); the rolled-in remainder stays in the vault.
+- **Solvency invariant (two layers):**
+  - *Per-contest:* `claimed_count ≤ perfect_count` and `claimed_total ≤ distributable ≤ pot_snapshot`. A bad `perfect_count` (§9) cannot pay beyond this contest's own `distributable`.
+  - *Cross-contest (the global one):* `vault.lamports ≥ rent_floor + reserved` at all times, where `reserved = Σ` (unclaimed obligations of every already-terminal contest). Every pot read nets `reserved` out, and each claim drops `vault.lamports` and `reserved` together, so the invariant holds by construction — no contest can roll or pay lamports owed to another, and any legitimate winner/refund is always payable. Dust (floor remainder, never reserved) stays escrowed and rolls forward.
+- **Void:** refunds `Σ entry.amount` (= `entry_count * entry_price`), tracked in `reserved` until claimed; the rolled-in remainder stays in the free pot.
 
 ## 9. Settlement source of truth & trust model
 
 The keeper influences two things at settle; they now have very different trust profiles:
 
-- **Winning buckets — verified on-chain (v1).** `settle_contest` does **not** accept buckets as a parameter. It re-derives each card fixture's result-market PDA from `contest.fixtures[i]`, requires it is program-owned, `Settled`, and 3-bucket, and copies its `winning_bucket` (§6.3). Because the PDA is derived from the contest's own fixtures, the keeper cannot point at a shadow market — "verified against on-chain settlements" is now literally true. The keeper's only settlement job is to settle those per-match result markets (the same proof path used today) and then call `settle_contest`.
-- **`perfect_count` — keeper-supplied but blast-radius-capped.** It still can't be computed in one instruction (it requires scanning every `Entry`), so the keeper counts off-chain and supplies it. The risk is asymmetric: too **high** → winners under-paid, surplus rolls forward (safe); too **low** → winners over-draw. The **per-contest solvency cap** (`claimed_count ≤ perfect_count`, `claimed_total ≤ distributable`, §6.4/§8) bounds the worst case to "early claimers over-paid up to this contest's `distributable`" — never cross-contest insolvency, never the rent floor. This cap is what makes deferring full trustlessness honest.
+- **Winning buckets — verified on-chain (v1).** `settle_contest` does **not** accept buckets as a parameter. It re-derives each card fixture's result-market PDA from `contest.fixtures[i]`, requires it is program-owned, 3-bucket, and either `Settled` or `Voided`-with-a-recorded-`winning_bucket`, and copies its `winning_bucket` (§6.3). The `Voided`-with-bucket case is a real result on which nobody staked the winning side (the per-match `settle` records the bucket before voting it to refund); accepting it means such a leg settles the contest rather than wedging it. A `Voided` market with no bucket (a genuinely abandoned match) is rejected → the keeper voids the contest. Because the PDA is derived from the contest's own fixtures, the keeper cannot point at a shadow market — "verified against on-chain settlements" is now literally true. The keeper's only settlement job is to settle those per-match result markets (the same proof path used today) and then call `settle_contest`.
+- **`perfect_count` — keeper-supplied but blast-radius-capped.** It still can't be computed in one instruction (it requires scanning every `Entry`), so the keeper counts off-chain and supplies it. The risk is asymmetric: too **high** → winners under-paid, surplus rolls forward (safe); too **low** → winners over-draw. The **per-contest solvency cap** (`claimed_count ≤ perfect_count`, `claimed_total ≤ distributable`, §6.4/§8) bounds the worst case to "early claimers over-paid up to this contest's `distributable`." It can **never** reach another contest's funds or the rent floor — that is now structurally guaranteed by the `reserved` liability fence (§5.1/§8: every pot read nets `reserved`, and `vault.lamports ≥ rent_floor + reserved` holds on every claim), not merely by the per-contest cap. This is what makes deferring full trustlessness honest.
   - **Hardening (roadmap, not v1):** a two-phase settle — phase 1 records verified `winning_buckets`; a **registration window** lets each perfect entry call `register_win` (on-chain increment = trustless count); then claims pay `distributable / perfect_count`. A **merkle root** of the winner set is the wrong tool here (winners are few and Entries already exist on-chain; the root still needs the off-chain scan you're trying to remove). Explicitly deferred.
 
 This is the "verifiable, single-source, detectable-not-trustless" posture from §2.
@@ -238,7 +245,7 @@ A probe of the live TxLINE feed (devnet) over a 23-day window returned **78 Worl
 ## 11. Engine (`engine/`)
 
 New `/api/contest` surface (reads on-chain accounts via `chain.ts`; no custody):
-- `GET /api/contest/today` → the live `Contest`: card fixtures (+ team names/kickoffs from the feed), `entry_price`, `lock_ts`, `status`, live **pot** (`vault.lamports − rent_floor`), **rolled-days / paused** state, `entry_count`.
+- `GET /api/contest/today` → the live `Contest`: card fixtures (+ team names/kickoffs from the feed), `entry_price`, `lock_ts`, `status`, live **pot** (`vault.lamports − rent_floor − reserved`), **rolled-days / paused** state, `entry_count`.
 - `GET /api/contest/entries?wallet=…` → that wallet's `Entry` tickets for the live contest (each with `nonce`, picks, amount); empty if none.
 - `GET /api/contest/alive` → the live **"still alive"** board: how many picks are still correct given matches settled so far (aggregate for v1; per-wallet detail for the signed-in user).
 
@@ -301,8 +308,10 @@ Trustless `perfect_count` (registration window / merkle), forced rolldown / pot 
 - `claim_contest` pays `distributable / perfect_count` to a perfect ticket; rejects a non-perfect ticket's payout; payout reads stored `distributable`, not live balance.
 - Multi-ticket payout: a wallet with several distinct lines collects exactly **one** share; a **duplicate** of the perfect card collects **two**.
 - Double-claim blocked (entry closed); two perfect winners each get the split, dust ≤ `perfect_count` lamports remains.
-- `void_contest` → each ticket refunds `entry.amount`; rolled-in remainder stays; no rake taken.
+- `void_contest` → each ticket refunds `entry.amount`; rolled-in remainder stays; no rake taken; `void_contest` by a non-keeper **before** `settle_after_ts + VOID_GRACE` is rejected (`Unauthorized`).
 - Conservation: `Σ payouts + rake + dust == pot_snapshot` (Settled); `Σ refunds == entry_count * entry_price` (Voided).
+- **Cross-contest solvency (the audit regression):** contest A settles with 2 winners (`perfect_count = 2`), only one claims; contest B then opens, takes entries, and settles with its own winners who all claim; A's straggler then claims and **is paid in full**, and the vault never drops below `rent_floor + reserved` throughout. (Without the `reserved` fence this straggler reverts — the bug this guards.)
+- **Zero-stake result leg:** a card whose result market is `Voided` for lack of stake on the proof-determined winning bucket (bucket recorded) still **settles** the contest; an abandoned-match market with no bucket makes `settle_contest` reject so the keeper voids.
 - One-live-contest: `create_contest` rejects while `active_contest_id != 0`.
 
 **Engine/keeper:** unit tests for the contest reader, `/api/contest/*` shapes, the allow-list filter, the adaptive card-build (`k<3` → skip; `k≥4` → 4; `k>5` → cap 5), uncertainty ranking, and the perfect-count counter.
@@ -316,8 +325,8 @@ Trustless `perfect_count` (registration window / merkle), forced rolldown / pot 
 - **Data supply / scope:** the free devnet tier is World-Cup-only; year-round operation needs a broader TxODDS entitlement (a business/licensing step). Scope is a config allow-list so widening is a setting (§10).
 - **Legal:** real-money contest → jurisdictional exposure; devnet-only this iteration, framed as a verifiable-settlement demo. Mainnet needs legal review.
 - **Cold-start pot:** early contests have a small pot until rollovers accumulate (the rollover mechanic is exactly the fix); an optional genesis seed deposit is a lever.
-- **Card liveness:** an abandoned card match routes to `void_contest` (full refunds); no funds stuck.
-- **Keeper availability:** a stalled keeper delays settle/claim (detectable, not forgeable). Production posture is a multisig `settle_authority`.
+- **Card liveness:** a genuinely abandoned card match (its result market voided with no recorded bucket) routes to `void_contest` (full refunds); a match that *played* but drew no stake on the winning side still settles the contest (the bucket is recorded on the void, §6.3/§9). No funds stuck either way.
+- **Keeper availability:** a stalled keeper delays settle/claim (detectable, not forgeable). A **lost/absent keeper can no longer freeze the vault permanently**: `void_contest` is permissionless once `now > settle_after_ts + VOID_GRACE` (3 days), unwinding the stuck contest to refunds so the rolled pot is freed (§6.5). Production posture remains a multisig `settle_authority`.
 - **Token safety:** TxLINE API token stays in the engine/keeper, never shipped to the client.
 
 ## 17. Relationship to the secondary feature
