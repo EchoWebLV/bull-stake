@@ -112,7 +112,10 @@ describe("settle", () => {
 
     const m = await program.account.market.fetch(market);
     assert.deepEqual(m.status, { voided: {} });
-    assert.isNull(m.winningBucket);
+    // The proof-determined winning bucket is recorded even on the zero-winner void
+    // so the daily sweepstake's settle_contest can read it (standalone claim still
+    // refunds every staked bucket on Voided and ignores this field).
+    assert.equal(m.winningBucket, 0);
     // proof-binding must be recorded on the void path too
     assert.equal(m.settledSeq, 5);
     assert.equal(m.settledTs.toString(), "1");

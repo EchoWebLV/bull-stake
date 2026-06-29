@@ -49,10 +49,15 @@ pub fn handler(
     let fixture_id = ctx.accounts.market.fixture_id;
     let market_id = ctx.accounts.market.market_id;
 
-    // Zero-winner -> void (full refunds, no fee).
+    // Zero-winner -> void (full refunds, no fee). The proof-determined winning
+    // bucket is still recorded: standalone `claim` ignores it on the Voided path
+    // (it refunds every staked bucket), but the daily sweepstake's `settle_contest`
+    // reads it from this market — a real result with no stake on the winning side
+    // must still settle the contest, not brick it.
     if winner_total == 0 {
         let market = &mut ctx.accounts.market;
         market.status = MarketStatus::Voided;
+        market.winning_bucket = Some(winning_bucket);
         market.settled_seq = settled_seq;
         market.settled_ts = settled_ts;
         market.settled_value = settled_value;

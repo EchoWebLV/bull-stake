@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 
+pub mod contest_state;
 pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod state;
-pub mod contest_state;
 
 use instructions::*;
 

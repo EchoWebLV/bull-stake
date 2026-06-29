@@ -5,6 +5,10 @@ pub const MAX_MATCHES: usize = 5;
 /// market_id of the per-fixture 1X2 "Match Result" market (engine MARKET_TEMPLATE).
 /// settle_contest reads each card match's winning bucket from this 3-bucket market.
 pub const RESULT_MARKET_ID: u8 = 12;
+/// Grace period after `settle_after_ts` past which ANYONE may `void_contest`
+/// (permissionless liveness backstop for a lost/absent keeper). Generous enough
+/// to never race a live keeper, which settles within minutes of `settle_after_ts`.
+pub const VOID_GRACE_SECS: i64 = 3 * 24 * 60 * 60; // 3 days
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum ContestStatus {
@@ -21,6 +25,13 @@ pub enum ContestStatus {
 pub struct JackpotVault {
     /// contest_id of the live contest, or 0 when none is live (one-at-a-time guard).
     pub active_contest_id: u64,
+    /// Lamports owed to ALREADY-TERMINAL contests' unclaimed tickets (winner shares
+    /// not yet claimed, void refunds not yet claimed). Every pot read nets this out:
+    /// free pot = lamports − rent_floor − reserved. This fences a prior contest's
+    /// money so the next contest can never roll (and over-promise) lamports that are
+    /// still owed — the cross-contest solvency invariant. += at settle/void by what
+    /// will be paid; −= on each claim/refund.
+    pub reserved: u64,
     pub bump: u8,
 }
 
@@ -40,7 +51,7 @@ pub struct Contest {
     pub winning_buckets: [u8; MAX_MATCHES],
     pub entry_count: u64,         // # tickets (drives new-entry rake + void refund)
     pub perfect_count: u64,       // keeper-supplied split divisor (capped at claim)
-    pub pot_snapshot: u64,        // net pot (vault.lamports - rent_floor) at settle
+    pub pot_snapshot: u64,        // net pot (vault.lamports - rent_floor - reserved) at settle
     pub distributable: u64,       // pot_snapshot - rake, stored so every claim reads one value
     pub claimed_count: u64,       // # winning claims paid (caps at perfect_count)
     pub claimed_total: u64,       // lamports paid out (caps at distributable)
