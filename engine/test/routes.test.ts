@@ -11,6 +11,22 @@ vi.mock("../src/chain.ts", async (orig) => {
       bucketTotals: ["300", "100"], totalPool: "400", feeBps: 0, feeCollected: "0",
       winningBucket: null, entryCloseTs: 9999999999, settledValue: 0,
     })),
+    readActiveContest: vi.fn(async () => ({
+      pubkey: "Contest111", contestId: 20269,
+      settleAuthority: "Keep1111111111111111111111111111111111111111",
+      feeRecipient: "Fee11111111111111111111111111111111111111111",
+      fixtures: [101, 102, 103], numMatches: 3, entryPrice: "20000000",
+      lockTs: 9999999999, settleAfterTs: 9999999999, feeBps: 500, status: "open",
+      winningBuckets: [0, 0, 0], entryCount: 4, perfectCount: 0,
+      potSnapshot: "0", distributable: "0", claimedCount: 0, claimedTotal: "0", settledTs: 0,
+    })),
+    readJackpotVault: vi.fn(async () => ({
+      activeContestId: 20269, reserved: "0",
+      lamports: "82000000", rentFloor: "2000000", pot: "80000000",
+    })),
+    listEntriesForWallet: vi.fn(async () => [
+      { pubkey: "Entry111", nonce: 0, picks: [0, 1, 2, 0, 0], amount: "20000000" },
+    ]),
   };
 });
 
@@ -64,6 +80,7 @@ function makeMockStore(overrides: Partial<LiveStore> = {}): LiveStore {
     setSlate: vi.fn(),
     getMatches: vi.fn(() => []),
     getMarkets: vi.fn(() => []),
+    getFixtureMeta: vi.fn(() => new Map()),
     start: vi.fn(),
     stop: vi.fn(),
     _poll: vi.fn(),
@@ -288,6 +305,47 @@ describe("sortMatches", () => {
     ];
     const sorted = sortMatches(matches);
     expect(sorted.map((m) => m.status)).toEqual(["live", "upcoming", "ft"]);
+  });
+});
+
+describe("GET /api/contest/today", () => {
+  it("returns the live contest with pot and a named card", async () => {
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: 1, status: "upcoming",
+          minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 },
+      ]),
+      getFixtureMeta: vi.fn(() => new Map([[102, { home: "Japan", away: "Peru" }]])),
+    });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/contest/today" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("open");
+    expect(body.pot).toBe("80000000");
+    expect(body.contestId).toBe(20269);
+    expect(body.card).toHaveLength(3);
+    expect(body.card[0]).toMatchObject({ fixtureId: 101, home: "Brazil", away: "Spain" });
+    expect(body.card[1]).toMatchObject({ fixtureId: 102, home: "Japan", away: "Peru" });
+    await app.close();
+  });
+});
+
+describe("GET /api/contest/entries", () => {
+  it("400s without wallet", async () => {
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/contest/entries" });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+  it("returns the wallet's tickets", async () => {
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/contest/entries?wallet=So11111111111111111111111111111111111111112" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ nonce: 0, amount: "20000000" });
+    await app.close();
   });
 });
 
