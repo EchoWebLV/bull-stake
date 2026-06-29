@@ -20,7 +20,7 @@ import { countPerfect } from "./contest.js";
 const RESULT_MARKET_ID = 12;
 
 function i64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; }
-function u64le(n: number | bigint): Buffer { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; }
+function u64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; }
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
@@ -60,23 +60,26 @@ async function main() {
     const m: any = await (proofbet.account as any).market.fetchNullable(market);
     winningBuckets.push(m?.winningBucket ?? -1);
   }
+  if (winningBuckets.includes(-1)) {
+    console.warn("a result market has no winning bucket (abandoned match) — run void-contest instead; aborting.");
+    console.log(JSON.stringify({
+      action: "settle_contest", contestId: activeId, fixtures, winningBuckets,
+      aborted: "abandoned-match", dryRun,
+    }, null, 2));
+    return;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const entries: any[] = await (proofbet.account as any).entry.all([
     { memcmp: { offset: 8 + 32, bytes: contest.toBase58() } }, // contest at offset 40
   ]);
-  const perfectCount = winningBuckets.includes(-1)
-    ? 0
-    : countPerfect(entries.map((e) => ({ picks: e.account.picks as number[] })), winningBuckets, nm);
+  const perfectCount = countPerfect(entries.map((e) => ({ picks: e.account.picks as number[] })), winningBuckets, nm);
 
   console.log(JSON.stringify({
     action: "settle_contest", contestId: activeId, fixtures, winningBuckets,
     entries: entries.length, perfectCount, dryRun,
   }, null, 2));
 
-  if (winningBuckets.includes(-1)) {
-    console.warn("a result market has no winning bucket (abandoned match) — run void-contest instead; aborting.");
-    return;
-  }
   if (dryRun) { console.log("dry-run: not sending settle_contest"); return; }
 
   // 3. settle_contest(perfect_count) with result markets as remaining_accounts.
