@@ -74,6 +74,14 @@ pub struct JackpotVault {
     pub bump: u8,
 }
 
+/// The JackpotVault's rent-exempt minimum. NEVER part of the pot — every pot read
+/// and every debit (settle rake, claim payout/refund) nets it out and asserts
+/// `vault.lamports >= vault_rent_floor() + reserved`. Shared by settle_contest and
+/// claim_contest so the floor is computed identically in both.
+pub fn vault_rent_floor() -> Result<u64> {
+    Ok(Rent::get()?.minimum_balance(8 + JackpotVault::INIT_SPACE))
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Contest {
@@ -1208,10 +1216,6 @@ pub struct SettleContest<'info> {
     // remaining_accounts: exactly `num_matches` result-market accounts, card order.
 }
 
-fn rent_floor() -> Result<u64> {
-    Ok(Rent::get()?.minimum_balance(8 + JackpotVault::INIT_SPACE))
-}
-
 pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     require!(
         ctx.accounts.contest.status == ContestStatus::Open,
@@ -1239,7 +1243,10 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         require_keys_eq!(*acc.owner, crate::ID, ProofBetError::ResultMarketMismatch);
         let data = acc.try_borrow_data()?;
         let market = Market::try_deserialize(&mut &data[..])?;
-        require!(market.num_buckets == 3, ProofBetError::ResultMarketMismatch);
+        require!(
+            market.num_buckets == crate::state::MAX_BUCKETS as u8,
+            ProofBetError::ResultMarketMismatch
+        );
         // Accept Settled OR a zero-winner Voided market that still recorded its
         // proof-determined winning_bucket (settle.rs sets it on the void). A Voided
         // market with NO bucket is a genuinely abandoned match → ok_or below fails →
@@ -1251,7 +1258,7 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         winning[i] = market.winning_bucket.ok_or(ProofBetError::ResultMarketNotSettled)?;
     }
 
-    let floor = rent_floor()?;
+    let floor = vault_rent_floor()?;
     let reserved = ctx.accounts.vault.reserved;
     let vault_lamports = ctx.accounts.vault.to_account_info().lamports();
     // The free pot nets out BOTH the rent floor and lamports already owed to prior
@@ -1553,7 +1560,7 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
         ProofBetError::ContestNotTerminal
     );
 
-    let floor = Rent::get()?.minimum_balance(8 + JackpotVault::INIT_SPACE);
+    let floor = vault_rent_floor()?;
 
     let mut payout: u64 = 0;
     let mut kind: u8 = 0;
