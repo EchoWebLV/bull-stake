@@ -289,6 +289,13 @@ export function pickArray(picks: number[]): number[] {
 /**
  * Create a per-fixture result market (market_id 12, 3-bucket) and settle it to
  * `winningBucket`, so settle_contest can read it. Mirrors tests/three_way.ts.
+ *
+ * ORACLE-BINDING CONVENTION (v3.1): settle_contest requires
+ * `result_market.settle_authority == contest.settle_authority`. So for every
+ * HAPPY-PATH settle, pass the **contest's keeper** as `settleAuth` here (i.e.
+ * `makeSettledResultMarket(fixture, bucket, keeper)`), NOT a separate freshFunded
+ * authority. To exercise the negative case (attacker squat), pass a non-keeper and
+ * assert `ResultMarketMismatch`. (Task 5/7/8 happy-path call sites updated accordingly.)
  */
 export async function makeSettledResultMarket(
   fixtureId: number,
@@ -1245,6 +1252,16 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         let market = Market::try_deserialize(&mut &data[..])?;
         require!(
             market.num_buckets == crate::state::MAX_BUCKETS as u8,
+            ProofBetError::ResultMarketMismatch
+        );
+        // Oracle binding (v3.1 audit fix): the PDA re-derivation pins WHICH account
+        // is read, but initialize_market is permissionless, so it does not pin WHO
+        // settled it. Require the result market's settle_authority to equal this
+        // contest's keeper, so an attacker who front-runs and squats the deterministic
+        // [b"market", fixture, RESULT_MARKET_ID] PDA can't dictate the leg result.
+        require_keys_eq!(
+            market.settle_authority,
+            ctx.accounts.contest.settle_authority,
             ProofBetError::ResultMarketMismatch
         );
         // Accept Settled OR a zero-winner Voided market that still recorded its
