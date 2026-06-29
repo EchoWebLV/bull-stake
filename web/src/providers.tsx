@@ -12,7 +12,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["email", "google", "wallet"],
         appearance: { walletChainType: "solana-only", theme: "dark", accentColor: "#FF6A1A" },
-        embeddedWallets: { solana: { createOnLogin: "users-without-wallets" } },
+        // Hide Privy's per-tx confirmation modal: the app signs embedded-wallet
+        // transactions programmatically for a frictionless PWA feel (one login,
+        // then taps just work). Revisit if per-entry confirmation is desired.
+        embeddedWallets: { showWalletUIs: false, solana: { createOnLogin: "users-without-wallets" } },
         solana: {
           rpcs: {
             "solana:devnet": {
