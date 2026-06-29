@@ -73,6 +73,160 @@ export function getProgram(): anchor.Program {
   return loadProgram();
 }
 
+// ── Contest reader (daily sweepstake) ──────────────────────────────────────
+
+/** JackpotVault account size: 8 (disc) + active_contest_id(u64) + reserved(u64) + bump(u8). */
+const JACKPOT_VAULT_SIZE = 8 + 8 + 8 + 1;
+
+function u64le(n: number | bigint): Buffer {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64LE(BigInt(n));
+  return b;
+}
+
+export function deriveJackpotVaultPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("jackpot_vault")], programId)[0];
+}
+export function deriveContestPda(programId: PublicKey, contestId: number | bigint): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("contest"), u64le(contestId)], programId)[0];
+}
+export function deriveEntryPda(
+  programId: PublicKey, contest: PublicKey, bettor: PublicKey, nonce: number | bigint,
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("entry"), contest.toBuffer(), bettor.toBuffer(), u64le(nonce)], programId,
+  )[0];
+}
+
+/** Free pot = vault balance − rent floor − reserved liabilities, clamped at 0. Returns lamports as a string. */
+export function computePot(lamports: bigint, rentFloor: bigint, reserved: bigint): string {
+  const pot = lamports - rentFloor - reserved;
+  return (pot > 0n ? pot : 0n).toString();
+}
+
+const CONTEST_STATUS = ["open", "settled", "rolledOver", "voided"] as const;
+function contestStatusString(s: Record<string, unknown>): (typeof CONTEST_STATUS)[number] {
+  if ("settled" in s) return "settled";
+  if ("rolledOver" in s) return "rolledOver";
+  if ("voided" in s) return "voided";
+  return "open";
+}
+
+export interface JackpotVaultView {
+  activeContestId: number;
+  reserved: string;
+  lamports: string;
+  rentFloor: string;
+  pot: string;
+}
+
+export interface ContestView {
+  pubkey: string;
+  contestId: number;
+  settleAuthority: string;
+  feeRecipient: string;
+  fixtures: number[];           // length numMatches
+  numMatches: number;
+  entryPrice: string;
+  lockTs: number;
+  settleAfterTs: number;
+  feeBps: number;
+  status: "open" | "settled" | "rolledOver" | "voided";
+  winningBuckets: number[];     // length numMatches
+  entryCount: number;
+  perfectCount: number;
+  potSnapshot: string;
+  distributable: string;
+  claimedCount: number;
+  claimedTotal: string;
+  settledTs: number;
+}
+
+export interface EntryView {
+  pubkey: string;
+  nonce: number;
+  picks: number[];              // raw [u8; 5]
+  amount: string;
+}
+
+export async function readJackpotVault(): Promise<JackpotVaultView> {
+  const program = loadProgram();
+  const pda = deriveJackpotVaultPda(program.programId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v: any = await (program.account as any).jackpotVault.fetch(pda);
+  const conn = program.provider.connection;
+  const lamports = BigInt(await conn.getBalance(pda));
+  const rentFloor = BigInt(await conn.getMinimumBalanceForRentExemption(JACKPOT_VAULT_SIZE));
+  const reserved = BigInt(v.reserved.toString());
+  return {
+    activeContestId: Number(v.activeContestId),
+    reserved: reserved.toString(),
+    lamports: lamports.toString(),
+    rentFloor: rentFloor.toString(),
+    pot: computePot(lamports, rentFloor, reserved),
+  };
+}
+
+/** The currently-live contest, or null when none is live (vault.active_contest_id == 0). */
+export async function readActiveContest(): Promise<ContestView | null> {
+  const program = loadProgram();
+  const vPda = deriveJackpotVaultPda(program.programId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v: any = await (program.account as any).jackpotVault.fetch(vPda);
+  const activeId = Number(v.activeContestId);
+  if (activeId === 0) return null;
+  const cPda = deriveContestPda(program.programId, activeId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c: any = await (program.account as any).contest.fetch(cPda);
+  const nm = Number(c.numMatches);
+  return {
+    pubkey: cPda.toBase58(),
+    contestId: Number(c.contestId),
+    settleAuthority: c.settleAuthority.toBase58(),
+    feeRecipient: c.feeRecipient.toBase58(),
+    fixtures: (c.fixtures as { toNumber(): number }[]).slice(0, nm).map((f) => f.toNumber()),
+    numMatches: nm,
+    entryPrice: c.entryPrice.toString(),
+    lockTs: Number(c.lockTs),
+    settleAfterTs: Number(c.settleAfterTs),
+    feeBps: Number(c.feeBps),
+    status: contestStatusString(c.status),
+    winningBuckets: (c.winningBuckets as number[]).slice(0, nm).map(Number),
+    entryCount: Number(c.entryCount),
+    perfectCount: Number(c.perfectCount),
+    potSnapshot: c.potSnapshot.toString(),
+    distributable: c.distributable.toString(),
+    claimedCount: Number(c.claimedCount),
+    claimedTotal: c.claimedTotal.toString(),
+    settledTs: Number(c.settledTs),
+  };
+}
+
+/** Every Entry the wallet holds in the live contest (empty if none / no live contest). */
+export async function listEntriesForWallet(wallet: string): Promise<EntryView[]> {
+  const program = loadProgram();
+  const vPda = deriveJackpotVaultPda(program.programId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v: any = await (program.account as any).jackpotVault.fetch(vPda);
+  const activeId = Number(v.activeContestId);
+  if (activeId === 0) return [];
+  const cPda = deriveContestPda(program.programId, activeId);
+  const bettor = new PublicKey(wallet);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accts: any[] = await (program.account as any).entry.all([
+    { memcmp: { offset: 8, bytes: bettor.toBase58() } },        // bettor at offset 8
+    { memcmp: { offset: 8 + 32, bytes: cPda.toBase58() } },     // contest at offset 40
+  ]);
+  return accts
+    .map((a) => ({
+      pubkey: a.publicKey.toBase58(),
+      nonce: Number(a.account.nonce),
+      picks: (a.account.picks as number[]).map(Number),
+      amount: a.account.amount.toString(),
+    }))
+    .sort((x, y) => x.nonce - y.nonce);
+}
+
 export async function readMarket(marketPubkey: string): Promise<MarketView> {
   const program = loadProgram();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
