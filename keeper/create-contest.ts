@@ -14,7 +14,6 @@ import "dotenv/config";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import { createContext } from "../spike/src/auth.js";
-import { authenticateCached } from "../spike/src/auth-cache.js";
 import { toInitArgs, MARKET_TEMPLATE } from "../engine/src/markets.js";
 import { loadProofbetProgram } from "./settle.js";
 import { computeContestParams } from "./contest.js";
@@ -47,8 +46,7 @@ async function main() {
   const entryPrice = Math.round(Number(flags["entry-price"] ?? "0.02") * LAMPORTS_PER_SOL);
   const feeBps = Number(flags["fee-bps"] ?? "500");
 
-  const ctx = await createContext();
-  await authenticateCached(ctx);
+  const ctx = createContext();
   const proofbet = loadProofbetProgram(ctx.provider);
   const keeper = ctx.wallet.publicKey;
   const programId = proofbet.programId;
