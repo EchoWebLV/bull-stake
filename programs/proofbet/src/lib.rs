@@ -77,4 +77,8 @@ pub mod proofbet {
     pub fn settle_contest(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         instructions::settle_contest::handler(ctx, perfect_count)
     }
+
+    pub fn claim_contest(ctx: Context<ClaimContest>) -> Result<()> {
+        instructions::claim_contest::handler(ctx)
+    }
 }

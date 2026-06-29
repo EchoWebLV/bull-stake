@@ -34,3 +34,6 @@ pub use enter::*;
 
 pub mod settle_contest;
 pub use settle_contest::*;
+
+pub mod claim_contest;
+pub use claim_contest::*;
