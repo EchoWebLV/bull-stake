@@ -16,8 +16,6 @@ pub enum ProofBetError {
     EntryNotClosed,
     #[msg("invalid bucket for this market's outcome count")]
     InvalidBucket,
-    #[msg("num_buckets must be 2 (binary) or 3 (three-way)")]
-    InvalidBucketCount,
     #[msg("bet amount must be greater than zero")]
     ZeroAmount,
     #[msg("market is not in a claimable state")]
@@ -50,4 +48,8 @@ pub enum ProofBetError {
     VaultInsolvent,
     #[msg("fixture_id must be non-zero for each carded match")]
     InvalidFixtureId,
+    // Appended (not inserted mid-enum) to keep every pre-existing parimutuel error
+    // code stable for off-chain/IDL consumers — Anchor assigns codes by ordinal.
+    #[msg("num_buckets must be 2 (binary) or 3 (three-way)")]
+    InvalidBucketCount,
 }

@@ -54,6 +54,21 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
             market.num_buckets == crate::state::MAX_BUCKETS as u8,
             ProofBetError::ResultMarketMismatch
         );
+        // Bind the result market's oracle to THIS contest's keeper. The result
+        // market PDA ([b"market", fixture, RESULT_MARKET_ID]) is permissionless to
+        // create (initialize_market) and deterministic, so without this an attacker
+        // who front-runs the keeper and squats the PDA with their own
+        // settle_authority could `settle` each leg to whatever makes their own
+        // ticket the perfect line. Requiring market.settle_authority ==
+        // contest.settle_authority accepts ONLY results settled by the contest's own
+        // keeper: a squat with a foreign authority fails here (keeper then voids the
+        // contest → refunds), and a squat that names the keeper as authority can only
+        // be settled BY the keeper (settle has_one settle_authority) → true result.
+        require_keys_eq!(
+            market.settle_authority,
+            ctx.accounts.contest.settle_authority,
+            ProofBetError::ResultMarketMismatch
+        );
         // Accept Settled OR a zero-winner Voided market that still recorded its
         // proof-determined winning_bucket (settle.rs sets it on the void). A Voided
         // market with NO bucket is a genuinely abandoned match → ok_or below fails →
