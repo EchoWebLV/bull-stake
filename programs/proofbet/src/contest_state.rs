@@ -35,6 +35,14 @@ pub struct JackpotVault {
     pub bump: u8,
 }
 
+/// The JackpotVault's rent-exempt minimum. NEVER part of the pot — every pot read
+/// and every debit (settle rake, claim payout/refund) nets it out and asserts
+/// `vault.lamports >= vault_rent_floor() + reserved`. Shared by settle_contest and
+/// claim_contest so the floor is computed identically in both.
+pub fn vault_rent_floor() -> Result<u64> {
+    Ok(Rent::get()?.minimum_balance(8 + JackpotVault::INIT_SPACE))
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Contest {

@@ -31,3 +31,6 @@ pub use void_contest::*;
 
 pub mod enter;
 pub use enter::*;
+
+pub mod settle_contest;
+pub use settle_contest::*;

@@ -73,4 +73,8 @@ pub mod proofbet {
     pub fn enter(ctx: Context<Enter>, nonce: u64, picks: [u8; crate::contest_state::MAX_MATCHES]) -> Result<()> {
         instructions::enter::handler(ctx, nonce, picks)
     }
+
+    pub fn settle_contest(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
+        instructions::settle_contest::handler(ctx, perfect_count)
+    }
 }
