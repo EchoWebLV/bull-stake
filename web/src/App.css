@@ -604,5 +604,20 @@ input:focus { outline: none; border-color: var(--accent); }
 .contest-row { padding: 10px 0; border-top: 1px solid var(--border-2); }
 .contest-row:first-of-type { border-top: none; }
 .contest-teams { font-size: 14px; margin-bottom: 8px; }
+.contest-ticket-group { border-top: 1px solid var(--border); }
+.contest-ticket-group:first-of-type { border-top: none; }
 .contest-ticket { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+.ticket-head {
+  flex: 1; display: flex; align-items: center; gap: 8px; text-align: left;
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--text); font-size: 14px; font-weight: 600;
+}
+.ticket-caret { color: var(--text-2); font-size: 11px; width: 10px; }
+.ticket-picks { list-style: none; margin: 0 0 8px; padding: 4px 0 4px 18px; display: flex; flex-direction: column; gap: 6px; }
+.ticket-picks li { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; }
+.ticket-picks .vs { color: var(--text-2); }
+.pick-val { font-weight: 700; font-size: 12.5px; }
+.pick-home { color: var(--green); }
+.pick-away { color: #FF6B6B; }
+.pick-draw { color: var(--text-2); }
 .btn-sm { padding: 6px 12px; border-radius: 8px; background: var(--accent); color: #07090d; border: none; font-weight: 700; cursor: pointer; }

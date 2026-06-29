@@ -17,6 +17,7 @@ export function SweepstakeView() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
   const [msgErr, setMsgErr] = useState(false);
+  const [openTicket, setOpenTicket] = useState<number | null>(null); // nonce expanded to show picks
 
   function flash(t: string, err = false) { setMsg(t); setMsgErr(err); }
 
@@ -51,10 +52,14 @@ export function SweepstakeView() {
     if (contestId == null) { flash("No active contest", true); return; }
     setBusy(true); setMsg(undefined);
     try {
+      // Each ticket is a distinct on-chain Entry keyed by nonce. Use the next
+      // free nonce so a NEW ticket is created (re-using a nonce edits in place).
+      const nextNonce = entries.length ? Math.max(...entries.map((e) => e.nonce)) + 1 : 0;
       const orderedPicks = card.map((m) => picks[m.fixtureId]);
-      const tx = await buildEnterTx(address, contestId, 0, orderedPicks);
+      const tx = await buildEnterTx(address, contestId, nextNonce, orderedPicks);
       const sig = await signAndSend(tx);
-      flash(`Entered · ${sig.slice(0, 8)}…`);
+      flash(`Ticket #${nextNonce} entered · ${sig.slice(0, 8)}…`);
+      setPicks({}); // clear the card so the next ticket is a fresh pick
       await refresh();
     } catch (e) { flash((e as Error).message, true); }
     finally { setBusy(false); }
@@ -121,17 +126,43 @@ export function SweepstakeView() {
 
       {entries.length > 0 && (
         <div className="card">
-          <div className="card-title">Your tickets</div>
-          {entries.map((e) => (
-            <div key={e.pubkey} className="contest-ticket">
-              <span>Ticket #{e.nonce} · {fmtSol(Number(e.amount))}{SOL}</span>
-              {settled && (
-                <button className="btn-sm" disabled={busy} onClick={() => claim(e.nonce)}>
-                  {today.status === "voided" ? "Refund" : "Claim"}
-                </button>
-              )}
-            </div>
-          ))}
+          <div className="card-title">Your tickets ({entries.length})</div>
+          {entries.map((e) => {
+            const open = openTicket === e.nonce;
+            return (
+              <div key={e.pubkey} className="contest-ticket-group">
+                <div className="contest-ticket">
+                  <button
+                    className="ticket-head"
+                    aria-expanded={open}
+                    onClick={() => setOpenTicket(open ? null : e.nonce)}
+                  >
+                    <span className="ticket-caret">{open ? "▾" : "▸"}</span>
+                    Ticket #{e.nonce} · {fmtSol(Number(e.amount))}{SOL}
+                  </button>
+                  {settled && (
+                    <button className="btn-sm" disabled={busy} onClick={() => claim(e.nonce)}>
+                      {today.status === "voided" ? "Refund" : "Claim"}
+                    </button>
+                  )}
+                </div>
+                {open && (
+                  <ul className="ticket-picks">
+                    {card.map((m, i) => {
+                      const pick = e.picks[i];
+                      const cls = pick === 0 ? "home" : pick === 1 ? "draw" : "away";
+                      return (
+                        <li key={m.fixtureId}>
+                          <span className="muted">{m.home} <span className="vs">v</span> {m.away}</span>
+                          <span className={`pick-val pick-${cls}`}>{outcomeLabel(pick, m.home, m.away)}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
