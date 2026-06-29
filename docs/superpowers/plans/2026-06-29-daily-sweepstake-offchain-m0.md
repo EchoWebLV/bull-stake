@@ -706,7 +706,10 @@ function padFixtures(ids: number[]): BN[] {
   return out;
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run when invoked directly — guard against import-time execution firing
+// main() (wallet load + devnet I/O), mirroring settle.ts/settle-all.ts.
+const isMain = process.argv[1]?.endsWith("create-contest.ts");
+if (isMain) main().catch((e) => { console.error(e); process.exit(1); });
 ```
 
 - [ ] **Step 6: Verify the script typechecks**
@@ -831,7 +834,10 @@ async function main() {
   console.log(`settle_contest: ${sig}`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run when invoked directly — guard against import-time execution firing
+// main() (wallet load + devnet I/O), mirroring settle.ts/settle-all.ts.
+const isMain = process.argv[1]?.endsWith("settle-contest.ts");
+if (isMain) main().catch((e) => { console.error(e); process.exit(1); });
 ```
 
 - [ ] **Step 2: Verify it typechecks**
