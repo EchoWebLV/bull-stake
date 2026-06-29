@@ -642,7 +642,7 @@ async function main() {
   const entryPrice = Math.round(Number(flags["entry-price"] ?? "0.02") * LAMPORTS_PER_SOL);
   const feeBps = Number(flags["fee-bps"] ?? "500");
 
-  const ctx = await createContext();
+  const ctx = createContext(); // synchronous (see settle.ts/settle-all.ts)
   const auth = await authenticateCached(ctx);
   const proofbet = loadProofbetProgram(ctx.provider);
   const keeper = ctx.wallet.publicKey;
@@ -765,7 +765,7 @@ function u64le(n: number | bigint): Buffer { const b = Buffer.alloc(8); b.writeB
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
-  const ctx = await createContext();
+  const ctx = createContext(); // synchronous (see settle.ts/settle-all.ts)
   const auth = await authenticateCached(ctx);
   const proofbet = loadProofbetProgram(ctx.provider);
   const keeper = ctx.wallet.publicKey;
