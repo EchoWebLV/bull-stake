@@ -149,6 +149,8 @@ In `programs/proofbet/src/errors.rs`, add these variants inside `ProofBetError` 
     PerfectCountZero,
     #[msg("vault would drop below its rent floor or exceed distributable")]
     VaultInsolvent,
+    #[msg("fixture_id must be non-zero for each carded match")]
+    InvalidFixtureId,
 ```
 
 - [ ] **Step 4: Add contest events**
@@ -598,7 +600,7 @@ pub fn handler(
     let now = Clock::get()?.unix_timestamp;
     require!(now < lock_ts && lock_ts < settle_after_ts, ProofBetError::EntryCloseInPast);
     for i in 0..(num_matches as usize) {
-        require!(fixtures[i] != 0, ProofBetError::InvalidMatchCount);
+        require!(fixtures[i] != 0, ProofBetError::InvalidFixtureId);
     }
     require!(
         ctx.accounts.vault.active_contest_id == 0,
@@ -660,6 +662,10 @@ pub struct VoidContest<'info> {
     /// void. Because that authorization is conditional it's checked in the handler,
     /// not via a fixed `has_one` (the account stays named `settle_authority` so the
     /// common keeper call sites read naturally).
+    // NOTE (IDL-naming, tracked): an IDL consumer reading only this struct may
+    // assume `settle_authority` is always required to be the keeper. It is NOT —
+    // the handler permits any signer after the grace window. Revisit renaming to
+    // `caller` when the engine/keeper/web client plans are written.
     pub settle_authority: Signer<'info>,
     #[account(mut, seeds = [b"jackpot_vault"], bump = vault.bump)]
     pub vault: Account<'info, JackpotVault>,
@@ -682,6 +688,9 @@ pub fn handler(ctx: Context<VoidContest>) -> Result<()> {
     // a lost/absent keeper can't freeze the whole vault forever).
     let is_keeper =
         ctx.accounts.settle_authority.key() == ctx.accounts.contest.settle_authority;
+    // saturating_add: a bogus settle_after_ts near i64::MAX saturates rather than
+    // wrapping negative, so grace_elapsed stays false → permissionless void never
+    // fires → fails closed (the safe direction).
     let grace_elapsed =
         now > ctx.accounts.contest.settle_after_ts.saturating_add(VOID_GRACE_SECS);
     require!(is_keeper || grace_elapsed, ProofBetError::Unauthorized);
