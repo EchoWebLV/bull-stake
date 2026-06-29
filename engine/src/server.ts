@@ -13,8 +13,11 @@ import { LiveStore } from "./live.ts";
  */
 export function buildServer(store?: LiveStore): FastifyInstance {
   const app = Fastify({ logger: false });
-  const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
-  app.register(cors, { origin: [webOrigin] });
+  // Comma-separated allow-list so the prod web origin and local dev ports
+  // (Vite's default 5173 + the preview harness's 5180) all work without churn.
+  const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173,http://localhost:5180";
+  const origins = webOrigin.split(",").map((o) => o.trim()).filter(Boolean);
+  app.register(cors, { origin: origins });
   app.get("/health", async () => ({ status: "ok" }));
 
   // Use the injected store (tests) or create a bare store (server start wires it).
