@@ -289,6 +289,61 @@ describe("daily sweepstake — safety", () => {
     assert.isAbove(vBefore - (await balance(vault)), 0, "perfect ticket paid");
   });
 
+  it("under-reported perfect_count: an extra perfect ticket reverts at the solvency cap (no over-draw)", async () => {
+    // Keeper under-reports perfect_count = 1 though TWO tickets are perfect. The
+    // first claimer sweeps the full distributable; the second perfect ticket MUST
+    // revert (VaultInsolvent). The cap (claimed_count < perfect_count) bounds a bad
+    // perfect_count to over-paying early claimers — it can never drain another
+    // contest's reserved funds or the rent floor. This is the linchpin safety branch.
+    const vault = await ensureVault();
+    const keeper = await freshFunded();
+    const contestId = 80009;
+    const contest = contestPda(contestId);
+    const fixtures = [80090, 80091, 80092];
+    const results = [0, 1, 2];
+    const lock = nowSec() + 5;
+    await program.methods
+      .createContest(new BN(contestId), fixtureArray(fixtures), 3, new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    const w1 = await freshFunded();
+    const w2 = await freshFunded();
+    for (const p of [w1, w2]) {
+      await program.methods.enter(new BN(0), pickArray(results))
+        .accountsStrict({ bettor: p.publicKey, vault, contest, entry: entryPda(contest, p.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([p]).rpc();
+    }
+    const markets = [];
+    for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
+    await sleep(6500);
+    // Under-report: declare only 1 winner though both w1 and w2 are perfect.
+    await program.methods.settleContest(new BN(1))
+      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: keeper.publicKey })
+      .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+      .signers([keeper]).rpc();
+    const reservedAfterSettle = (await program.account.jackpotVault.fetch(vault)).reserved.toNumber();
+    const distributable = (await program.account.contest.fetch(contest)).distributable.toNumber();
+
+    // w1 sweeps the full distributable (share = distributable / 1).
+    const vBefore = await balance(vault);
+    await program.methods.claimContest()
+      .accountsStrict({ bettor: w1.publicKey, vault, contest, entry: entryPda(contest, w1.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([w1]).rpc();
+    assert.equal(vBefore - (await balance(vault)), distributable, "first winner sweeps the full distributable");
+
+    // w2 is also perfect, but the cap is exhausted (claimed_count == perfect_count) → revert.
+    await expectError(
+      program.methods.claimContest()
+        .accountsStrict({ bettor: w2.publicKey, vault, contest, entry: entryPda(contest, w2.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([w2]).rpc(),
+      "VaultInsolvent",
+    );
+    // The failed claim touched nothing: reserved dropped by exactly w1's payout and
+    // never went negative (it equals settle's reserve minus the one paid share).
+    const reservedNow = (await program.account.jackpotVault.fetch(vault)).reserved.toNumber();
+    assert.equal(reservedNow, reservedAfterSettle - distributable, "reserved released only w1's share; w2's revert changed nothing");
+  });
+
   it("rejects void_contest by a non-keeper before the grace period (deny path of the permissionless backstop)", async () => {
     // The ALLOW-after-grace path (now > settle_after_ts + VOID_GRACE, 3 days) can't be
     // wall-clock tested on a local validator; it is reviewed in void_contest.rs. Here we

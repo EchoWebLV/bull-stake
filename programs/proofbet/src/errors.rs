@@ -48,8 +48,12 @@ pub enum ProofBetError {
     VaultInsolvent,
     #[msg("fixture_id must be non-zero for each carded match")]
     InvalidFixtureId,
-    // Appended (not inserted mid-enum) to keep every pre-existing parimutuel error
-    // code stable for off-chain/IDL consumers — Anchor assigns codes by ordinal.
+    // Appended here (not mid-enum) so that, relative to `main`'s error enum, every
+    // pre-existing parimutuel code keeps its ordinal: on `main` the order is
+    // ...InvalidBucket, ZeroAmount, NotClaimable, Unauthorized, MathOverflow (no
+    // InvalidBucketCount). Anchor assigns codes by ordinal, so appending ALL new
+    // variants (the Contest* errors above + InvalidBucketCount) after MathOverflow
+    // keeps ZeroAmount..MathOverflow byte-stable for off-chain/IDL consumers.
     #[msg("num_buckets must be 2 (binary) or 3 (three-way)")]
     InvalidBucketCount,
 }

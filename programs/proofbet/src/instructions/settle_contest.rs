@@ -125,6 +125,16 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     // cross-contest liability so the next contest can't roll lamports owed to this
     // contest's winners. Floor-division dust is NOT reserved — it stays free and
     // rolls forward. RolledOver owes no one, so reserved is unchanged.
+    //
+    // perfect_count is keeper-supplied (trust model, §9). The reserve/claim machinery
+    // bounds both error directions WITHOUT risking other contests' funds:
+    //   - UNDER-report (fewer winners declared than real): extra perfect tickets hit
+    //     the claim cap (claimed_count < perfect_count) and revert — early claimers
+    //     over-collect, but no cross-contest drain. (Tested in contest_safety.ts.)
+    //   - OVER-report (more declared than real): unclaimed phantom shares stay fenced
+    //     in `reserved` forever — those lamports remain in the vault (no loss) but do
+    //     NOT roll into a future pot. Acceptable under the trust model; an exact
+    //     keeper avoids it. Both are bounded to THIS contest's own distributable.
     if !rolled_over {
         let share = u64::try_from(
             (distributable as u128)
