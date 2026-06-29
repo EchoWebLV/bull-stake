@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
-import { deriveMarketPda, deriveVaultPda, derivePositionPda } from "../src/chain.ts";
 import {
+  deriveMarketPda, deriveVaultPda, derivePositionPda,
   deriveJackpotVaultPda, deriveContestPda, deriveEntryPda, computePot,
 } from "../src/chain.ts";
 
@@ -24,22 +24,20 @@ describe("PDA derivation", () => {
   });
 });
 
-const PROG = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
-
 describe("contest PDAs", () => {
   it("jackpot vault PDA is deterministic", () => {
-    expect(deriveJackpotVaultPda(PROG).toBase58()).toBe(deriveJackpotVaultPda(PROG).toBase58());
+    expect(deriveJackpotVaultPda(PROGRAM).toBase58()).toBe(deriveJackpotVaultPda(PROGRAM).toBase58());
   });
   it("contest PDA varies by contest id", () => {
-    const a = deriveContestPda(PROG, 20269);
-    const b = deriveContestPda(PROG, 20270);
+    const a = deriveContestPda(PROGRAM, 20269);
+    const b = deriveContestPda(PROGRAM, 20270);
     expect(a.toBase58()).not.toBe(b.toBase58());
   });
   it("entry PDA varies by nonce", () => {
-    const contest = deriveContestPda(PROG, 20269);
+    const contest = deriveContestPda(PROGRAM, 20269);
     const bettor = PublicKey.default;
-    expect(deriveEntryPda(PROG, contest, bettor, 0).toBase58())
-      .not.toBe(deriveEntryPda(PROG, contest, bettor, 1).toBase58());
+    expect(deriveEntryPda(PROGRAM, contest, bettor, 0).toBase58())
+      .not.toBe(deriveEntryPda(PROGRAM, contest, bettor, 1).toBase58());
   });
 });
 
