@@ -33,6 +33,9 @@ target/
 test-ledger/
 **/*.rs.bk
 
+# git worktrees (isolated workspaces)
+.worktrees/
+
 # TxLINE auth token cache
 .txline-auth.json
 **/.txline-auth.json
