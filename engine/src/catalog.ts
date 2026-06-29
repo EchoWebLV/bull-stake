@@ -16,7 +16,7 @@ import type { Fixture } from "../../spike/src/discover.js";
 import { getFixtures } from "../../spike/src/discover.js";
 import { MARKET_TEMPLATE, toInitArgs } from "./markets.ts";
 import { deriveMarketPda, deriveVaultPda } from "./chain.ts";
-import { PROGRAM_ID } from "./config.ts";
+import { COMPETITION_ALLOWLIST, PROGRAM_ID } from "./config.ts";
 
 const BN = anchorDefault.BN;
 
@@ -64,11 +64,12 @@ export function inSlateWindow(
 // ── Network / chain functions ─────────────────────────────────────────────────
 
 /**
- * Fetch the upcoming World Cup slate from TxLINE.
+ * Fetch the upcoming slate from TxLINE.
  *
- * Strategy: pull two consecutive epochDays (today + tomorrow) to get fixtures
- * that straddle midnight UTC.  Filter to Competition === "World Cup" and
- * `inSlateWindow` (now, now + hoursAhead hours).
+ * Strategy: pull three consecutive epochDays (yesterday + today + tomorrow) to
+ * get fixtures that straddle midnight UTC. Filter to the configured
+ * COMPETITION_ALLOWLIST (default: World Cup only) and `inSlateWindow`
+ * (now, now + hoursAhead hours).
  */
 export async function fetchSlate(
   ctx: SpikeContext,
@@ -99,11 +100,11 @@ export async function fetchSlate(
     }
   }
 
-  // Filter: World Cup only + inside the slate window.
+  // Filter: allow-listed competitions + inside the slate window.
   return all
     .filter(
       (f) =>
-        f.Competition === "World Cup" &&
+        COMPETITION_ALLOWLIST.includes(f.Competition) &&
         inSlateWindow(f.StartTime, nowMs, hoursAhead, hoursBehind),
     )
     .map((f) => ({

@@ -18,3 +18,15 @@ export const M0 = {
 };
 
 export const LAMPORTS_PER_SOL = 1_000_000_000;
+
+/**
+ * Competitions eligible for the slate / sweepstake card.
+ * Default: World Cup only (what the devnet free tier carries). Year-round
+ * operation needs a broader TxLINE entitlement — once it's available, widen via
+ *   COMPETITION_ALLOWLIST="World Cup,Premier League,La Liga,…"
+ * with no code change. Comparison is against TxLINE's `Competition` string.
+ */
+export const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
