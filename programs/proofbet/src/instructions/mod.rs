@@ -28,3 +28,6 @@ pub use create_contest::*;
 
 pub mod void_contest;
 pub use void_contest::*;
+
+pub mod enter;
+pub use enter::*;

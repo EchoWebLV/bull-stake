@@ -69,4 +69,8 @@ pub mod proofbet {
     pub fn void_contest(ctx: Context<VoidContest>) -> Result<()> {
         instructions::void_contest::handler(ctx)
     }
+
+    pub fn enter(ctx: Context<Enter>, nonce: u64, picks: [u8; crate::contest_state::MAX_MATCHES]) -> Result<()> {
+        instructions::enter::handler(ctx, nonce, picks)
+    }
 }
