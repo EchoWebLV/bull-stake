@@ -22,3 +22,9 @@ pub use claim::*;
 
 pub mod initialize_vault;
 pub use initialize_vault::*;
+
+pub mod create_contest;
+pub use create_contest::*;
+
+pub mod void_contest;
+pub use void_contest::*;

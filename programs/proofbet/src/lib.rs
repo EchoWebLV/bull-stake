@@ -48,4 +48,25 @@ pub mod proofbet {
     pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
         instructions::initialize_vault::handler(ctx)
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_contest(
+        ctx: Context<CreateContest>,
+        contest_id: u64,
+        fixtures: [i64; crate::contest_state::MAX_MATCHES],
+        num_matches: u8,
+        entry_price: u64,
+        lock_ts: i64,
+        settle_after_ts: i64,
+        fee_recipient: Pubkey,
+        fee_bps: u16,
+    ) -> Result<()> {
+        instructions::create_contest::handler(
+            ctx, contest_id, fixtures, num_matches, entry_price, lock_ts, settle_after_ts, fee_recipient, fee_bps,
+        )
+    }
+
+    pub fn void_contest(ctx: Context<VoidContest>) -> Result<()> {
+        instructions::void_contest::handler(ctx)
+    }
 }

@@ -48,4 +48,6 @@ pub enum ProofBetError {
     PerfectCountZero,
     #[msg("vault would drop below its rent floor or exceed distributable")]
     VaultInsolvent,
+    #[msg("fixture_id must be non-zero for each carded match")]
+    InvalidFixtureId,
 }
