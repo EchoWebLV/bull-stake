@@ -269,4 +269,8 @@ async function main() {
   );
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run the CLI when invoked directly. Without this guard, importing this
+// module (e.g. settle-all.test.ts importing the pure helpers) fires main(),
+// which loads the wallet + connects to devnet with live credentials.
+const isMain = process.argv[1]?.endsWith("settle-all.ts");
+if (isMain) main().catch((e) => { console.error(e); process.exit(1); });

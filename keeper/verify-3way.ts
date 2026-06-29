@@ -114,4 +114,7 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run the CLI when invoked directly — prevents main() (wallet load +
+// devnet I/O) from firing if this module is ever imported.
+const isMain = process.argv[1]?.endsWith("verify-3way.ts");
+if (isMain) main().catch((e) => { console.error(e); process.exit(1); });
