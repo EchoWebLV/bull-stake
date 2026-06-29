@@ -1,7 +1,14 @@
-export type Tab = "live" | "bets" | "wallet";
+export type Tab = "sweepstake" | "markets" | "bets" | "wallet";
 
 const ICONS: Record<Tab, React.ReactNode> = {
-  live: (
+  sweepstake: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 4h10v3a5 5 0 01-10 0z" />
+      <path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9" />
+      <path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4" />
+    </svg>
+  ),
+  markets: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
       <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
       <path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4" />
@@ -23,8 +30,8 @@ const ICONS: Record<Tab, React.ReactNode> = {
   ),
 };
 
-const LABELS: Record<Tab, string> = { live: "Live", bets: "My Bets", wallet: "Wallet" };
-const TABS: Tab[] = ["live", "bets", "wallet"];
+const LABELS: Record<Tab, string> = { sweepstake: "Sweepstake", markets: "Markets", bets: "My Bets", wallet: "Wallet" };
+const TABS: Tab[] = ["sweepstake", "markets", "bets", "wallet"];
 
 export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   return (

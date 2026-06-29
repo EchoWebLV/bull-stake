@@ -5,15 +5,17 @@ import { MatchList } from "./components/MatchList.tsx";
 import { BetsView } from "./components/BetsView.tsx";
 import { WalletView } from "./components/WalletView.tsx";
 import { BottomNav, type Tab } from "./components/BottomNav.tsx";
+import { SweepstakeView } from "./components/SweepstakeView.tsx";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("live");
+  const [tab, setTab] = useState<Tab>("sweepstake");
 
   return (
     <div className="app">
       <LoginBar />
 
-      {tab === "live" && (
+      {tab === "sweepstake" && <SweepstakeView />}
+      {tab === "markets" && (
         <>
           <MatchList />
           <div className="trust">

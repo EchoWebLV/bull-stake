@@ -73,3 +73,27 @@ export const getMarkets = (fixtureId: number): Promise<LiveMarket[]> =>
   fetch(`${ENGINE}/api/markets?fixtureId=${fixtureId}`).then(json);
 export const getHistory = (wallet: string): Promise<HistoryEntry[]> =>
   fetch(`${ENGINE}/api/history?wallet=${wallet}`).then(json);
+
+// --- Daily sweepstake (contest)
+export interface ContestCardMatch { fixtureId: number; home: string; away: string; kickoffMs: number | null }
+export interface ContestToday {
+  status: "open" | "settled" | "rolledOver" | "voided" | "paused";
+  pot: string;
+  contest?: null; // present only when paused
+  contestId?: number;
+  entryPrice?: string;
+  lockTs?: number;
+  settleAfterTs?: number;
+  entryCount?: number;
+  numMatches?: number;
+  perfectCount?: number;
+  distributable?: string;
+  winningBuckets?: number[];
+  card?: ContestCardMatch[];
+}
+export interface ContestEntry { pubkey: string; nonce: number; picks: number[]; amount: string }
+
+export const getContestToday = (): Promise<ContestToday> =>
+  fetch(`${ENGINE}/api/contest/today`).then(json);
+export const getContestEntries = (wallet: string): Promise<ContestEntry[]> =>
+  fetch(`${ENGINE}/api/contest/entries?wallet=${wallet}`).then(json);
