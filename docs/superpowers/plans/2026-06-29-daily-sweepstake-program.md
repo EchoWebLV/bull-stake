@@ -688,9 +688,13 @@ pub fn handler(ctx: Context<VoidContest>) -> Result<()> {
 
     // Fence the refundable stake (Σ entry.amount = entry_count * entry_price) as a
     // cross-contest liability so the next contest can't roll lamports we owe back.
-    let refundable = (ctx.accounts.contest.entry_count as u128)
-        .checked_mul(ctx.accounts.contest.entry_price as u128)
-        .ok_or(ProofBetError::MathOverflow)? as u64;
+    // u128 mul then a CHECKED narrow to u64 (never a silent truncating cast).
+    let refundable = u64::try_from(
+        (ctx.accounts.contest.entry_count as u128)
+            .checked_mul(ctx.accounts.contest.entry_price as u128)
+            .ok_or(ProofBetError::MathOverflow)?,
+    )
+    .map_err(|_| ProofBetError::MathOverflow)?;
     ctx.accounts.vault.reserved = ctx
         .accounts
         .vault
@@ -1226,11 +1230,14 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     let new_stakes = (ctx.accounts.contest.entry_count as u128)
         .checked_mul(ctx.accounts.contest.entry_price as u128)
         .ok_or(ProofBetError::MathOverflow)?;
-    let rake = (new_stakes
-        .checked_mul(ctx.accounts.contest.fee_bps as u128)
-        .ok_or(ProofBetError::MathOverflow)?
-        .checked_div(10_000)
-        .ok_or(ProofBetError::MathOverflow)?) as u64;
+    let rake = u64::try_from(
+        new_stakes
+            .checked_mul(ctx.accounts.contest.fee_bps as u128)
+            .ok_or(ProofBetError::MathOverflow)?
+            .checked_div(10_000)
+            .ok_or(ProofBetError::MathOverflow)?,
+    )
+    .map_err(|_| ProofBetError::MathOverflow)?;
     let rake = rake.min(pot_snapshot);
 
     if rake > 0 {
@@ -1258,7 +1265,12 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     // contest's winners. Floor-division dust is NOT reserved — it stays free and
     // rolls forward. RolledOver owes no one, so reserved is unchanged.
     if !rolled_over {
-        let share = ((distributable as u128) / (perfect_count as u128)) as u64;
+        let share = u64::try_from(
+            (distributable as u128)
+                .checked_div(perfect_count as u128)
+                .ok_or(ProofBetError::MathOverflow)?,
+        )
+        .map_err(|_| ProofBetError::MathOverflow)?;
         let payable = share.checked_mul(perfect_count).ok_or(ProofBetError::MathOverflow)?;
         ctx.accounts.vault.reserved = ctx
             .accounts
@@ -1530,9 +1542,12 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
             }
             if perfect {
                 require!(ctx.accounts.contest.perfect_count > 0, ProofBetError::PerfectCountZero);
-                let share = ((ctx.accounts.contest.distributable as u128)
-                    .checked_div(ctx.accounts.contest.perfect_count as u128)
-                    .ok_or(ProofBetError::MathOverflow)?) as u64;
+                let share = u64::try_from(
+                    (ctx.accounts.contest.distributable as u128)
+                        .checked_div(ctx.accounts.contest.perfect_count as u128)
+                        .ok_or(ProofBetError::MathOverflow)?,
+                )
+                .map_err(|_| ProofBetError::MathOverflow)?;
                 // Solvency cap: never pay more claims than perfect_count, and never
                 // pay out more than distributable in total. Bounds a bad (too-low)
                 // perfect_count to over-paying early claimers, never cross-contest.
