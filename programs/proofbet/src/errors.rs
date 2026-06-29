@@ -26,4 +26,26 @@ pub enum ProofBetError {
     Unauthorized,
     #[msg("arithmetic overflow")]
     MathOverflow,
+    #[msg("contest is not open")]
+    ContestNotOpen,
+    #[msg("contest is not in a terminal (claimable) state")]
+    ContestNotTerminal,
+    #[msg("a contest is already live; settle or void it first")]
+    ContestStillLive,
+    #[msg("contest_id must be non-zero")]
+    InvalidContestId,
+    #[msg("too early to settle this contest")]
+    SettleTooEarly,
+    #[msg("num_matches must be between 3 and 5")]
+    InvalidMatchCount,
+    #[msg("pick must be 0/1/2 within num_matches and 0 beyond it")]
+    InvalidPick,
+    #[msg("result market account does not match the card fixture")]
+    ResultMarketMismatch,
+    #[msg("result market is not settled")]
+    ResultMarketNotSettled,
+    #[msg("perfect_count must be greater than zero to pay a winner")]
+    PerfectCountZero,
+    #[msg("vault would drop below its rent floor or exceed distributable")]
+    VaultInsolvent,
 }
