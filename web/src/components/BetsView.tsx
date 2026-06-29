@@ -167,7 +167,7 @@ export function BetsView() {
     return (
       <>
         <div className="section"><h3>My Bets</h3></div>
-        <div className="card empty-card">No bets yet. Head to Live and back a market.</div>
+        <div className="card empty-card">No bets yet. Head to Markets and back a market.</div>
       </>
     );
   }
