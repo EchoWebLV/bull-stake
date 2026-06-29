@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { buildServer } from "../src/server.ts";
+import { readJackpotVault, readActiveContest } from "../src/chain.ts";
 import type { LiveStore } from "../src/live.ts";
 
 vi.mock("../src/chain.ts", async (orig) => {
@@ -327,6 +328,20 @@ describe("GET /api/contest/today", () => {
     expect(body.card).toHaveLength(3);
     expect(body.card[0]).toMatchObject({ fixtureId: 101, home: "Brazil", away: "Spain" });
     expect(body.card[1]).toMatchObject({ fixtureId: 102, home: "Japan", away: "Peru" });
+    await app.close();
+  });
+
+  it("returns a paused empty-state (pot '0', no contest) before the vault is initialized", async () => {
+    // Pre-launch: chain.ts degrades the missing jackpot_vault account to the
+    // paused sentinel rather than throwing, so the route must NOT 502.
+    vi.mocked(readJackpotVault).mockResolvedValueOnce({
+      activeContestId: 0, reserved: "0", lamports: "0", rentFloor: "0", pot: "0",
+    });
+    vi.mocked(readActiveContest).mockResolvedValueOnce(null);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/contest/today" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "paused", pot: "0", contest: null });
     await app.close();
   });
 });

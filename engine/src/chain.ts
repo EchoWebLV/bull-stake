@@ -149,11 +149,19 @@ export interface EntryView {
   amount: string;
 }
 
+/** Paused sentinel returned before the jackpot_vault singleton is initialized on-chain. */
+const PAUSED_VAULT: JackpotVaultView = {
+  activeContestId: 0, reserved: "0", lamports: "0", rentFloor: "0", pot: "0",
+};
+
 export async function readJackpotVault(): Promise<JackpotVaultView> {
   const program = loadProgram();
   const pda = deriveJackpotVaultPda(program.programId);
+  // fetchNullable → null when the account is absent (pre-launch), but still
+  // throws on a genuine RPC error — so the route 502s only on real failures.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v: any = await (program.account as any).jackpotVault.fetch(pda);
+  const v: any = await (program.account as any).jackpotVault.fetchNullable(pda);
+  if (v === null) return PAUSED_VAULT;
   const conn = program.provider.connection;
   const lamports = BigInt(await conn.getBalance(pda));
   const rentFloor = BigInt(await conn.getMinimumBalanceForRentExemption(JACKPOT_VAULT_SIZE));
@@ -172,7 +180,8 @@ export async function readActiveContest(): Promise<ContestView | null> {
   const program = loadProgram();
   const vPda = deriveJackpotVaultPda(program.programId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v: any = await (program.account as any).jackpotVault.fetch(vPda);
+  const v: any = await (program.account as any).jackpotVault.fetchNullable(vPda);
+  if (v === null) return null; // vault not initialized yet → no live contest
   const activeId = Number(v.activeContestId);
   if (activeId === 0) return null;
   const cPda = deriveContestPda(program.programId, activeId);
@@ -207,7 +216,8 @@ export async function listEntriesForWallet(wallet: string): Promise<EntryView[]>
   const program = loadProgram();
   const vPda = deriveJackpotVaultPda(program.programId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v: any = await (program.account as any).jackpotVault.fetch(vPda);
+  const v: any = await (program.account as any).jackpotVault.fetchNullable(vPda);
+  if (v === null) return []; // vault not initialized yet → no entries
   const activeId = Number(v.activeContestId);
   if (activeId === 0) return [];
   const cPda = deriveContestPda(program.programId, activeId);
