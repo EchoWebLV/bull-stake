@@ -11,12 +11,14 @@
  */
 import "dotenv/config";
 import { PublicKey } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
+import anchorDefault from "@coral-xyz/anchor";
 import { createContext } from "../spike/src/auth.js";
 import { authenticateCached } from "../spike/src/auth-cache.js";
 import { loadProofbetProgram, settleMarketByPubkey } from "./settle.js";
 import { countPerfect } from "./contest.js";
 
+// Named ESM exports aren't exposed through anchor's ESM entry — use the default import.
+const BN = anchorDefault.BN;
 const RESULT_MARKET_ID = 12;
 
 function i64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; }

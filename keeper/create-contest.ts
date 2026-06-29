@@ -12,11 +12,14 @@
  */
 import "dotenv/config";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
+import anchorDefault from "@coral-xyz/anchor";
 import { createContext } from "../spike/src/auth.js";
 import { toInitArgs, MARKET_TEMPLATE } from "../engine/src/markets.js";
 import { loadProofbetProgram } from "./settle.js";
 import { computeContestParams } from "./contest.js";
+
+// Named ESM exports aren't exposed through anchor's ESM entry — use the default import.
+const BN = anchorDefault.BN;
 
 const MAX_MATCHES = 5;
 const RESULT_MARKET_ID = 12;
@@ -30,7 +33,10 @@ function parseArgs(argv: string[]) {
       const [k, v = "true"] = a.slice(2).split("=");
       flags[k] = v;
     } else {
-      const [id, iso] = a.split(":");
+      // Split on the FIRST colon only — the ISO kickoff (e.g. 2026-07-01T01:00:00Z) has colons.
+      const idx = a.indexOf(":");
+      const id = a.slice(0, idx);
+      const iso = a.slice(idx + 1);
       cards.push({ fixtureId: Number(id), kickoffMs: Date.parse(iso) });
     }
   }
@@ -103,7 +109,7 @@ async function main() {
 function i64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; }
 function u64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; }
 /** Pad fixtures to [i64; 5] with BN(0) (program ignores entries beyond num_matches). */
-function padFixtures(ids: number[]): BN[] {
+function padFixtures(ids: number[]) {
   const out = ids.map((id) => new BN(id));
   while (out.length < MAX_MATCHES) out.push(new BN(0));
   return out;
