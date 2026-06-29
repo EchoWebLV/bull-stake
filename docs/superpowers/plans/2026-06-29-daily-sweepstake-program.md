@@ -848,6 +848,15 @@ describe("daily sweepstake — enter", () => {
     let c = await program.account.contest.fetch(contest);
     assert.equal(c.entryCount.toNumber(), 1);
 
+    // The new Entry must record all identity/amount fields (amount drives the void
+    // refund in claim_contest, so assert it explicitly).
+    const eInit = await program.account.entry.fetch(entry0);
+    assert.equal(eInit.amount.toNumber(), 20_000_000, "entry.amount = entry_price at init");
+    assert.equal(eInit.nonce.toNumber(), 0, "entry.nonce set");
+    assert.ok(eInit.bettor.equals(player.publicKey), "entry.bettor set");
+    assert.ok(eInit.contest.equals(contest), "entry.contest set");
+    assert.deepEqual(eInit.picks, [0, 1, 2, 0, 0], "entry.picks set with tail zero");
+
     // Edit the SAME nonce before lock — no second charge, no entry_count change.
     const vAfterFirst = await balance(vault);
     await program.methods.enter(new BN(0), pickArray([2, 2, 2, 2]))
@@ -951,11 +960,13 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_MATCHES]) -> Res
     let now = Clock::get()?.unix_timestamp;
     require!(now < ctx.accounts.contest.lock_ts, ProofBetError::EntryClosed);
 
-    // Validate picks: 0..3 within num_matches, exactly 0 beyond it (tail guard).
+    // Validate picks: a valid 1X2 outcome (< MAX_BUCKETS) within num_matches, and
+    // exactly 0 beyond it (tail guard). MAX_BUCKETS is the result market's bucket
+    // count (3 = Home/Draw/Away) — the same outcome space a pick selects from.
     let nm = ctx.accounts.contest.num_matches as usize;
     for (i, &p) in picks.iter().enumerate() {
         if i < nm {
-            require!(p < 3, ProofBetError::InvalidPick);
+            require!((p as usize) < crate::state::MAX_BUCKETS, ProofBetError::InvalidPick);
         } else {
             require!(p == 0, ProofBetError::InvalidPick);
         }
