@@ -866,9 +866,9 @@ The web IDL is stale (parimutuel-only). Re-sync it, add the three contest PDA de
 
 - [ ] **Step 1: Re-sync the IDL**
 
-Run (from repo root):
+Run (from the worktree repo root). NOTE: `target/` is gitignored and not present in this fresh worktree, so copy from the main checkout's freshly-built IDL (identical program → identical IDL):
 ```bash
-cp target/idl/proofbet.json web/src/idl/proofbet.json
+cp /Users/yordanlasonov/Documents/GitHub/ProofBet/target/idl/proofbet.json web/src/idl/proofbet.json
 node -e "console.log(require('./web/src/idl/proofbet.json').instructions.map(i=>i.name).join(', '))"
 ```
 Expected output includes: `claim, claim_contest, create_contest, enter, initialize_market, initialize_vault, place_bet, settle, settle_contest, void_contest, void_market`.
