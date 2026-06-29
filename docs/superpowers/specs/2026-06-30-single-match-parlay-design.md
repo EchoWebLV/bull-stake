@@ -188,14 +188,13 @@ contest vault (the jackpot is untouched). ⚠️ needs a `void-contest` keeper p
   single-predicate proof can't express. If wanted later, scope a pipeline extension
   separately — NOT in this build.
 
-## 9. Open questions / decisions
-1. **Rake (`fee_bps`).** Keep v1's 5% on new stakes, or lower/zero to fatten the pot
-   for a jackpot product? (Recommend: configurable, default 5%, revisit.)
-2. **Dust** at settle: sweep to jackpot (recommended) vs leave in contest vault.
-3. **`void-contest` keeper CLI** does not exist yet (only the on-chain instruction).
-   Needed for the abandoned-match refund path — build as part of this work.
-4. **Leg count 3 vs 4** — speccing 4; trivial to drop to 3.
-5. **`perfect_count` trust** — unchanged from v1 (keeper-supplied, dual-capped on
+## 9. Decisions (resolved)
+1. **Leg count = 4** (confirmed). The four legs in §1.
+2. **Rake (`fee_bps`) = 5%** on new stakes (configurable per contest), same as v1.
+3. **Dust** at settle: **swept to the jackpot** (no lamports stranded in a closed
+   contest vault).
+4. **`void-contest` keeper CLI**: **build it** in this work (abandoned-match refund).
+5. **`perfect_count` trust**: unchanged from v1 (keeper-supplied, dual-capped on
    claim). Acceptable for devnet; on-chain proof verification deferred.
 
 ## 10. Out of scope (future / back-burner)
