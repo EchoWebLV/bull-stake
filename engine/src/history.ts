@@ -16,6 +16,7 @@ import { EventParser } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { getProgram, readMarket, type MarketView } from "./chain.ts";
 import { MARKET_TEMPLATE } from "./markets.ts";
+import { impliedOddsN } from "./odds.ts";
 
 // How many of the wallet's recent signatures to scan, and how long to cache.
 const SIG_LIMIT = 200;
@@ -34,6 +35,23 @@ export type HistoryStatus =
   | "claimable-refund" // voided, not yet claimed
   | "legacy";          // bet on a pre-upgrade market the current program can't read
 
+/**
+ * One outcome of a market, from the bettor's point of view. A market has one leg
+ * per bucket (2 for O/U, 3 for 1X2) so the UI can show the full picture: the
+ * outcomes you backed, their stake/odds/projected return, and the ones you left
+ * alone. Replaces the old single collapsed "side" (which became a useless
+ * "Multiple" the moment you backed more than one outcome).
+ */
+export interface HistoryLeg {
+  bucket: number;
+  side: string;            // outcome label: team name | "Draw" | "Over" | "Under"
+  backed: boolean;         // the wallet staked on this outcome
+  stakeLamports: string;   // stake on this outcome (0 if not backed)
+  odds: number;            // current pool-implied multiplier (0 when no price)
+  payoutLamports: string;  // open → projected if it wins; settled-win → realized; void → refund; else 0
+  result: "won" | "lost" | "refunded" | null; // per-outcome resolution (null while open)
+}
+
 export interface HistoryEntry {
   market: string;          // market PDA (base58) — for explorer link
   fixtureId: number;
@@ -50,6 +68,7 @@ export interface HistoryEntry {
   payoutLamports: string;  // realized (claimed) or claimable, in lamports
   status: HistoryStatus;
   settledValue: number | null; // the proved stat value, when settled
+  legs: HistoryLeg[];      // per-outcome breakdown (empty for legacy markets)
   betSig: string;          // first BetPlaced tx — explorer link
   claimSig: string | null; // Claimed tx, if any
   tsMs: number;            // most recent activity timestamp
@@ -63,6 +82,7 @@ export interface MarketSnapshot {
   bucketTotals: bigint[];
   totalPool: bigint;
   feeCollected: bigint;
+  feeBps?: number; // fee basis points (0 for current markets); used for live odds
 }
 
 export interface ClaimInfo {
@@ -70,14 +90,24 @@ export interface ClaimInfo {
   voided: boolean;
 }
 
-/** Parimutuel payout for `stake` on the winning bucket — mirrors claim.rs. */
-export function winningPayout(stake: bigint, market: MarketSnapshot): bigint {
-  const wb = market.winningBucket;
-  if (wb == null || stake <= 0n) return 0n;
-  const winnerTotal = market.bucketTotals[wb];
+/**
+ * Parimutuel payout for `stake` if `bucket` wins — mirrors claim.rs.
+ * Generalized to any bucket so it serves both the realized winner and the
+ * "what would this outcome pay" projection on a still-open market.
+ */
+export function payoutIfWins(stake: bigint, bucket: number, market: MarketSnapshot): bigint {
+  if (stake <= 0n) return 0n;
+  const winnerTotal = market.bucketTotals[bucket] ?? 0n;
   if (winnerTotal <= 0n) return 0n;
   const distributable = market.totalPool - market.feeCollected;
   return (stake * distributable) / winnerTotal;
+}
+
+/** Parimutuel payout for `stake` on the winning bucket — mirrors claim.rs. */
+export function winningPayout(stake: bigint, market: MarketSnapshot): bigint {
+  const wb = market.winningBucket;
+  if (wb == null) return 0n;
+  return payoutIfWins(stake, wb, market);
 }
 
 /**
@@ -110,6 +140,52 @@ export function reconstructStatus(
     return { status: "claimable-won", payout: winningPayout(wonStake, market) };
   }
   return { status: "lost", payout: 0n };
+}
+
+/**
+ * Expand a bet into one leg per market outcome — the data the My Bets view needs
+ * to show exactly what you backed, at what odds, and what each outcome pays.
+ * Pure: `stake[b]` is the wallet's stake on bucket b; `labelFor(b)` names it.
+ *
+ *   - open    → each leg's payout is the projection "if this outcome wins now"
+ *   - settled → winning bucket marked "won" (realized payout); others "lost"
+ *   - voided  → every leg "refunded", backed legs refund their stake
+ */
+export function buildLegs(
+  stake: bigint[],
+  market: MarketSnapshot,
+  numBuckets: number,
+  labelFor: (bucket: number) => string,
+): HistoryLeg[] {
+  const feeBps = market.feeBps ?? 0;
+  const legs: HistoryLeg[] = [];
+  for (let b = 0; b < numBuckets; b++) {
+    const legStake = stake[b] ?? 0n;
+    const backed = legStake > 0n;
+    let payout = 0n;
+    let result: HistoryLeg["result"] = null;
+
+    if (market.status === "settled") {
+      result = market.winningBucket === b ? "won" : "lost";
+      if (result === "won") payout = payoutIfWins(legStake, b, market);
+    } else if (market.status === "voided") {
+      result = "refunded";
+      payout = legStake; // full refund of whatever sat on this outcome
+    } else {
+      payout = payoutIfWins(legStake, b, market); // open: projected if it wins
+    }
+
+    legs.push({
+      bucket: b,
+      side: labelFor(b),
+      backed,
+      stakeLamports: legStake.toString(),
+      odds: impliedOddsN(market.bucketTotals, b, feeBps),
+      payoutLamports: payout.toString(),
+      result,
+    });
+  }
+  return legs;
 }
 
 // ── Event gathering (I/O) ────────────────────────────────────────────────────
@@ -175,6 +251,7 @@ function snapshotFrom(mv: MarketView): MarketSnapshot {
     bucketTotals: mv.bucketTotals.map((b) => BigInt(b)),
     totalPool: BigInt(mv.totalPool),
     feeCollected: BigInt(mv.feeCollected),
+    feeBps: mv.feeBps,
   };
 }
 
@@ -230,6 +307,7 @@ export async function fetchHistory(
         payoutLamports: (claimEvForMarket?.payout ?? 0n).toString(),
         status: "legacy",
         settledValue: null,
+        legs: [],
         betSig: agg.firstSig,
         claimSig: claimEvForMarket?.sig ?? null,
         tsMs: Math.max(agg.tsMs, claimEvForMarket?.tsMs ?? 0),
@@ -240,7 +318,8 @@ export async function fetchHistory(
     const claimEv = claimByMarket.get(market) ?? null;
     const claim: ClaimInfo | null = claimEv ? { payout: claimEv.payout, voided: claimEv.voided } : null;
     const stake = agg.stake.slice(0, mv.numBuckets);
-    const { status, payout } = reconstructStatus(stake, snapshotFrom(mv), claim);
+    const snapshot = snapshotFrom(mv);
+    const { status, payout } = reconstructStatus(stake, snapshot, claim);
 
     const def = MARKET_TEMPLATE.find((d) => d.marketId === mv.marketId);
     const meta = fixtureMeta.get(mv.fixtureId);
@@ -248,6 +327,7 @@ export async function fetchHistory(
     const away = meta?.away ?? "";
     const betBuckets = stake.map((s, i) => (s > 0n ? i : -1)).filter((i) => i >= 0);
     const primaryBucket = betBuckets.length === 1 ? betBuckets[0] : -1;
+    const legs = buildLegs(stake, snapshot, mv.numBuckets, (b) => sideLabel(def?.group ?? "", b, home, away));
 
     entries.push({
       market,
@@ -265,6 +345,7 @@ export async function fetchHistory(
       payoutLamports: payout.toString(),
       status,
       settledValue: mv.status === "settled" ? mv.settledValue : null,
+      legs,
       betSig: agg.firstSig,
       claimSig: claimEv?.sig ?? null,
       tsMs: Math.max(agg.tsMs, claimEv?.tsMs ?? 0),

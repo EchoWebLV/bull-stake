@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   reconstructStatus,
   winningPayout,
+  buildLegs,
   type MarketSnapshot,
 } from "../src/history.ts";
 
@@ -80,6 +81,58 @@ describe("reconstructStatus — three-way result market", () => {
     const voided: MarketSnapshot = { ...threeWayAwayWon, status: "voided", winningBucket: null };
     const r = reconstructStatus([1_000_000_000n, 500_000_000n, 0n], voided, null);
     expect(r).toEqual({ status: "claimable-refund", payout: 1_500_000_000n });
+  });
+});
+
+describe("buildLegs — per-outcome breakdown", () => {
+  const label = (b: number) => ["Brazil", "Draw", "Japan"][b] ?? `#${b}`;
+
+  it("open 1X2: one leg per outcome, only backed ones carry stake, payout projects 'if it wins'", () => {
+    // pool Brazil 0.30 / Draw 0.15 / Japan 0.10 (total 0.55); wallet backed Brazil+Draw
+    const open: MarketSnapshot = {
+      status: "open", winningBucket: null,
+      bucketTotals: [300_000_000n, 150_000_000n, 100_000_000n],
+      totalPool: 550_000_000n, feeCollected: 0n,
+    };
+    const legs = buildLegs([100_000_000n, 60_000_000n, 0n], open, 3, label);
+    expect(legs).toHaveLength(3);
+    expect(legs.map((l) => l.side)).toEqual(["Brazil", "Draw", "Japan"]);
+    expect(legs.map((l) => l.backed)).toEqual([true, true, false]);
+    // Brazil leg: 0.10 stake, odds 0.55/0.30 = 1.833, payout 0.10 * 0.55/0.30 = 0.18333
+    expect(legs[0].odds).toBeCloseTo(1.8333, 3);
+    expect(legs[0].payoutLamports).toBe("183333333");
+    // Japan not backed: 0 stake, 0 payout, but still shows the live price
+    expect(legs[2].stakeLamports).toBe("0");
+    expect(legs[2].payoutLamports).toBe("0");
+    expect(legs[2].odds).toBeCloseTo(5.5, 3);
+    expect(legs.every((l) => l.result === null)).toBe(true);
+  });
+
+  it("settled: winning outcome marked won with realized payout, the rest lost", () => {
+    const settled: MarketSnapshot = {
+      status: "settled", winningBucket: 2, // Japan won
+      bucketTotals: [1_000_000_000n, 1_000_000_000n, 2_000_000_000n],
+      totalPool: 4_000_000_000n, feeCollected: 0n,
+    };
+    // wallet had backed Brazil(1) and Japan(2)
+    const legs = buildLegs([1_000_000_000n, 0n, 2_000_000_000n], settled, 3, label);
+    expect(legs[0].result).toBe("lost");
+    expect(legs[1].result).toBe("lost");
+    expect(legs[2].result).toBe("won");
+    // Japan: stake 2 of winner pool 2, whole 4 pool → 2 * 4 / 2 = 4
+    expect(legs[2].payoutLamports).toBe("4000000000");
+    expect(legs[0].payoutLamports).toBe("0");
+  });
+
+  it("voided: every leg refunded, backed legs return their stake", () => {
+    const voided: MarketSnapshot = {
+      status: "voided", winningBucket: null,
+      bucketTotals: [1_000_000_000n, 500_000_000n], totalPool: 1_500_000_000n, feeCollected: 0n,
+    };
+    const legs = buildLegs([1_000_000_000n, 0n], voided, 2, (b) => (b === 0 ? "Over" : "Under"));
+    expect(legs.map((l) => l.result)).toEqual(["refunded", "refunded"]);
+    expect(legs[0].payoutLamports).toBe("1000000000"); // backed → refunded
+    expect(legs[1].payoutLamports).toBe("0");           // not backed → nothing
   });
 });
 

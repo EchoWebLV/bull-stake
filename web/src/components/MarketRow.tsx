@@ -2,7 +2,8 @@ import { useState } from "react";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildPlaceBetTx, buildClaimTx } from "../lib/anchorClient.ts";
 import type { LiveMarket } from "../lib/api.ts";
-import { LAMPORTS, SOL, fmtMult, fmtSol, projectedPayout, buttonMultiplier } from "../lib/odds.ts";
+import { LAMPORTS, SOL, fmtMultEst, fmtSol, projectedPayout, displayMultiplier } from "../lib/odds.ts";
+import { OddsNote } from "./OddsNote.tsx";
 
 /** "Total Corners O/U 9.5" → "Total Corners"; result markets keep their label. */
 function cleanTitle(label: string): string {
@@ -31,10 +32,10 @@ export function MarketRow({ fixtureId, market }: { fixtureId: number; market: Li
   const stakeLamports = Number.isFinite(stakeNum) && stakeNum > 0 ? Math.round(stakeNum * LAMPORTS) : 0;
   const projected = projectedPayout([overStake, underStake], bucket, stakeLamports);
 
-  // Stake-aware per-button multiplier (shows a real value on an empty/one-sided
-  // pool instead of collapsing to "—"); see lib/odds.ts.
-  const overMult = buttonMultiplier(market.bucketTotals, 0, stakeLamports, market.odds[0] ?? 0);
-  const underMult = buttonMultiplier(market.bucketTotals, 1, stakeLamports, market.odds[1] ?? 0);
+  // Only the picked side reacts to the stake; the other holds at the live-market
+  // price (staking a side dilutes only that side — see lib/odds.ts).
+  const overMult = displayMultiplier(market.bucketTotals, 0, bucket, stakeLamports, market.odds[0] ?? 0);
+  const underMult = displayMultiplier(market.bucketTotals, 1, bucket, stakeLamports, market.odds[1] ?? 0);
 
   function flash(text: string, err = false) { setMsg(text); setMsgErr(err); }
 
@@ -108,7 +109,7 @@ export function MarketRow({ fixtureId, market }: { fixtureId: number; market: Li
               onClick={() => setBucket(0)}
             >
               <span className="side">{overLabel}</span>
-              <span className={`mult ${overMult > 0 ? "" : "empty"}`}>{fmtMult(overMult)}</span>
+              <span className={`mult ${overMult > 0 ? "" : "empty"}`}>{fmtMultEst(overMult)}</span>
             </button>
             <button
               className={`pick ${bucket === 1 ? "sel" : ""}`}
@@ -116,9 +117,11 @@ export function MarketRow({ fixtureId, market }: { fixtureId: number; market: Li
               onClick={() => setBucket(1)}
             >
               <span className="side">{underLabel}</span>
-              <span className={`mult ${underMult > 0 ? "" : "empty"}`}>{fmtMult(underMult)}</span>
+              <span className={`mult ${underMult > 0 ? "" : "empty"}`}>{fmtMultEst(underMult)}</span>
             </button>
           </div>
+
+          <OddsNote />
 
           <div className="stakerow">
             <input

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildPlaceBetTx } from "../lib/anchorClient.ts";
 import type { LiveMarket } from "../lib/api.ts";
-import { LAMPORTS, SOL, fmtMult, fmtSol, projectedPayout, buttonMultiplier } from "../lib/odds.ts";
+import { LAMPORTS, SOL, fmtMultEst, fmtSol, projectedPayout, displayMultiplier } from "../lib/odds.ts";
+import { OddsNote } from "./OddsNote.tsx";
 
 /**
  * Three-way 1X2 result control over a single shared-pool market (num_buckets 3):
@@ -61,7 +62,9 @@ export function ResultSelector({
           const won = settled && winnerBucket === o.bucket;
           const lost = settled && !won;
           const selected = bucket === o.bucket;
-          const mult = buttonMultiplier(market.bucketTotals, o.bucket, stakeLamports, market.odds[o.bucket] ?? 0);
+          // Only the picked outcome reacts to the stake; the others hold at the
+          // live-market price (see displayMultiplier).
+          const mult = displayMultiplier(market.bucketTotals, o.bucket, bucket, stakeLamports, market.odds[o.bucket] ?? 0);
           return (
             <button
               key={o.cls}
@@ -71,7 +74,7 @@ export function ResultSelector({
               onClick={() => open && setBucket(o.bucket)}
             >
               <span className="r3-team">{won ? "✓ " : ""}{o.team}</span>
-              <span className="r3-mult">{settled ? (won ? "Winner" : "—") : fmtMult(mult)}</span>
+              <span className="r3-mult">{settled ? (won ? "Winner" : "—") : fmtMultEst(mult)}</span>
             </button>
           );
         })}
@@ -79,6 +82,8 @@ export function ResultSelector({
 
       {open && (
         <>
+          <OddsNote />
+
           <div className="stakerow">
             <input
               value={sol}

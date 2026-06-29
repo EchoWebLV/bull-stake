@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
-import { impliedOdds } from "../src/lib/odds.ts";
+import { impliedOdds, displayMultiplier } from "../src/lib/odds.ts";
 import { deriveMarketPda, deriveVaultPda, derivePositionPda } from "../src/lib/pdas.ts";
 
 const P = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
@@ -8,6 +8,33 @@ const P = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
 describe("web odds", () => {
   it("matches the engine formula", () => {
     expect(impliedOdds([300n, 100n], 0, 0)).toBeCloseTo(1.3333, 3);
+  });
+});
+
+describe("displayMultiplier — only the selected outcome reacts to stake", () => {
+  // 1X2 pool: Brazil 0.30 / Draw 0.15 / Japan 0.10 (total 0.55).
+  const totals = ["300000000", "150000000", "100000000"];
+  const STAKE = 500_000_000; // 0.5 SOL
+  // Live-market (stake-free) odds = total / side.
+  const oddsBrazil = 1.8333, oddsDraw = 3.6667, oddsJapan = 5.5;
+
+  it("an unselected outcome ignores the stake (stays at live-market odds)", () => {
+    // Japan is selected; the Draw button must NOT move when stake is entered.
+    expect(displayMultiplier(totals, 1, 2, STAKE, oddsDraw)).toBeCloseTo(oddsDraw, 3);
+    expect(displayMultiplier(totals, 0, 2, STAKE, oddsBrazil)).toBeCloseTo(oddsBrazil, 3);
+  });
+
+  it("the selected outcome reflects the stake (its own side is diluted)", () => {
+    // Staking 0.5 on Japan: (0.55+0.5)/(0.10+0.5) = 1.05/0.60 = 1.75.
+    expect(displayMultiplier(totals, 2, 2, STAKE, oddsJapan)).toBeCloseTo(1.75, 2);
+  });
+
+  it("with nothing selected, every button shows live-market odds", () => {
+    expect(displayMultiplier(totals, 2, null, STAKE, oddsJapan)).toBeCloseTo(oddsJapan, 3);
+  });
+
+  it("the selected outcome with zero stake shows live-market odds", () => {
+    expect(displayMultiplier(totals, 2, 2, 0, oddsJapan)).toBeCloseTo(oddsJapan, 3);
   });
 });
 describe("web pdas", () => {

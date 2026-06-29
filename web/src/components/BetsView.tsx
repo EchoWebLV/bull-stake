@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { getHistory, type HistoryEntry, type HistoryStatus } from "../lib/api.ts";
+import { getHistory, type HistoryEntry, type HistoryLeg, type HistoryStatus } from "../lib/api.ts";
 import { useSolanaAddress } from "./LoginBar.tsx";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildClaimTx } from "../lib/anchorClient.ts";
-import { SOL, fmtSol } from "../lib/odds.ts";
+import { SOL, fmtSol, fmtMultEst } from "../lib/odds.ts";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -17,14 +17,60 @@ const STATUS_META: Record<HistoryStatus, { label: string; cls: string; claim?: b
   legacy: { label: "Legacy", cls: "dim" },
 };
 
+/** Outcome accent: home/over green, draw neutral, away/under red; idle = grey. */
+function outcomeColor(bucket: number, total: number): string {
+  const ramp = total >= 3
+    ? ["var(--green)", "var(--text-2)", "#FF6B6B"]
+    : ["var(--green)", "#FF6B6B"];
+  return ramp[bucket] ?? "var(--text-2)";
+}
+
+/** Right-hand value for one leg, scaled to its state. */
+function LegRow({ leg, total, open }: { leg: HistoryLeg; total: number; open: boolean }) {
+  const won = leg.result === "won";
+  const lost = leg.result === "lost";
+  const refunded = leg.result === "refunded";
+  const color = leg.backed ? outcomeColor(leg.bucket, total) : "var(--text-3)";
+
+  const right = won ? `→ ${fmtSol(leg.payoutLamports)}${SOL}`
+    : refunded ? (leg.backed ? `refund ${fmtSol(leg.payoutLamports)}${SOL}` : "—")
+    : lost ? "lost"
+    : `→ ${fmtSol(leg.payoutLamports)}${SOL}`; // open
+  const rightCls = won ? "win" : (lost || refunded) ? "dim" : "win";
+
+  return (
+    <div className={`leg${leg.backed ? "" : " idle"}${lost ? " lost" : ""}`}>
+      <span className="leg-dot" style={{ background: color }} />
+      <span className="leg-name" style={leg.backed ? { color } : undefined}>
+        {won ? "✓ " : ""}{leg.side}
+      </span>
+      {leg.backed ? (
+        <>
+          <span className="leg-mid">
+            {fmtSol(leg.stakeLamports)}{SOL}{open && leg.odds > 0 ? ` · ${fmtMultEst(leg.odds)}` : ""}
+          </span>
+          <span className={`leg-payout ${rightCls}`}>{right}</span>
+        </>
+      ) : (
+        <span className="leg-idle-text">{won ? "winner · not backed" : "not backed"}</span>
+      )}
+    </div>
+  );
+}
+
 function Receipt({ entry, onClaimed }: { entry: HistoryEntry; onClaimed: () => void }) {
   const { address, signAndSend } = usePrivySigner();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
   const meta = STATUS_META[entry.status];
-  const won = entry.status === "won" || entry.status === "claimable-won";
   const match = entry.away ? `${entry.home} v ${entry.away}` : entry.home;
   const proofSig = entry.claimSig ?? entry.betSig;
+  const open = entry.status === "pending";
+  // Tolerate an older engine response that predates per-leg data.
+  const legs = entry.legs ?? [];
+  const isLegacy = entry.status === "legacy" || legs.length === 0;
+  const backedCount = legs.filter((l) => l.backed).length;
+  const wonPayout = entry.status === "won" || entry.status === "claimable-won";
 
   async function claim() {
     if (!address) return;
@@ -40,27 +86,34 @@ function Receipt({ entry, onClaimed }: { entry: HistoryEntry; onClaimed: () => v
 
   return (
     <div className="receipt">
-      <div className="receipt-main">
-        <div className="receipt-info">
-          <div className="receipt-title">
-            {entry.label} · <span className="receipt-side">{entry.side}</span>
-          </div>
-          <div className="receipt-sub">
-            <span>{match}</span>
-            <a className="proof-chip" href={explorer(proofSig)} target="_blank" rel="noreferrer">
-              <span className="seal">◆</span> {proofSig.slice(0, 4)}…{proofSig.slice(-4)} ↗
-            </a>
-          </div>
-        </div>
-        <div className="receipt-right">
-          <span className={`status-pill ${meta.cls}`}>{meta.label}</span>
-          <span className={`receipt-amt ${won ? "win" : entry.status === "lost" ? "lose" : ""}`}>
-            {won ? `+${fmtSol(entry.payoutLamports)}${SOL}`
-              : entry.status === "lost" ? `−${fmtSol(entry.stakeLamports)}${SOL}`
-              : `${fmtSol(entry.stakeLamports)}${SOL}`}
-          </span>
-        </div>
+      <div className="receipt-head">
+        <span className="receipt-title">{entry.label}</span>
+        <span className={`status-pill ${meta.cls}`}>{meta.label}</span>
       </div>
+      <div className="receipt-sub">
+        {match}{backedCount > 1 ? ` · you backed ${backedCount} of ${entry.legs.length}` : ""}
+      </div>
+
+      {isLegacy ? (
+        <div className="legacy-note">Archived before the 1X2 upgrade · read-only</div>
+      ) : (
+        <div className="legs">
+          {legs.map((leg) => (
+            <LegRow key={leg.bucket} leg={leg} total={legs.length} open={open} />
+          ))}
+        </div>
+      )}
+
+      <div className="receipt-foot">
+        <span className="staked">
+          Staked <b>{fmtSol(entry.stakeLamports)}{SOL}</b>
+          {wonPayout && <span className="won-amt"> · won {fmtSol(entry.payoutLamports)}{SOL}</span>}
+        </span>
+        <a className="proof-chip" href={explorer(proofSig)} target="_blank" rel="noreferrer">
+          <span className="seal">◆</span> {proofSig.slice(0, 4)}…{proofSig.slice(-4)} ↗
+        </a>
+      </div>
+
       {meta.claim && (
         <button className="btn" style={{ marginTop: 10 }} disabled={busy} onClick={claim}>
           {busy ? "…" : entry.status === "claimable-won"

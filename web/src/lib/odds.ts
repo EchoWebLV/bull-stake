@@ -13,6 +13,14 @@ export function impliedOdds(bucketTotals: [bigint, bigint], bucket: 0 | 1, feeBp
 /** Multiplier display: "2.40×", or "—" when there's no price yet. */
 export const fmtMult = (n: number) => (n > 0 ? `${n.toFixed(2)}×` : "—");
 
+/**
+ * Estimate-flavoured multiplier: "~2.40×". The leading "~" signals that every
+ * parimutuel multiplier is a live projection — it shifts as stake (yours and
+ * everyone else's) enters the pool and only finalizes at settlement. Falls back
+ * to "—" (no "~") when there's no price yet.
+ */
+export const fmtMultEst = (n: number) => (n > 0 ? `~${n.toFixed(2)}×` : "—");
+
 /** Lamports → trimmed SOL string (e.g. 0.1, 1.25). */
 export const fmtSol = (lamports: string | number) => {
   const sol = Number(lamports) / LAMPORTS;
@@ -49,4 +57,25 @@ export function buttonMultiplier(
   if (stakeLamports <= 0) return staticOdds;
   const totals = bucketTotals.map(Number);
   return projectedPayout(totals, bucket, stakeLamports) / stakeLamports;
+}
+
+/**
+ * The multiplier to display on a single outcome button.
+ *
+ * Only the outcome the bettor has *selected* reacts to their typed stake: in a
+ * parimutuel pool, staking a side dilutes only that side, so a bet on one
+ * outcome would actually *raise* the others' odds — never lower them. Showing
+ * every button sink toward 1× as the stake grows wrongly implied that backing
+ * one result hurt the rest. So unselected buttons hold at the live-market odds
+ * (`staticOdds`); the selected one shows the stake-aware projection.
+ */
+export function displayMultiplier(
+  bucketTotals: string[],
+  bucket: number,
+  selectedBucket: number | null,
+  stakeLamports: number,
+  staticOdds: number,
+): number {
+  if (bucket !== selectedBucket) return staticOdds;
+  return buttonMultiplier(bucketTotals, bucket, stakeLamports, staticOdds);
 }

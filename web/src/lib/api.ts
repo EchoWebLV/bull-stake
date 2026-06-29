@@ -32,6 +32,17 @@ export interface LiveMarket {
 export type HistoryStatus =
   | "pending" | "won" | "lost" | "refunded" | "claimable-won" | "claimable-refund" | "legacy";
 
+/** One outcome of a market, from the bettor's point of view. */
+export interface HistoryLeg {
+  bucket: number;
+  side: string;            // team name | "Draw" | "Over" | "Under"
+  backed: boolean;         // you staked on this outcome
+  stakeLamports: string;
+  odds: number;            // current pool-implied multiplier (0 = no price)
+  payoutLamports: string;  // projected (open) / realized (settled win) / refund (void)
+  result: "won" | "lost" | "refunded" | null;
+}
+
 export interface HistoryEntry {
   market: string;
   fixtureId: number;
@@ -48,6 +59,7 @@ export interface HistoryEntry {
   payoutLamports: string;
   status: HistoryStatus;
   settledValue: number | null;
+  legs: HistoryLeg[];
   betSig: string;
   claimSig: string | null;
   tsMs: number;
