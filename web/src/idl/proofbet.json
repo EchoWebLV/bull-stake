@@ -115,6 +115,349 @@
       "args": []
     },
     {
+      "name": "claim_contest",
+      "discriminator": [
+        116,
+        176,
+        194,
+        81,
+        200,
+        242,
+        88,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "bettor",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "entry"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest"
+              },
+              {
+                "kind": "account",
+                "path": "bettor"
+              },
+              {
+                "kind": "account",
+                "path": "entry.nonce",
+                "account": "Entry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_contest",
+      "discriminator": [
+        129,
+        189,
+        164,
+        27,
+        152,
+        242,
+        123,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "contest_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "contest_id",
+          "type": "u64"
+        },
+        {
+          "name": "fixtures",
+          "type": {
+            "array": [
+              "i64",
+              5
+            ]
+          }
+        },
+        {
+          "name": "num_matches",
+          "type": "u8"
+        },
+        {
+          "name": "entry_price",
+          "type": "u64"
+        },
+        {
+          "name": "lock_ts",
+          "type": "i64"
+        },
+        {
+          "name": "settle_after_ts",
+          "type": "i64"
+        },
+        {
+          "name": "fee_recipient",
+          "type": "pubkey"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "enter",
+      "discriminator": [
+        139,
+        49,
+        209,
+        114,
+        88,
+        91,
+        77,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "bettor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest"
+              },
+              {
+                "kind": "account",
+                "path": "bettor"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "picks",
+          "type": {
+            "array": [
+              "u8",
+              5
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "initialize_market",
       "discriminator": [
         35,
@@ -204,6 +547,57 @@
           }
         }
       ]
+    },
+    {
+      "name": "initialize_vault",
+      "discriminator": [
+        48,
+        191,
+        163,
+        44,
+        71,
+        129,
+        63,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "place_bet",
@@ -415,6 +809,167 @@
       ]
     },
     {
+      "name": "settle_contest",
+      "discriminator": [
+        79,
+        122,
+        33,
+        192,
+        110,
+        98,
+        219,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "signer": true,
+          "relations": [
+            "contest"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "perfect_count",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "void_contest",
+      "discriminator": [
+        112,
+        180,
+        198,
+        219,
+        193,
+        85,
+        163,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "docs": [
+            "The caller. Must equal `contest.settle_authority` (the keeper) UNLESS the",
+            "grace period past `settle_after_ts` has elapsed, in which case anyone may",
+            "void. Because that authorization is conditional it's checked in the handler,",
+            "not via a fixed `has_one` (the account stays named `settle_authority` so the",
+            "common keeper call sites read naturally)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "void_market",
       "discriminator": [
         243,
@@ -477,6 +1032,45 @@
     }
   ],
   "accounts": [
+    {
+      "name": "Contest",
+      "discriminator": [
+        216,
+        26,
+        88,
+        18,
+        251,
+        80,
+        201,
+        96
+      ]
+    },
+    {
+      "name": "Entry",
+      "discriminator": [
+        63,
+        18,
+        152,
+        113,
+        215,
+        246,
+        221,
+        250
+      ]
+    },
+    {
+      "name": "JackpotVault",
+      "discriminator": [
+        92,
+        180,
+        135,
+        82,
+        50,
+        74,
+        83,
+        167
+      ]
+    },
     {
       "name": "Market",
       "discriminator": [
@@ -542,6 +1136,71 @@
         150,
         248,
         33
+      ]
+    },
+    {
+      "name": "ContestClaimed",
+      "discriminator": [
+        88,
+        210,
+        103,
+        215,
+        110,
+        121,
+        206,
+        113
+      ]
+    },
+    {
+      "name": "ContestCreated",
+      "discriminator": [
+        132,
+        15,
+        183,
+        141,
+        44,
+        207,
+        42,
+        86
+      ]
+    },
+    {
+      "name": "ContestSettled",
+      "discriminator": [
+        20,
+        198,
+        33,
+        48,
+        18,
+        184,
+        63,
+        200
+      ]
+    },
+    {
+      "name": "ContestVoided",
+      "discriminator": [
+        185,
+        189,
+        254,
+        96,
+        128,
+        4,
+        154,
+        225
+      ]
+    },
+    {
+      "name": "EnteredContest",
+      "discriminator": [
+        200,
+        124,
+        20,
+        131,
+        150,
+        52,
+        52,
+        196
       ]
     },
     {
@@ -622,28 +1281,88 @@
     },
     {
       "code": 6007,
-      "name": "InvalidBucketCount",
-      "msg": "num_buckets must be 2 (binary) or 3 (three-way)"
-    },
-    {
-      "code": 6008,
       "name": "ZeroAmount",
       "msg": "bet amount must be greater than zero"
     },
     {
-      "code": 6009,
+      "code": 6008,
       "name": "NotClaimable",
       "msg": "market is not in a claimable state"
     },
     {
-      "code": 6010,
+      "code": 6009,
       "name": "Unauthorized",
       "msg": "signer is not authorized for this action"
     },
     {
-      "code": 6011,
+      "code": 6010,
       "name": "MathOverflow",
       "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6011,
+      "name": "ContestNotOpen",
+      "msg": "contest is not open"
+    },
+    {
+      "code": 6012,
+      "name": "ContestNotTerminal",
+      "msg": "contest is not in a terminal (claimable) state"
+    },
+    {
+      "code": 6013,
+      "name": "ContestStillLive",
+      "msg": "a contest is already live; settle or void it first"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidContestId",
+      "msg": "contest_id must be non-zero"
+    },
+    {
+      "code": 6015,
+      "name": "SettleTooEarly",
+      "msg": "too early to settle this contest"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidMatchCount",
+      "msg": "num_matches must be between 3 and 5"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidPick",
+      "msg": "pick must be 0/1/2 within num_matches and 0 beyond it"
+    },
+    {
+      "code": 6018,
+      "name": "ResultMarketMismatch",
+      "msg": "result market account does not match the card fixture"
+    },
+    {
+      "code": 6019,
+      "name": "ResultMarketNotSettled",
+      "msg": "result market is not settled"
+    },
+    {
+      "code": 6020,
+      "name": "PerfectCountZero",
+      "msg": "perfect_count must be greater than zero to pay a winner"
+    },
+    {
+      "code": 6021,
+      "name": "VaultInsolvent",
+      "msg": "vault would drop below its rent floor or exceed distributable"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidFixtureId",
+      "msg": "fixture_id must be non-zero for each carded match"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidBucketCount",
+      "msg": "num_buckets must be 2 (binary) or 3 (three-way)"
     }
   ],
   "types": [
@@ -740,6 +1459,321 @@
       }
     },
     {
+      "name": "Contest",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest_id",
+            "type": "u64"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixtures",
+            "type": {
+              "array": [
+                "i64",
+                5
+              ]
+            }
+          },
+          {
+            "name": "num_matches",
+            "type": "u8"
+          },
+          {
+            "name": "entry_price",
+            "type": "u64"
+          },
+          {
+            "name": "lock_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_after_ts",
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ContestStatus"
+              }
+            }
+          },
+          {
+            "name": "winning_buckets",
+            "type": {
+              "array": [
+                "u8",
+                5
+              ]
+            }
+          },
+          {
+            "name": "entry_count",
+            "type": "u64"
+          },
+          {
+            "name": "perfect_count",
+            "type": "u64"
+          },
+          {
+            "name": "pot_snapshot",
+            "type": "u64"
+          },
+          {
+            "name": "distributable",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_count",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_total",
+            "type": "u64"
+          },
+          {
+            "name": "settled_ts",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 = no payout (loser/rolled), 1 = win share, 2 = void refund."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest_id",
+            "type": "u64"
+          },
+          {
+            "name": "num_matches",
+            "type": "u8"
+          },
+          {
+            "name": "entry_price",
+            "type": "u64"
+          },
+          {
+            "name": "lock_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_after_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest_id",
+            "type": "u64"
+          },
+          {
+            "name": "winning_buckets",
+            "type": {
+              "array": [
+                "u8",
+                5
+              ]
+            }
+          },
+          {
+            "name": "perfect_count",
+            "type": "u64"
+          },
+          {
+            "name": "pot_snapshot",
+            "type": "u64"
+          },
+          {
+            "name": "distributable",
+            "type": "u64"
+          },
+          {
+            "name": "rake",
+            "type": "u64"
+          },
+          {
+            "name": "rolled_over",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "RolledOver"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EnteredContest",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "entry_count",
+            "type": "u64"
+          },
+          {
+            "name": "edited",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Entry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "picks",
+            "type": {
+              "array": [
+                "u8",
+                5
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "InitMarketArgs",
       "type": {
         "kind": "struct",
@@ -799,6 +1833,41 @@
             "docs": [
               "2 = binary over/under, 3 = three-way home/draw/away."
             ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JackpotVault",
+      "docs": [
+        "Singleton escrow whose lamport balance (above its own rent floor) IS the",
+        "rolling jackpot. Persists across every contest — that persistence is the rollover."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active_contest_id",
+            "docs": [
+              "contest_id of the live contest, or 0 when none is live (one-at-a-time guard)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Lamports owed to ALREADY-TERMINAL contests' unclaimed tickets (winner shares",
+              "not yet claimed, void refunds not yet claimed). Every pot read nets this out:",
+              "free pot = lamports − rent_floor − reserved. This fences a prior contest's",
+              "money so the next contest can never roll (and over-promise) lamports that are",
+              "still owed — the cross-contest solvency invariant. += at settle/void by what",
+              "will be paid; −= on each claim/refund."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
             "type": "u8"
           }
         ]
