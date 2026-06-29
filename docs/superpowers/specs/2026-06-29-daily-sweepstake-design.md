@@ -79,6 +79,14 @@ The program never calls Txoracle directly. The keeper resolves each match from a
 
 **Roughly 70% reused.** The genuinely new core is the contest program (escrow that *persists across days*) and the contest tab.
 
+### 3.1 Isolation boundary (sweepstake ⇄ prediction market)
+The sweepstake and the per-match parimutuel market are two modules in the **same** Anchor program (one program id, one `ProofBetError` enum, one events module, one IDL), but they are **financially and logically isolated**:
+- **Disjoint PDAs / escrows.** Prediction market: `["market"…]`, `["vault", market]`, `["position", …]`. Sweepstake: `["jackpot_vault"]`, `["contest", …]`, `["entry", …]`. Each market has its own `Vault`; the sweepstake has its own `JackpotVault`. No instruction of one can move the other's funds, and `state.rs` (`Market`/`Vault`/`Position` layouts) is unchanged — so shipping the contest code does not migrate or disturb any existing on-chain market.
+- **One coupling, one-directional and read-only.** `settle_contest` *reads* the card's per-match result markets (`market_id 12`) as its oracle — it re-derives each PDA and checks owner / `num_buckets == 3` / status / bucket-present before trusting it, and passes them as non-writable accounts. The prediction market has **zero** knowledge of the sweepstake.
+- **One shared-code touch, backward-compatible.** The per-match `settle` records `winning_bucket` on its zero-winner void (so `settle_contest` can read a played-but-zero-stake leg). Standalone `claim` ignores that field on the voided path (it refunds every staked bucket), so prediction-market behavior is unchanged — the full existing market test suite stays green.
+- **Shared enum/events are append-only**, so existing error codes, event layouts, and instruction discriminators are preserved.
+- **The only remaining coupling is build-time:** both compile/deploy as one program, so contest code must compile or the whole program won't build — caught immediately by `anchor build`/`anchor test`.
+
 ## 4. On-chain architecture — approaches
 
 **A — Persistent jackpot vault + per-contest accounts ✅ (chosen).**
