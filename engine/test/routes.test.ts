@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { buildServer } from "../src/server.ts";
-import { readJackpotVault, readActiveContest } from "../src/chain.ts";
+import { readJackpot, readLiveContests, listEntriesForWallet } from "../src/chain.ts";
 import type { LiveStore } from "../src/live.ts";
 
 vi.mock("../src/chain.ts", async (orig) => {
@@ -12,21 +12,30 @@ vi.mock("../src/chain.ts", async (orig) => {
       bucketTotals: ["300", "100"], totalPool: "400", feeBps: 0, feeCollected: "0",
       winningBucket: null, entryCloseTs: 9999999999, settledValue: 0,
     })),
-    readActiveContest: vi.fn(async () => ({
-      pubkey: "Contest111", contestId: 20269,
-      settleAuthority: "Keep1111111111111111111111111111111111111111",
-      feeRecipient: "Fee11111111111111111111111111111111111111111",
-      fixtures: [101, 102, 103], numMatches: 3, entryPrice: "20000000",
-      lockTs: 9999999999, settleAfterTs: 9999999999, feeBps: 500, status: "open",
-      winningBuckets: [0, 0, 0], entryCount: 4, perfectCount: 0,
-      potSnapshot: "0", distributable: "0", claimedCount: 0, claimedTotal: "0", settledTs: 0,
-    })),
-    readJackpotVault: vi.fn(async () => ({
-      activeContestId: 20269, reserved: "0",
+    // One live single-match parlay contest (v2 shape: legs[], pot, no potSnapshot/numMatches).
+    readLiveContests: vi.fn(async () => [
+      {
+        pubkey: "Contest111", contestId: 20269,
+        settleAuthority: "Keep1111111111111111111111111111111111111111",
+        feeRecipient: "Fee11111111111111111111111111111111111111111",
+        fixtures: [101], marketIds: [10, 12, 13], numLegs: 3,
+        legs: [
+          { marketId: 10, label: "Total Corners O/U 9.5", group: "corners", numBuckets: 2, fixtureId: 101, winningBucket: null },
+          { marketId: 12, label: "Match Result",          group: "result",  numBuckets: 3, fixtureId: 101, winningBucket: null },
+          { marketId: 13, label: "Total Yellow Cards O/U 3.5", group: "cards", numBuckets: 2, fixtureId: 101, winningBucket: null },
+        ],
+        entryPrice: "20000000", lockTs: 9999999999, settleAfterTs: 9999999999,
+        feeBps: 500, status: "open", winningBuckets: [0, 0, 0],
+        entryCount: 4, perfectCount: 0, pot: "80000000", distributable: "0",
+        claimedCount: 0, claimedTotal: "0", settledTs: 0,
+      },
+    ]),
+    readJackpot: vi.fn(async () => ({
       lamports: "82000000", rentFloor: "2000000", pot: "80000000",
     })),
     listEntriesForWallet: vi.fn(async () => [
-      { pubkey: "Entry111", nonce: 0, picks: [0, 1, 2, 0, 0], amount: "20000000" },
+      { pubkey: "Entry111", contestId: 20269, nonce: 0, picks: [0, 1, 2, 0, 0], amount: "20000000",
+        won: false, claimable: false, payout: "0" },
     ]),
   };
 });
@@ -309,39 +318,89 @@ describe("sortMatches", () => {
   });
 });
 
-describe("GET /api/contest/today", () => {
-  it("returns the live contest with pot and a named card", async () => {
+describe("GET /api/contest/live", () => {
+  it("returns an array of live contests, each with match + legs joined", async () => {
     const store = makeMockStore({
       getMatches: vi.fn(() => [
-        { fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: 1, status: "upcoming",
+        { fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: 1234, status: "upcoming" as const,
           minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 },
       ]),
-      getFixtureMeta: vi.fn(() => new Map([[102, { home: "Japan", away: "Peru" }]])),
+      getFixtureMeta: vi.fn(() => new Map()),
     });
     const app = buildServer(store);
-    const res = await app.inject({ url: "/api/contest/today" });
+    const res = await app.inject({ url: "/api/contest/live" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.status).toBe("open");
-    expect(body.pot).toBe("80000000");
-    expect(body.contestId).toBe(20269);
-    expect(body.card).toHaveLength(3);
-    expect(body.card[0]).toMatchObject({ fixtureId: 101, home: "Brazil", away: "Spain" });
-    expect(body.card[1]).toMatchObject({ fixtureId: 102, home: "Japan", away: "Peru" });
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(1);
+    const c = body[0];
+    // Top-level contest fields (no potSnapshot / numMatches; pot is its own escrow).
+    expect(c).toMatchObject({
+      contestId: 20269, status: "open", pot: "80000000", entryPrice: "20000000",
+      lockTs: 9999999999, settleAfterTs: 9999999999, entryCount: 4, perfectCount: 0,
+      distributable: "0", numLegs: 3,
+    });
+    // Single-match `match` join (live row wins).
+    expect(c.match).toEqual({ fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: 1234 });
+    // Per-leg legs, with the O/U line joined from the markets catalog.
+    expect(c.legs).toHaveLength(3);
+    expect(c.legs[0]).toMatchObject({
+      fixtureId: 101, marketId: 10, label: "Total Corners O/U 9.5",
+      group: "corners", numBuckets: 2, line: 9.5, winningBucket: null,
+    });
+    // Three-way result market (line 0) still carries its catalog line.
+    expect(c.legs[1]).toMatchObject({ marketId: 12, group: "result", numBuckets: 3, line: 0 });
     await app.close();
   });
 
-  it("returns a paused empty-state (pot '0', no contest) before the vault is initialized", async () => {
-    // Pre-launch: chain.ts degrades the missing jackpot_vault account to the
-    // paused sentinel rather than throwing, so the route must NOT 502.
-    vi.mocked(readJackpotVault).mockResolvedValueOnce({
-      activeContestId: 0, reserved: "0", lamports: "0", rentFloor: "0", pot: "0",
+  it("falls back to fixture meta names, then to #fixtureId when neither is known", async () => {
+    // No live row; meta supplies names for 101.
+    const store = makeMockStore({
+      getMatches: vi.fn(() => []),
+      getFixtureMeta: vi.fn(() => new Map([[101, { home: "Japan", away: "Peru" }]])),
     });
-    vi.mocked(readActiveContest).mockResolvedValueOnce(null);
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/contest/live" });
+    const body = res.json();
+    expect(body[0].match).toEqual({ fixtureId: 101, home: "Japan", away: "Peru", kickoffMs: null });
+    await app.close();
+  });
+
+  it("returns 200 + [] (not a paused object) when no contests are live", async () => {
+    vi.mocked(readLiveContests).mockResolvedValueOnce([]);
     const app = buildServer(makeMockStore());
-    const res = await app.inject({ url: "/api/contest/today" });
+    const res = await app.inject({ url: "/api/contest/live" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: "paused", pot: "0", contest: null });
+    expect(res.json()).toEqual([]);
+    await app.close();
+  });
+
+  it("502s when the contest read fails", async () => {
+    vi.mocked(readLiveContests).mockRejectedValueOnce(new Error("rpc down"));
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/contest/live" });
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toHaveProperty("error");
+    await app.close();
+  });
+});
+
+describe("GET /api/jackpot", () => {
+  it("returns the jackpot view with a pot string", async () => {
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/jackpot" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveProperty("pot", "80000000");
+    await app.close();
+  });
+
+  it("502s when the jackpot read fails", async () => {
+    vi.mocked(readJackpot).mockRejectedValueOnce(new Error("rpc down"));
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/jackpot" });
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toHaveProperty("error");
     await app.close();
   });
 });
@@ -353,13 +412,35 @@ describe("GET /api/contest/entries", () => {
     expect(res.statusCode).toBe(400);
     await app.close();
   });
-  it("returns the wallet's tickets", async () => {
+  it("returns the wallet's tickets (aggregated across live contests, v2 shape)", async () => {
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/contest/entries?wallet=So11111111111111111111111111111111111111112" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body).toHaveLength(1);
-    expect(body[0]).toMatchObject({ nonce: 0, amount: "20000000" });
+    expect(body[0]).toMatchObject({
+      contestId: 20269, nonce: 0, amount: "20000000",
+      won: false, claimable: false, payout: "0",
+    });
+    expect(vi.mocked(listEntriesForWallet)).toHaveBeenCalledWith("So11111111111111111111111111111111111111112");
+    await app.close();
+  });
+  it("passes a numeric ?contestId= through to listEntriesForWallet", async () => {
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({
+      url: "/api/contest/entries?wallet=So11111111111111111111111111111111111111112&contestId=20269",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(vi.mocked(listEntriesForWallet)).toHaveBeenCalledWith(
+      "So11111111111111111111111111111111111111112", 20269,
+    );
+    await app.close();
+  });
+  it("502s when the entries fetch fails", async () => {
+    vi.mocked(listEntriesForWallet).mockRejectedValueOnce(new Error("rpc down"));
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/contest/entries?wallet=So11111111111111111111111111111111111111112" });
+    expect(res.statusCode).toBe(502);
     await app.close();
   });
 });
