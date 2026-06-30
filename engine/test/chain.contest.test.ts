@@ -1,26 +1,48 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the Anchor layer so we can drive `readJackpotVault` / `readActiveContest`
+// Mock the Anchor layer so we can drive `readJackpot` / `readLiveContests`
 // without a live RPC. The mock mirrors Anchor's real account-client contract:
 //   - `.fetch(pda)`         throws "Account does not exist…" for a missing account
 //   - `.fetchNullable(pda)` resolves to `null` for a missing account, but still
 //                           rejects on a genuine RPC/network failure.
-// Pre-launch the jackpot_vault singleton is absent, so the readers must degrade
-// to the paused sentinel rather than throwing (which the route maps to a 502).
+//
+// Multi-contest discovery does NOT use `account.contest.all()` (that fetches +
+// decodes every account internally and rejects the WHOLE call if any single one
+// fails to decode — a stale v1 contest shares the 8-byte "Contest" discriminator
+// but has a different byte layout, so `.all()` would throw and hide everything).
+// Instead the reader fetches raw accounts via `connection.getProgramAccounts` and
+// decodes each one individually with `program.coder.accounts.decode("contest", …)`
+// inside a per-account try/catch. The mock therefore exposes those two seams:
+//   - `getProgramAccounts` returns raw { pubkey, account: { data } } stand-ins
+//   - `coder.accounts.decode` is driven per-call so ONE item can throw while the
+//     others decode → the undecodable (stale v1) account is skipped, not fatal.
+//
+// Pre-launch the jackpot singleton is absent, so `readJackpot` must degrade to a
+// pot "0" sentinel rather than throwing (which the route maps to a 502).
 const h = vi.hoisted(() => ({
-  vaultFetch: vi.fn(async () => {
-    throw new Error("Account does not exist or has no data 11111111111111111111111111111111");
-  }),
-  vaultFetchNullable: vi.fn(),
+  jackpotFetchNullable: vi.fn(),
   contestFetch: vi.fn(),
+  contestAll: vi.fn(async () => [] as unknown[]),
   entryAll: vi.fn(async () => [] as unknown[]),
   getBalance: vi.fn(async () => 0),
   getMin: vi.fn(async () => 0),
+  getProgramAccounts: vi.fn(async (_programId: unknown, _opts?: unknown) => [] as unknown[]),
+  decode: vi.fn((_name: string, _data: unknown): unknown => undefined),
+  memcmp: vi.fn((_name?: string) => ({ offset: 0, bytes: "d9UCMmqzRPV" })),
 }));
 
 vi.mock("@coral-xyz/anchor", async () => {
   const { PublicKey } = await import("@solana/web3.js");
+  // markets.ts (imported transitively by chain.ts) reads `anchorDefault.BN` at
+  // module load, so the mock must expose a `default` carrying a BN stand-in.
+  class BN {
+    constructor(public n: number | string) {}
+    toString() { return String(this.n); }
+    toNumber() { return Number(this.n); }
+  }
   return {
+    default: { BN },
+    BN,
     AnchorProvider: class {
       connection: unknown;
       constructor(connection: unknown) {
@@ -30,11 +52,16 @@ vi.mock("@coral-xyz/anchor", async () => {
     Program: class {
       programId = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
       provider = {
-        connection: { getBalance: h.getBalance, getMinimumBalanceForRentExemption: h.getMin },
+        connection: {
+          getBalance: h.getBalance,
+          getMinimumBalanceForRentExemption: h.getMin,
+          getProgramAccounts: h.getProgramAccounts,
+        },
       };
+      coder = { accounts: { decode: h.decode, memcmp: h.memcmp } };
       account = {
-        jackpotVault: { fetch: h.vaultFetch, fetchNullable: h.vaultFetchNullable },
-        contest: { fetch: h.contestFetch },
+        jackpot: { fetchNullable: h.jackpotFetchNullable },
+        contest: { fetch: h.contestFetch, all: h.contestAll, size: 207 },
         entry: { all: h.entryAll },
       };
       constructor(_idl: unknown, _provider: unknown) {}
@@ -42,24 +69,58 @@ vi.mock("@coral-xyz/anchor", async () => {
   };
 });
 
-import { readJackpotVault, readActiveContest, listEntriesForWallet, entryOutcome } from "../src/chain.ts";
+import { readJackpot, readLiveContests, listEntriesForWallet, entryOutcome } from "../src/chain.ts";
 import type { ContestView } from "../src/chain.ts";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Re-arm the memcmp default (cleared above) so discovery can build its filter.
+  h.memcmp.mockReturnValue({ offset: 0, bytes: "d9UCMmqzRPV" });
 });
+
+// Helper: a fake BN-ish value (toString + toNumber) as on-chain accounts present.
+function bn(n: number | string) {
+  return { toString: () => String(n), toNumber: () => Number(n) };
+}
+
+// Build a decoded v2 Contest account object (what `coder.accounts.decode` returns).
+function contestAcct(over: Record<string, unknown> = {}) {
+  return {
+    contestId: bn(7),
+    settleAuthority: { toBase58: () => "K" },
+    feeRecipient: { toBase58: () => "F" },
+    fixtures: [bn(100), bn(100), bn(100), bn(100), bn(0)],
+    marketIds: [16, 15, 12, 11, 0],
+    numLegs: 4,
+    entryPrice: bn(100),
+    lockTs: bn(0),
+    settleAfterTs: bn(0),
+    feeBps: 500,
+    status: { open: {} },
+    winningBuckets: [0, 0, 0, 0, 0],
+    entryCount: bn(0),
+    perfectCount: bn(0),
+    distributable: bn(0),
+    claimedCount: bn(0),
+    claimedTotal: bn(0),
+    settledTs: bn(0),
+    bump: 255,
+    ...over,
+  };
+}
 
 // ── entryOutcome (pure mirror of claim_contest.rs) ──────────────────────────
 
 describe("entryOutcome — mirrors claim_contest.rs payout math", () => {
-  // Base settled contest: 3 matches, winning [0,1,2], 2 perfect winners,
+  // Base settled contest: 3 legs, winning [0,1,2], 2 perfect winners,
   // distributable 1000 lamports → share = floor(1000/2) = 500.
   const settled: ContestView = {
     pubkey: "C", contestId: 1, settleAuthority: "K", feeRecipient: "F",
-    fixtures: [10, 11, 12], numMatches: 3, entryPrice: "100",
+    fixtures: [10, 11, 12], marketIds: [16, 15, 12], numLegs: 3,
+    legs: [], entryPrice: "100",
     lockTs: 0, settleAfterTs: 0, feeBps: 500, status: "settled",
     winningBuckets: [0, 1, 2], entryCount: 5, perfectCount: 2,
-    potSnapshot: "1050", distributable: "1000", claimedCount: 0, claimedTotal: "0",
+    pot: "1050", distributable: "1000", claimedCount: 0, claimedTotal: "0",
     settledTs: 0,
   };
 
@@ -68,7 +129,7 @@ describe("entryOutcome — mirrors claim_contest.rs payout math", () => {
     expect(o).toEqual({ won: true, claimable: true, payout: 500n });
   });
 
-  it("ignores pick tail beyond numMatches", () => {
+  it("ignores pick tail beyond numLegs", () => {
     // last two picks differ but only first 3 are carded
     const o = entryOutcome([0, 1, 2, 2, 2], 100n, settled);
     expect(o.won).toBe(true);
@@ -128,25 +189,157 @@ describe("entryOutcome — mirrors claim_contest.rs payout math", () => {
   });
 });
 
-// ── listEntriesForWallet enrichment (settled contest) ───────────────────────
+// ── readJackpot (pot = balance − rentFloor; pre-launch sentinel) ─────────────
+
+describe("readJackpot — Jackpot PDA pot accounting", () => {
+  it("present → pot = balance − rentFloor", async () => {
+    h.jackpotFetchNullable.mockResolvedValue({ bump: 255 });
+    h.getBalance.mockResolvedValue(5_000_000);
+    h.getMin.mockResolvedValue(900_000); // rent floor for 8+1 bytes
+
+    const j = await readJackpot();
+
+    expect(j.lamports).toBe("5000000");
+    expect(j.rentFloor).toBe("900000");
+    expect(j.pot).toBe("4100000");
+  });
+
+  it("balance below rent floor → pot clamps at 0 (never negative)", async () => {
+    h.jackpotFetchNullable.mockResolvedValue({ bump: 255 });
+    h.getBalance.mockResolvedValue(800_000);
+    h.getMin.mockResolvedValue(900_000);
+
+    const j = await readJackpot();
+
+    expect(j.pot).toBe("0");
+  });
+
+  it("absent (pre-launch) → { pot: '0' } sentinel, no balance lookups", async () => {
+    h.jackpotFetchNullable.mockResolvedValue(null);
+
+    const j = await readJackpot();
+
+    expect(j).toEqual({ lamports: "0", rentFloor: "0", pot: "0" });
+    expect(h.getBalance).not.toHaveBeenCalled();
+  });
+
+  it("genuine RPC error still rejects (so the route can 502)", async () => {
+    h.jackpotFetchNullable.mockRejectedValue(new Error("failed to get account info: 503 Service Unavailable"));
+
+    await expect(readJackpot()).rejects.toThrow(/503/);
+  });
+});
+
+// ── readLiveContests (multi-contest discovery w/ per-account tolerance) ──────
+
+describe("readLiveContests — discovery skips undecodable stale v1 accounts", () => {
+  it("returns the two decodable Open contests, skips the one that throws on decode", async () => {
+    // Three raw accounts come back from getProgramAccounts; the middle one is a
+    // stale v1 contest whose bytes fail to decode under the v2 layout.
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.from("a") } },
+      { pubkey: { toBase58: () => "CBAD" }, account: { data: Buffer.from("b") } },
+      { pubkey: { toBase58: () => "CB" }, account: { data: Buffer.from("c") } },
+    ]);
+    // Decode is driven by call order: 1st ok, 2nd throws (stale v1), 3rd ok.
+    h.decode
+      .mockReturnValueOnce(contestAcct({ contestId: bn(1) }))
+      .mockImplementationOnce(() => {
+        throw new Error("Invalid account discriminator");
+      })
+      .mockReturnValueOnce(contestAcct({ contestId: bn(2) }));
+    // Each surviving contest reads its own pot via getBalance.
+    h.getBalance.mockResolvedValue(2_000_000);
+    h.getMin.mockResolvedValue(1_400_000); // contest rent floor
+
+    const contests = await readLiveContests();
+
+    expect(contests).toHaveLength(2);
+    expect(contests.map((c) => c.contestId).sort()).toEqual([1, 2]);
+    // The good contests carry their per-account pot (2_000_000 − 1_400_000).
+    expect(contests[0].pot).toBe("600000");
+    // The stale account never makes it into the result.
+    expect(contests.find((c) => c.pubkey === "CBAD")).toBeUndefined();
+  });
+
+  it("filters discovery by the v2 Contest discriminator (offset 0)", async () => {
+    h.getProgramAccounts.mockResolvedValue([]);
+
+    await readLiveContests();
+
+    expect(h.getProgramAccounts).toHaveBeenCalledTimes(1);
+    const opts = h.getProgramAccounts.mock.calls[0][1] as { filters: { memcmp: { offset: number; bytes: string } }[] };
+    expect(opts.filters[0].memcmp.offset).toBe(0);
+    expect(opts.filters[0].memcmp.bytes).toBe("d9UCMmqzRPV");
+  });
+
+  it("total RPC failure during discovery → [] (no live contests, no throw)", async () => {
+    h.getProgramAccounts.mockRejectedValue(new Error("connection refused"));
+
+    expect(await readLiveContests()).toEqual([]);
+  });
+
+  it("maps per-leg legs joined from the market catalog", async () => {
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.from("a") } },
+    ]);
+    // Settled contest, markets [16,15,12,11], winning buckets [0,1,2,0].
+    h.decode.mockReturnValueOnce(contestAcct({
+      status: { settled: {} },
+      marketIds: [16, 15, 12, 11, 0],
+      fixtures: [bn(100), bn(100), bn(100), bn(100), bn(0)],
+      winningBuckets: [0, 1, 2, 0, 0],
+      numLegs: 4,
+    }));
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
+
+    const [c] = await readLiveContests();
+
+    expect(c.legs).toHaveLength(4);
+    expect(c.legs[0]).toMatchObject({ marketId: 16, label: "1st-Half Result", group: "result", numBuckets: 3, fixtureId: 100, winningBucket: 0 });
+    expect(c.legs[1]).toMatchObject({ marketId: 15, label: "1st-Half Goals O/U 0.5", group: "goals", winningBucket: 1 });
+    expect(c.legs[2]).toMatchObject({ marketId: 12, label: "Match Result", group: "result", numBuckets: 3, winningBucket: 2 });
+    expect(c.legs[3]).toMatchObject({ marketId: 11, label: "Total Goals O/U 2.5", winningBucket: 0 });
+  });
+
+  it("open (unsettled) contest → each leg's winningBucket is null", async () => {
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.from("a") } },
+    ]);
+    h.decode.mockReturnValueOnce(contestAcct()); // status open by default
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
+
+    const [c] = await readLiveContests();
+
+    expect(c.legs.every((l) => l.winningBucket === null)).toBe(true);
+  });
+});
+
+// ── listEntriesForWallet enrichment (settled contest, multi-contest) ─────────
 
 describe("listEntriesForWallet — enriches entries with won/claimable/payout", () => {
-  function bn(n: number | string) {
-    return { toString: () => String(n), toNumber: () => Number(n) };
-  }
-
-  it("scores a winner and a loser against a settled contest", async () => {
-    // Vault points at contest 7.
-    h.vaultFetchNullable.mockResolvedValue({ activeContestId: bn(7), reserved: bn(0), bump: 1 });
-    // Settled contest: 3 matches, winning [0,1,2], perfect_count 1, distributable 1000.
-    h.contestFetch.mockResolvedValue({
-      contestId: bn(7), settleAuthority: { toBase58: () => "K" }, feeRecipient: { toBase58: () => "F" },
-      fixtures: [bn(10), bn(11), bn(12), bn(0), bn(0)], numMatches: 3, entryPrice: bn(100),
-      lockTs: bn(0), settleAfterTs: bn(0), feeBps: 500, status: { settled: {} },
-      winningBuckets: [0, 1, 2, 0, 0], entryCount: bn(2), perfectCount: bn(1),
-      potSnapshot: bn(1050), distributable: bn(1000), claimedCount: bn(0), claimedTotal: bn(0),
-      settledTs: bn(0),
-    });
+  it("scores a winner and a loser against a single scoped settled contest", async () => {
+    // Discovery returns one settled contest (3 legs, winning [0,1,2], perfect 1, distributable 1000).
+    // pubkey must be valid base58 — entriesForContest does `new PublicKey(contest.pubkey)`.
+    const PA = "4NLurQabdod5ZprpqC95Xfo757emqkrTjdtRaraxf5Dn";
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => PA }, account: { data: Buffer.from("a") } },
+    ]);
+    h.decode.mockReturnValue(contestAcct({
+      contestId: bn(7),
+      status: { settled: {} },
+      fixtures: [bn(10), bn(11), bn(12), bn(0), bn(0)],
+      marketIds: [16, 15, 12, 0, 0],
+      numLegs: 3,
+      winningBuckets: [0, 1, 2, 0, 0],
+      entryCount: bn(2),
+      perfectCount: bn(1),
+      distributable: bn(1000),
+    }));
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
     h.entryAll.mockResolvedValue([
       { publicKey: { toBase58: () => "E1" }, account: { nonce: bn(0), picks: [0, 1, 2, 0, 0], amount: bn(100), bump: 1 } },
       { publicKey: { toBase58: () => "E2" }, account: { nonce: bn(1), picks: [2, 2, 2, 0, 0], amount: bn(100), bump: 1 } },
@@ -157,36 +350,61 @@ describe("listEntriesForWallet — enriches entries with won/claimable/payout", 
     expect(entries).toHaveLength(2);
     const winner = entries.find((e) => e.nonce === 0)!;
     const loser = entries.find((e) => e.nonce === 1)!;
-    expect(winner).toMatchObject({ won: true, claimable: true, payout: "1000" });
-    expect(loser).toMatchObject({ won: false, claimable: false, payout: "0" });
-  });
-});
-
-describe("contest readers — jackpot vault not initialized (pre-launch)", () => {
-  it("readJackpotVault returns a pot '0' paused sentinel instead of throwing", async () => {
-    h.vaultFetchNullable.mockResolvedValue(null); // account absent
-
-    const vault = await readJackpotVault();
-
-    expect(vault.pot).toBe("0");
-    expect(vault.activeContestId).toBe(0);
+    expect(winner).toMatchObject({ won: true, claimable: true, payout: "1000", contestId: 7 });
+    expect(loser).toMatchObject({ won: false, claimable: false, payout: "0", contestId: 7 });
   });
 
-  it("readActiveContest returns null (no live contest)", async () => {
-    h.vaultFetchNullable.mockResolvedValue(null);
+  it("aggregates entries across multiple live contests, tagging each with its contestId", async () => {
+    // Discovery pubkeys must be valid base58 (entriesForContest does `new PublicKey(pubkey)`).
+    const PA = "4NLurQabdod5ZprpqC95Xfo757emqkrTjdtRaraxf5Dn";
+    const PB = "CYDxTZVogVUscoWr6Fftz6M6ubnCo98PQDBn2Uo3AquM";
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => PA }, account: { data: Buffer.from("a") } },
+      { pubkey: { toBase58: () => PB }, account: { data: Buffer.from("b") } },
+    ]);
+    h.decode
+      .mockReturnValueOnce(contestAcct({ contestId: bn(7), status: { open: {} } }))
+      .mockReturnValueOnce(contestAcct({ contestId: bn(9), status: { open: {} } }));
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
+    // entry.all is called once per contest; return one entry per contest.
+    h.entryAll
+      .mockResolvedValueOnce([
+        { publicKey: { toBase58: () => "E1" }, account: { nonce: bn(0), picks: [0, 0, 0, 0, 0], amount: bn(100), bump: 1 } },
+      ])
+      .mockResolvedValueOnce([
+        { publicKey: { toBase58: () => "E2" }, account: { nonce: bn(0), picks: [1, 1, 1, 1, 0], amount: bn(100), bump: 1 } },
+      ]);
 
-    expect(await readActiveContest()).toBeNull();
+    const entries = await listEntriesForWallet("So11111111111111111111111111111111111111112");
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.contestId).sort()).toEqual([7, 9]);
   });
 
-  it("listEntriesForWallet returns an empty list", async () => {
-    h.vaultFetchNullable.mockResolvedValue(null);
+  it("contestId given → scopes to that contest only (single getProgramAccounts skip, direct fetch)", async () => {
+    // When scoped, the reader fetches the single contest directly (no discovery scan).
+    h.contestFetch.mockResolvedValue(contestAcct({
+      contestId: bn(7),
+      status: { settled: {} },
+      numLegs: 3,
+      marketIds: [16, 15, 12, 0, 0],
+      winningBuckets: [0, 1, 2, 0, 0],
+      perfectCount: bn(1),
+      distributable: bn(1000),
+    }));
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
+    h.entryAll.mockResolvedValue([
+      { publicKey: { toBase58: () => "E1" }, account: { nonce: bn(0), picks: [0, 1, 2, 0, 0], amount: bn(100), bump: 1 } },
+    ]);
 
-    expect(await listEntriesForWallet("So11111111111111111111111111111111111111112")).toEqual([]);
-  });
+    const entries = await listEntriesForWallet("So11111111111111111111111111111111111111112", 7);
 
-  it("still propagates a genuine RPC error (so the route can 502)", async () => {
-    h.vaultFetchNullable.mockRejectedValue(new Error("failed to get account info: 503 Service Unavailable"));
-
-    await expect(readJackpotVault()).rejects.toThrow(/503/);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ won: true, contestId: 7 });
+    // Scoped path goes straight to contest.fetch, not the discovery scan.
+    expect(h.getProgramAccounts).not.toHaveBeenCalled();
+    expect(h.contestFetch).toHaveBeenCalledTimes(1);
   });
 });
