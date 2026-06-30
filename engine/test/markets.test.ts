@@ -1,19 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
-import { MARKET_TEMPLATE, toInitArgs, type MarketDef } from "../src/markets.ts";
+import { MARKET_TEMPLATE, marketById, toInitArgs, type MarketDef } from "../src/markets.ts";
 
 const DUMMY_AUTH = new PublicKey("11111111111111111111111111111112");
 
 describe("MARKET_TEMPLATE", () => {
-  it("has exactly 6 entries", () => {
-    expect(MARKET_TEMPLATE).toHaveLength(6);
+  it("has exactly 7 entries", () => {
+    expect(MARKET_TEMPLATE).toHaveLength(7);
   });
 
-  it("all 6 marketIds are unique (10–15)", () => {
+  it("all 7 marketIds are unique (10–16)", () => {
     const ids = MARKET_TEMPLATE.map((d) => d.marketId);
     const unique = new Set(ids);
-    expect(unique.size).toBe(6);
-    expect(ids.sort((a, b) => a - b)).toEqual([10, 11, 12, 13, 14, 15]);
+    expect(unique.size).toBe(7);
+    expect(ids.sort((a, b) => a - b)).toEqual([10, 11, 12, 13, 14, 15, 16]);
   });
 
   it("corners def (marketId 10) is statKey 7 + statKey2 8, op add, threshold 9, binary", () => {
@@ -37,7 +37,9 @@ describe("MARKET_TEMPLATE", () => {
     expect(result.settleAt).toBe("FT");
   });
 
-  it("only the result market is three-way; the rest are binary", () => {
+  it("three-way markets are {12, 16} (both group:result, numBuckets 3); the rest are binary", () => {
+    const threeWay = MARKET_TEMPLATE.filter((d) => d.numBuckets === 3).map((d) => d.marketId).sort((a, b) => a - b);
+    expect(threeWay).toEqual([12, 16]);
     for (const def of MARKET_TEMPLATE) {
       expect(def.numBuckets).toBe(def.group === "result" ? 3 : 2);
     }
@@ -50,6 +52,21 @@ describe("MARKET_TEMPLATE", () => {
     expect(ht.op).toBe("add");
     expect(ht.threshold).toBe(4);
     expect(ht.settleAt).toBe("HT");
+  });
+
+  it("defines marketId 16 — 1st-Half Result, 3-way, settles at HT", () => {
+    const m = MARKET_TEMPLATE.find((d) => d.marketId === 16)!;
+    expect(m).toBeDefined();
+    expect(m.group).toBe("result");
+    expect(m.numBuckets).toBe(3);
+    expect(m.settleAt).toBe("HT");
+    expect(m.statKey).toBe(1001);     // 1st-half home goals
+    expect(m.statKey2).toBe(1002);    // 1st-half away goals
+    expect(m.op).toBe("subtract");    // home - away → sign maps to bucket
+  });
+
+  it("marketById resolves label/group for the 4 parlay legs", () => {
+    expect([16, 15, 12, 11].map((id) => marketById(id)?.numBuckets)).toEqual([3, 2, 3, 2]);
   });
 });
 

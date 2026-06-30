@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import {
   deriveMarketPda, deriveVaultPda, derivePositionPda,
-  deriveJackpotVaultPda, deriveContestPda, deriveEntryPda, computePot,
+  deriveJackpotPda, deriveContestPda, deriveEntryPda,
 } from "../src/chain.ts";
 
 const PROGRAM = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
@@ -25,8 +25,8 @@ describe("PDA derivation", () => {
 });
 
 describe("contest PDAs", () => {
-  it("jackpot vault PDA is deterministic", () => {
-    expect(deriveJackpotVaultPda(PROGRAM).toBase58()).toBe(deriveJackpotVaultPda(PROGRAM).toBase58());
+  it("jackpot PDA is deterministic", () => {
+    expect(deriveJackpotPda(PROGRAM).toBase58()).toBe(deriveJackpotPda(PROGRAM).toBase58());
   });
   it("contest PDA varies by contest id", () => {
     const a = deriveContestPda(PROGRAM, 20269);
@@ -38,14 +38,5 @@ describe("contest PDAs", () => {
     const bettor = PublicKey.default;
     expect(deriveEntryPda(PROGRAM, contest, bettor, 0).toBase58())
       .not.toBe(deriveEntryPda(PROGRAM, contest, bettor, 1).toBase58());
-  });
-});
-
-describe("computePot", () => {
-  it("nets out rent floor and reserved", () => {
-    expect(computePot(1_000_000_000n, 2_000_000n, 300_000_000n)).toBe("698000000");
-  });
-  it("clamps to zero when liabilities exceed balance", () => {
-    expect(computePot(1_000_000n, 2_000_000n, 0n)).toBe("0");
   });
 });

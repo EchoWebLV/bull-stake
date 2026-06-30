@@ -1,6 +1,6 @@
-# dependencies
-node_modules/
-spike/node_modules/
+# dependencies (no trailing slash → also ignores node_modules symlinks, e.g. in worktrees)
+node_modules
+**/node_modules
 
 # env / secrets
 .env

@@ -30,7 +30,7 @@ const ICONS: Record<Tab, React.ReactNode> = {
   ),
 };
 
-const LABELS: Record<Tab, string> = { sweepstake: "Sweepstake", markets: "Markets", bets: "My Bets", wallet: "Wallet" };
+const LABELS: Record<Tab, string> = { sweepstake: "Parlay", markets: "Markets", bets: "My Bets", wallet: "Wallet" };
 const TABS: Tab[] = ["sweepstake", "markets", "bets", "wallet"];
 
 export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {

@@ -5,7 +5,7 @@ import {
 import idl from "../idl/proofbet.json";
 import {
   deriveMarketPda, deriveVaultPda, derivePositionPda,
-  deriveJackpotVaultPda, deriveContestPda, deriveEntryPda,
+  deriveContestPda, deriveEntryPda,
 } from "./pdas.ts";
 
 const RPC = import.meta.env.VITE_RPC_URL ?? "https://api.devnet.solana.com";
@@ -66,14 +66,13 @@ export async function buildEnterTx(
 ): Promise<Transaction> {
   const payer = new PublicKey(payerAddress);
   const program = readonlyProgram(payer);
-  const vault = deriveJackpotVaultPda(PROGRAM_ID);
   const contest = deriveContestPda(PROGRAM_ID, contestId);
   const entry = deriveEntryPda(PROGRAM_ID, contest, payer, nonce);
   const padded = [...picks];
   while (padded.length < 5) padded.push(0);
   const tx = await program.methods
     .enter(new anchor.BN(nonce), padded.slice(0, 5))
-    .accountsStrict({ bettor: payer, vault, contest, entry, systemProgram: SystemProgram.programId })
+    .accountsStrict({ bettor: payer, contest, entry, systemProgram: SystemProgram.programId })
     .transaction();
   return withBlockhash(tx, payer);
 }
@@ -84,12 +83,11 @@ export async function buildClaimContestTx(
 ): Promise<Transaction> {
   const payer = new PublicKey(payerAddress);
   const program = readonlyProgram(payer);
-  const vault = deriveJackpotVaultPda(PROGRAM_ID);
   const contest = deriveContestPda(PROGRAM_ID, contestId);
   const entry = deriveEntryPda(PROGRAM_ID, contest, payer, nonce);
   const tx = await program.methods
     .claimContest()
-    .accountsStrict({ bettor: payer, vault, contest, entry, systemProgram: SystemProgram.programId })
+    .accountsStrict({ bettor: payer, contest, entry, systemProgram: SystemProgram.programId })
     .transaction();
   return withBlockhash(tx, payer);
 }

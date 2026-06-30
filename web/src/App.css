@@ -390,6 +390,37 @@ input:focus { outline: none; border-color: var(--accent); }
 }
 .r3.won { border-color: rgba(61, 224, 138, 0.5); background: rgba(61, 224, 138, 0.1); }
 .r3.lost { opacity: 0.5; }
+
+/* Two-way Over/Under pick buttons — parallel to .r3 (over→green, under→red). */
+.r2 {
+  position: relative;
+  flex: 1;
+  border: 1px solid var(--border-2);
+  background: var(--card-2);
+  border-radius: 14px;
+  padding: 13px 8px;
+  min-height: 66px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--text);
+}
+.r2:disabled { cursor: default; }
+.r2-over { background: rgba(61, 224, 138, 0.07); border-color: rgba(61, 224, 138, 0.16); }
+.r2-over .r3-team { color: var(--green); }
+.r2-under { background: rgba(255, 92, 92, 0.07); border-color: rgba(255, 92, 92, 0.16); }
+.r2-under .r3-team { color: #FF6B6B; }
+.r2.sel { border-color: var(--accent); }
+.r2.sel::after {
+  content: "";
+  position: absolute; inset: -1px;
+  border: 1.5px solid var(--accent);
+  border-radius: 15px;
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 24px rgba(255, 106, 26, 0.28);
+  pointer-events: none;
+}
+.r2.won { border-color: rgba(61, 224, 138, 0.5); background: rgba(61, 224, 138, 0.1); }
+.r2.lost { opacity: 0.5; }
+
 .result-settled { margin-top: 12px; font-size: 13px; }
 
 /* Stake + bet row */

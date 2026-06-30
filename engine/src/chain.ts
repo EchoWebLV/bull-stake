@@ -2,6 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
 import { PROGRAM_ID, RPC_URL } from "./config.ts";
+import { marketById } from "./markets.ts";
 
 /** i64 little-endian as 8 bytes (matches Rust fixture_id.to_le_bytes()). */
 function i64le(n: number): Buffer {
@@ -73,10 +74,23 @@ export function getProgram(): anchor.Program {
   return loadProgram();
 }
 
-// ── Contest reader (daily sweepstake) ──────────────────────────────────────
+// ── Contest reader (single-match parlay) ────────────────────────────────────
 
-/** JackpotVault account size: 8 (disc) + active_contest_id(u64) + reserved(u64) + bump(u8). */
-const JACKPOT_VAULT_SIZE = 8 + 8 + 8 + 1;
+/** Jackpot account size: 8 (disc) + bump(u8). */
+const JACKPOT_SIZE = 8 + 1;
+
+/**
+ * Fallback for the on-chain Contest account size (8 disc + INIT_SPACE). Real
+ * Anchor exposes `program.account.contest.size`; this constant keeps real code
+ * from ever passing `undefined` to getMinimumBalanceForRentExemption and matches
+ * the v2 IDL layout: 8 disc + 8 (contest_id) + 32 (settle_authority) + 32
+ * (fee_recipient) + 40 (fixtures [i64;5]) + 5 (market_ids [u8;5]) + 1 (num_legs)
+ * + 8 (entry_price) + 8 (lock_ts) + 8 (settle_after_ts) + 2 (fee_bps) + 1 (status)
+ * + 5 (winning_buckets [u8;5]) + 8 (entry_count) + 8 (perfect_count)
+ * + 8 (distributable) + 8 (claimed_count) + 8 (claimed_total) + 8 (settled_ts)
+ * + 1 (bump) = 207.
+ */
+const CONTEST_SIZE = 207;
 
 function u64le(n: number | bigint): Buffer {
   const b = Buffer.alloc(8);
@@ -84,8 +98,8 @@ function u64le(n: number | bigint): Buffer {
   return b;
 }
 
-export function deriveJackpotVaultPda(programId: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("jackpot_vault")], programId)[0];
+export function deriveJackpotPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("jackpot")], programId)[0];
 }
 export function deriveContestPda(programId: PublicKey, contestId: number | bigint): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("contest"), u64le(contestId)], programId)[0];
@@ -98,12 +112,6 @@ export function deriveEntryPda(
   )[0];
 }
 
-/** Free pot = vault balance − rent floor − reserved liabilities, clamped at 0. Returns lamports as a string. */
-export function computePot(lamports: bigint, rentFloor: bigint, reserved: bigint): string {
-  const pot = lamports - rentFloor - reserved;
-  return (pot > 0n ? pot : 0n).toString();
-}
-
 const CONTEST_STATUS = ["open", "settled", "rolledOver", "voided"] as const;
 function contestStatusString(s: Record<string, unknown>): (typeof CONTEST_STATUS)[number] {
   if ("settled" in s) return "settled";
@@ -112,12 +120,20 @@ function contestStatusString(s: Record<string, unknown>): (typeof CONTEST_STATUS
   return "open";
 }
 
-export interface JackpotVaultView {
-  activeContestId: number;
-  reserved: string;
+export interface JackpotView {
   lamports: string;
   rentFloor: string;
   pot: string;
+}
+
+/** One parlay leg: the on-chain (fixture, market) pair joined to its catalog metadata. */
+export interface LegView {
+  marketId: number;
+  label: string;                // from markets.ts catalog (or "" if unknown id)
+  group: string;                // corners | goals | result | cards (or "" if unknown)
+  numBuckets: number;           // catalog bucket count (0 if unknown id)
+  fixtureId: number;            // fixtures[i] for this leg
+  winningBucket: number | null; // winning_buckets[i] when settled, else null
 }
 
 export interface ContestView {
@@ -125,17 +141,19 @@ export interface ContestView {
   contestId: number;
   settleAuthority: string;
   feeRecipient: string;
-  fixtures: number[];           // length numMatches
-  numMatches: number;
+  fixtures: number[];           // length numLegs
+  marketIds: number[];          // length numLegs
+  numLegs: number;
+  legs: LegView[];              // length numLegs; per-leg catalog join + winning bucket
   entryPrice: string;
   lockTs: number;
   settleAfterTs: number;
   feeBps: number;
   status: "open" | "settled" | "rolledOver" | "voided";
-  winningBuckets: number[];     // length numMatches
+  winningBuckets: number[];     // length numLegs
   entryCount: number;
   perfectCount: number;
-  potSnapshot: string;
+  pot: string;                  // this contest's own escrow (balance − Contest rent floor)
   distributable: string;
   claimedCount: number;
   claimedTotal: string;
@@ -144,6 +162,7 @@ export interface ContestView {
 
 export interface EntryView {
   pubkey: string;
+  contestId: number;            // which contest this entry belongs to
   nonce: number;
   picks: number[];              // raw [u8; 5]
   amount: string;
@@ -155,7 +174,7 @@ export interface EntryView {
 /** The settled-state fields entryOutcome needs (a subset of ContestView). */
 type ContestOutcomeCtx = Pick<
   ContestView,
-  "status" | "numMatches" | "winningBuckets" | "perfectCount" | "distributable" | "claimedCount" | "claimedTotal"
+  "status" | "numLegs" | "winningBuckets" | "perfectCount" | "distributable" | "claimedCount" | "claimedTotal"
 >;
 
 /**
@@ -183,8 +202,8 @@ export function entryOutcome(
     return { won: false, claimable: false, payout: 0n };
   }
   // Perfect = all carded picks equal the winning buckets. Tail picks beyond
-  // numMatches are ignored, matching the on-chain loop `for i in 0..num_matches`.
-  for (let i = 0; i < c.numMatches; i++) {
+  // numLegs are ignored, matching the on-chain loop `for i in 0..num_legs`.
+  for (let i = 0; i < c.numLegs; i++) {
     if (picks[i] !== c.winningBuckets[i]) return { won: false, claimable: false, payout: 0n };
   }
   // Perfect ticket. perfect_count is >0 in a settled contest (==0 ⇒ RolledOver),
@@ -202,61 +221,82 @@ export function entryOutcome(
   return { won: true, claimable, payout: claimable ? share : 0n };
 }
 
-/** Paused sentinel returned before the jackpot_vault singleton is initialized on-chain. */
-const PAUSED_VAULT: JackpotVaultView = {
-  activeContestId: 0, reserved: "0", lamports: "0", rentFloor: "0", pot: "0",
-};
-
-export async function readJackpotVault(): Promise<JackpotVaultView> {
+/**
+ * Jackpot pot accounting. The Jackpot PDA (`[b"jackpot"]`) holds its own escrow;
+ * pot = balance − rent floor (clamped at 0). Pre-launch the account is absent,
+ * so we return a pot "0" sentinel rather than throwing — but a genuine RPC error
+ * still propagates so the route can 502.
+ */
+export async function readJackpot(): Promise<JackpotView> {
   const program = loadProgram();
-  const pda = deriveJackpotVaultPda(program.programId);
+  const pda = deriveJackpotPda(program.programId);
   // fetchNullable → null when the account is absent (pre-launch), but still
   // throws on a genuine RPC error — so the route 502s only on real failures.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v: any = await (program.account as any).jackpotVault.fetchNullable(pda);
-  if (v === null) return PAUSED_VAULT;
+  const acct: any = await (program.account as any).jackpot.fetchNullable(pda);
+  if (!acct) return { lamports: "0", rentFloor: "0", pot: "0" }; // pre-launch sentinel
   const conn = program.provider.connection;
   const lamports = BigInt(await conn.getBalance(pda));
-  const rentFloor = BigInt(await conn.getMinimumBalanceForRentExemption(JACKPOT_VAULT_SIZE));
-  const reserved = BigInt(v.reserved.toString());
-  return {
-    activeContestId: Number(v.activeContestId),
-    reserved: reserved.toString(),
-    lamports: lamports.toString(),
-    rentFloor: rentFloor.toString(),
-    pot: computePot(lamports, rentFloor, reserved),
-  };
+  const rentFloor = BigInt(await conn.getMinimumBalanceForRentExemption(JACKPOT_SIZE));
+  const pot = lamports > rentFloor ? lamports - rentFloor : 0n;
+  return { lamports: lamports.toString(), rentFloor: rentFloor.toString(), pot: pot.toString() };
 }
 
-/** The currently-live contest, or null when none is live (vault.active_contest_id == 0). */
-export async function readActiveContest(): Promise<ContestView | null> {
-  const program = loadProgram();
-  const vPda = deriveJackpotVaultPda(program.programId);
+/** Read a contest's own escrow: pot = balance(contestPda) − Contest rent floor (clamped at 0). */
+async function readContestPot(program: anchor.Program, contestPda: PublicKey): Promise<bigint> {
+  const conn = program.provider.connection;
+  const lamports = BigInt(await conn.getBalance(contestPda));
+  // Real Anchor exposes `.size`; the fallback const keeps real code from ever
+  // passing `undefined` (the test mock ignores the argument anyway).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const v: any = await (program.account as any).jackpotVault.fetchNullable(vPda);
-  if (v === null) return null; // vault not initialized yet → no live contest
-  const activeId = Number(v.activeContestId);
-  if (activeId === 0) return null;
-  const cPda = deriveContestPda(program.programId, activeId);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const c: any = await (program.account as any).contest.fetch(cPda);
-  const nm = Number(c.numMatches);
+  const size = (program.account as any).contest.size ?? CONTEST_SIZE;
+  const rentFloor = BigInt(await conn.getMinimumBalanceForRentExemption(size));
+  return lamports > rentFloor ? lamports - rentFloor : 0n;
+}
+
+/**
+ * Map a fetched/decoded Contest account → ContestView. Shared by readLiveContests
+ * and the entries path so both surface identical per-leg legs + pot accounting.
+ * `legs` joins each on-chain (fixture, market) pair to the markets.ts catalog for
+ * label/group/numBuckets; winningBucket = winning_buckets[i] when settled else null.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toContestView(pubkey: PublicKey, c: any, pot: bigint): ContestView {
+  const numLegs = Number(c.numLegs);
+  const fixtures = (c.fixtures as { toNumber(): number }[]).slice(0, numLegs).map((f) => f.toNumber());
+  const marketIds = (c.marketIds as number[]).slice(0, numLegs).map(Number);
+  const winningBuckets = (c.winningBuckets as number[]).slice(0, numLegs).map(Number);
+  const status = contestStatusString(c.status);
+  const settled = status === "settled";
+  const legs: LegView[] = marketIds.map((marketId, i) => {
+    const def = marketById(marketId);
+    return {
+      marketId,
+      label: def?.label ?? "",
+      group: def?.group ?? "",
+      numBuckets: def?.numBuckets ?? 0,
+      fixtureId: fixtures[i],
+      winningBucket: settled ? winningBuckets[i] : null,
+    };
+  });
   return {
-    pubkey: cPda.toBase58(),
+    pubkey: pubkey.toBase58(),
     contestId: Number(c.contestId),
     settleAuthority: c.settleAuthority.toBase58(),
     feeRecipient: c.feeRecipient.toBase58(),
-    fixtures: (c.fixtures as { toNumber(): number }[]).slice(0, nm).map((f) => f.toNumber()),
-    numMatches: nm,
+    fixtures,
+    marketIds,
+    numLegs,
+    legs,
     entryPrice: c.entryPrice.toString(),
     lockTs: Number(c.lockTs),
     settleAfterTs: Number(c.settleAfterTs),
     feeBps: Number(c.feeBps),
-    status: contestStatusString(c.status),
-    winningBuckets: (c.winningBuckets as number[]).slice(0, nm).map(Number),
+    status,
+    winningBuckets,
     entryCount: Number(c.entryCount),
     perfectCount: Number(c.perfectCount),
-    potSnapshot: c.potSnapshot.toString(),
+    pot: pot.toString(),
     distributable: c.distributable.toString(),
     claimedCount: Number(c.claimedCount),
     claimedTotal: c.claimedTotal.toString(),
@@ -264,39 +304,120 @@ export async function readActiveContest(): Promise<ContestView | null> {
   };
 }
 
-/** Every Entry the wallet holds in the live contest (empty if none / no live contest).
- *  Each entry is enriched with won/claimable/payout from the contest's settled
- *  state so the UI can show winners and gate the Claim button without re-deriving
- *  the on-chain payout math. */
-export async function listEntriesForWallet(wallet: string): Promise<EntryView[]> {
+/**
+ * Discover every live contest with per-account decode tolerance.
+ *
+ * We deliberately do NOT use `program.account.contest.all()`: it fetches then
+ * decodes every account internally and rejects the ENTIRE call if any single one
+ * fails to decode. A stale v1 contest shares the 8-byte "Contest" discriminator
+ * but has a different byte layout, so `.all()` would throw and hide every good v2
+ * contest. Instead we fetch raw accounts via getProgramAccounts (filtered by the
+ * v2 Contest discriminator at offset 0) and decode each one in its own try/catch,
+ * skipping undecodable (stale v1) accounts. A total RPC failure → [] (no live
+ * contests) rather than a throw.
+ */
+export async function readLiveContests(): Promise<ContestView[]> {
   const program = loadProgram();
-  // readActiveContest handles the vault-uninit / no-live-contest cases (→ null)
-  // and gives us the settled state needed to score each ticket.
-  const contest = await readActiveContest();
-  if (!contest) return [];
+  const conn = program.provider.connection;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coder = (program as any).coder.accounts;
+
+  let raw: { pubkey: PublicKey; account: { data: Buffer } }[];
+  try {
+    // Resolve the v2 Contest discriminator filter (lowercase IDL name) INSIDE the
+    // try: an IDL-rename miss makes coder.memcmp throw synchronously, so keeping it
+    // here degrades to [] (graceful) rather than bubbling out of readLiveContests.
+    const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    raw = (await (conn as any).getProgramAccounts(program.programId, {
+      filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }],
+    })) as { pubkey: PublicKey; account: { data: Buffer } }[];
+  } catch {
+    return []; // total RPC failure / discriminator miss → no live contests (route degrades gracefully)
+  }
+
+  const out: ContestView[] = [];
+  for (const item of raw) {
+    let decoded: unknown;
+    try {
+      decoded = coder.decode("contest", item.account.data); // throws on stale v1 layout
+    } catch {
+      continue; // skip undecodable account, keep the rest
+    }
+    const pot = await readContestPot(program, item.pubkey);
+    out.push(toContestView(item.pubkey, decoded, pot));
+  }
+  return out;
+}
+
+/** Fetch + map a single contest by id (scoped path). Returns null if it can't be read/decoded. */
+async function readContestById(program: anchor.Program, contestId: number): Promise<ContestView | null> {
+  const cPda = deriveContestPda(program.programId, contestId);
+  let c: unknown;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    c = await (program.account as any).contest.fetch(cPda);
+  } catch {
+    return null;
+  }
+  const pot = await readContestPot(program, cPda);
+  return toContestView(cPda, c, pot);
+}
+
+/** Enrich a contest's Entry accounts for one wallet, scored against that contest's settled state. */
+async function entriesForContest(
+  program: anchor.Program, contest: ContestView, bettor: PublicKey,
+): Promise<EntryView[]> {
   const cPda = new PublicKey(contest.pubkey);
-  const bettor = new PublicKey(wallet);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const accts: any[] = await (program.account as any).entry.all([
     { memcmp: { offset: 8, bytes: bettor.toBase58() } },        // bettor at offset 8
     { memcmp: { offset: 8 + 32, bytes: cPda.toBase58() } },     // contest at offset 40
   ]);
-  return accts
-    .map((a) => {
-      const picks = (a.account.picks as number[]).map(Number);
-      const amount = BigInt(a.account.amount.toString());
-      const o = entryOutcome(picks, amount, contest);
-      return {
-        pubkey: a.publicKey.toBase58(),
-        nonce: Number(a.account.nonce),
-        picks,
-        amount: amount.toString(),
-        won: o.won,
-        claimable: o.claimable,
-        payout: o.payout.toString(),
-      };
-    })
-    .sort((x, y) => x.nonce - y.nonce);
+  return accts.map((a) => {
+    const picks = (a.account.picks as number[]).map(Number);
+    const amount = BigInt(a.account.amount.toString());
+    const o = entryOutcome(picks, amount, contest);
+    return {
+      pubkey: a.publicKey.toBase58(),
+      contestId: contest.contestId,
+      nonce: Number(a.account.nonce),
+      picks,
+      amount: amount.toString(),
+      won: o.won,
+      claimable: o.claimable,
+      payout: o.payout.toString(),
+    };
+  });
+}
+
+/**
+ * Every Entry the wallet holds, enriched with won/claimable/payout from the
+ * owning contest's settled state so the UI can show winners and gate the Claim
+ * button without re-deriving the on-chain payout math.
+ *
+ * - `contestId` given → scope to that single contest (direct fetch, no scan).
+ * - otherwise          → iterate all live contests and aggregate, tagging each
+ *                        EntryView with its contestId.
+ */
+export async function listEntriesForWallet(wallet: string, contestId?: number): Promise<EntryView[]> {
+  const program = loadProgram();
+  const bettor = new PublicKey(wallet);
+
+  if (contestId !== undefined) {
+    const contest = await readContestById(program, contestId);
+    if (!contest) return [];
+    const entries = await entriesForContest(program, contest, bettor);
+    return entries.sort((x, y) => x.nonce - y.nonce);
+  }
+
+  const contests = await readLiveContests();
+  const all: EntryView[] = [];
+  for (const contest of contests) {
+    all.push(...(await entriesForContest(program, contest, bettor)));
+  }
+  // Stable order: by contest, then ticket nonce within a contest.
+  return all.sort((x, y) => (x.contestId - y.contestId) || (x.nonce - y.nonce));
 }
 
 export async function readMarket(marketPubkey: string): Promise<MarketView> {

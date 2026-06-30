@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import { impliedOdds, displayMultiplier } from "../src/lib/odds.ts";
-import { deriveMarketPda, deriveVaultPda, derivePositionPda, deriveJackpotVaultPda, deriveContestPda, deriveEntryPda } from "../src/lib/pdas.ts";
+import { deriveMarketPda, deriveVaultPda, derivePositionPda, deriveJackpotPda, deriveContestPda, deriveEntryPda } from "../src/lib/pdas.ts";
 
 const P = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
 
@@ -48,13 +48,15 @@ describe("web pdas", () => {
 });
 
 describe("contest pdas", () => {
-  it("derives vault/contest/entry and varies by id + nonce", () => {
-    const vault = deriveJackpotVaultPda(P);
+  it("derives jackpot/contest/entry and varies by id + nonce", () => {
+    const jp = deriveJackpotPda(P);
+    expect(jp).toBeInstanceOf(PublicKey);
+    expect(jp.toBase58()).toBe(deriveJackpotPda(P).toBase58()); // stable
+    expect(jp.toBase58()).not.toBe(deriveContestPda(P, 1).toBase58());
     const c1 = deriveContestPda(P, 20269);
     const c2 = deriveContestPda(P, 20270);
     const e0 = deriveEntryPda(P, c1, PublicKey.default, 0);
     const e1 = deriveEntryPda(P, c1, PublicKey.default, 1);
-    expect(vault).toBeInstanceOf(PublicKey);
     expect(c1.toBase58()).not.toBe(c2.toBase58());
     expect(e0.toBase58()).not.toBe(e1.toBase58());
   });

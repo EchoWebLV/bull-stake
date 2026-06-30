@@ -76,23 +76,47 @@ if (isMain) {
           .catch(() => {});
       }, 30 * 60_000);
 
-      // Resolve the live contest's CARD names independently of the 36h board
-      // window — a daily contest's matches can be days out, so fetch the days
-      // spanning the contest (centered on its earliest kickoff) and merge ONLY
-      // those names into the store (no extra board rows). Without this the card
-      // shows "#<fixtureId>" for matches beyond the board window.
+      // Resolve every live contest's MATCH names independently of the 36h board
+      // window — a single-match parlay's fixture can be days out, so fetch the
+      // span of days covering ALL live contests' lockTs and merge ONLY the
+      // matched names into the store (no extra board rows). Without this the
+      // card shows "#<fixtureId>" for matches beyond the board window.
+      //
+      // Each live contest carries its own lockTs/fixture; rather than one fetch
+      // per contest we compute the [min..max] epoch-day span across all of them
+      // and do a single fetchFixturesAcross over that window (padded ±1 day),
+      // then union the wanted fixture ids. Simpler + fewer RPC calls than a
+      // per-contest fetch, and correct because fetchFixturesAcross already takes
+      // a (startDay, dayCount) window.
       const DAY_SEC = 86_400;
       const refreshContestNames = async () => {
         try {
-          const { readActiveContest } = await import("./chain.ts");
-          const contest = await readActiveContest();
-          if (!contest) return;
-          const lockEpochDay = Math.floor(contest.lockTs / DAY_SEC);
-          const fixtures = await fetchFixturesAcross(ctx, auth, lockEpochDay - 1, 4);
-          const wanted = new Set(contest.fixtures);
+          const { readLiveContests } = await import("./chain.ts");
+          const cs = await readLiveContests();
+          if (cs.length === 0) return;
+          const wanted = new Set<number>();
+          let minDay = Infinity;
+          let maxDay = -Infinity;
+          for (const c of cs) {
+            for (const f of c.fixtures) wanted.add(f);
+            const day = Math.floor(c.lockTs / DAY_SEC);
+            if (day < minDay) minDay = day;
+            if (day > maxDay) maxDay = day;
+          }
+          // Pad ±1 day so a contest locking near a day boundary still resolves.
+          // Cap the span so two contests locking weeks apart (e.g. a stuck
+          // never-settled zombie alongside a fresh one) don't fan out dozens of
+          // upstream getFixtures page requests every 30 min. A zombie weeks-old
+          // contest losing its card name is acceptable — it'll be voided anyway.
+          // (We cap the span rather than filter to status==='open' contests:
+          // /api/contest/live serves settled/voided contests too, and the web
+          // still needs their fixture names for the results card.)
+          const startDay = minDay - 1;
+          const dayCount = Math.min(maxDay - minDay + 3, 10);
+          const fixtures = await fetchFixturesAcross(ctx, auth, startDay, dayCount);
           const matched = fixtures.filter((f) => wanted.has(f.fixtureId));
           liveStore.addFixtureNames(matched);
-          console.log(`contest card: resolved ${matched.length}/${contest.fixtures.length} fixture name(s)`);
+          console.log(`contest cards: resolved ${matched.length}/${wanted.size} fixture name(s) across ${cs.length} contest(s)`);
         } catch (e) {
           console.warn("contest-card name resolve failed:", (e as Error).message);
         }

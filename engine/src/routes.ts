@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { readFileSync } from "node:fs";
 import { Feed, type Replay } from "./feed.ts";
-import { readMarket, readActiveContest, readJackpotVault, listEntriesForWallet } from "./chain.ts";
+import { readMarket, readLiveContests, readJackpot, listEntriesForWallet } from "./chain.ts";
+import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
 import { M0 } from "./config.ts";
 import type { LiveStore } from "./live.ts";
@@ -95,61 +96,96 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
   // ── Contest endpoints (daily sweepstake) ──────────────────────────────────
 
   /**
-   * GET /api/contest/today
-   * The live contest joined with team names/kickoffs, plus the live free pot.
-   * `{ status: "paused", pot, contest: null }` when no contest is live.
+   * GET /api/contest/live
+   * Every live single-match parlay contest, each joined with its fixture's
+   * team names/kickoff (the `match`) and its per-leg catalog metadata (the
+   * `legs`, with the O/U `line` joined from markets.ts). Returns a (possibly
+   * empty) array — the jackpot is now its own `/api/jackpot` endpoint, so an
+   * empty live set is just `[]`, not a "paused" object.
    */
-  app.get("/api/contest/today", async (_req, reply) => {
-    let vault, contest;
+  app.get("/api/contest/live", async (_req, reply) => {
+    let contests;
     try {
-      [vault, contest] = await Promise.all([readJackpotVault(), readActiveContest()]);
+      contests = await readLiveContests();
     } catch (e) {
       reply.code(502);
       return { error: `contest read failed: ${(e as Error).message}` };
     }
-    if (!contest) return { status: "paused", pot: vault.pot, contest: null };
 
     const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
     const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
-    const card = contest.fixtures.map((fixtureId) => {
+
+    return contests.map((contest) => {
+      // Each contest is a single-match parlay: join its one fixture (fixtures[0]).
+      const fixtureId = contest.fixtures[0];
       const live = byId.get(fixtureId);
       const meta = names.get(fixtureId);
-      return {
+      const match = {
         fixtureId,
         home: live?.home ?? meta?.home ?? `#${fixtureId}`,
         away: live?.away ?? meta?.away ?? "",
         kickoffMs: live?.kickoffMs ?? null,
       };
+      // The engine LegView already carries marketId/label/group/numBuckets/
+      // fixtureId/winningBucket; add the catalog `line` for the web's O/U control.
+      const legs = contest.legs.map((leg) => ({
+        fixtureId: leg.fixtureId,
+        marketId: leg.marketId,
+        label: leg.label,
+        group: leg.group,
+        numBuckets: leg.numBuckets,
+        line: marketById(leg.marketId)?.line,
+        winningBucket: leg.winningBucket,
+      }));
+      return {
+        contestId: contest.contestId,
+        status: contest.status,
+        pot: contest.pot,
+        entryPrice: contest.entryPrice,
+        lockTs: contest.lockTs,
+        settleAfterTs: contest.settleAfterTs,
+        entryCount: contest.entryCount,
+        perfectCount: contest.perfectCount,
+        distributable: contest.distributable,
+        numLegs: contest.numLegs,
+        match,
+        legs,
+      };
     });
-
-    return {
-      status: contest.status,
-      contestId: contest.contestId,
-      pot: vault.pot,
-      entryPrice: contest.entryPrice,
-      lockTs: contest.lockTs,
-      settleAfterTs: contest.settleAfterTs,
-      entryCount: contest.entryCount,
-      numMatches: contest.numMatches,
-      perfectCount: contest.perfectCount,
-      distributable: contest.distributable,
-      winningBuckets: contest.winningBuckets,
-      card,
-    };
   });
 
   /**
-   * GET /api/contest/entries?wallet=<base58>
-   * The wallet's Entry tickets for the live contest (empty if none).
+   * GET /api/jackpot
+   * The standalone jackpot escrow view: `{ lamports, rentFloor, pot }`. The web
+   * only reads `.pot`. Pre-launch chain.ts degrades the missing account to a
+   * pot "0" sentinel, so this 502s only on a genuine RPC error.
+   */
+  app.get("/api/jackpot", async (_req, reply) => {
+    try {
+      return await readJackpot();
+    } catch (e) {
+      reply.code(502);
+      return { error: `jackpot read failed: ${(e as Error).message}` };
+    }
+  });
+
+  /**
+   * GET /api/contest/entries?wallet=<base58>[&contestId=<number>]
+   * The wallet's Entry tickets, enriched with won/claimable/payout. Without
+   * `contestId` they're aggregated across all live contests; with a numeric
+   * `contestId` the lookup is scoped to that single contest.
    */
   app.get("/api/contest/entries", async (req, reply) => {
-    const { wallet } = req.query as Record<string, string>;
+    const { wallet, contestId } = req.query as Record<string, string>;
     if (!wallet) {
       reply.code(400);
       return { error: "wallet query param required" };
     }
+    const id = contestId !== undefined ? Number(contestId) : undefined;
     try {
-      return await listEntriesForWallet(wallet);
+      return id !== undefined && Number.isFinite(id)
+        ? await listEntriesForWallet(wallet, id)
+        : await listEntriesForWallet(wallet);
     } catch (e) {
       reply.code(502);
       return { error: `entries fetch failed: ${(e as Error).message}` };

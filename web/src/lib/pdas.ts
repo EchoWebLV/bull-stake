@@ -25,8 +25,8 @@ function u64le(n: number | bigint): Buffer {
   b.writeBigUInt64LE(BigInt(n));
   return b;
 }
-export function deriveJackpotVaultPda(programId: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("jackpot_vault")], programId)[0];
+export function deriveJackpotPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("jackpot")], programId)[0];
 }
 export function deriveContestPda(programId: PublicKey, contestId: number | bigint): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("contest"), u64le(contestId)], programId)[0];
