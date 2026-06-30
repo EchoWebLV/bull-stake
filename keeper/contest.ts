@@ -30,6 +30,53 @@ export function allLegsHaveBuckets(buckets: number[], numLegs: number): boolean 
   return true;
 }
 
+/** A leg market's on-chain status (Anchor enum normalized to a lowercase string). */
+export type LegStatus = "open" | "settled" | "voided";
+
+/**
+ * Settle-readiness verdict for a contest's legs:
+ *   "ready"     — every leg has a winning bucket → settle_contest can proceed.
+ *   "pending"   — at least one bucketless leg is still Open → the match is NOT
+ *                 final yet; the operator must WAIT and re-run, NOT void.
+ *   "abandoned" — every bucketless leg is Voided (no in-flight legs) → the match
+ *                 is genuinely abandoned → run void-contest to refund.
+ */
+export type LegReadiness = "ready" | "pending" | "abandoned";
+
+/**
+ * Classify whether a contest's legs are ready to settle, still pending, or
+ * abandoned. This is the money-adjacent gate that prevents the keeper from
+ * directing an operator to void a still-live match: `void_contest` has NO time
+ * gate for the keeper, so a wrongful void on a match that may still complete
+ * forces refunds and denies winners their payout.
+ *
+ * A missing bucket (`bucket < 0`) has two OPPOSITE causes:
+ *   - leg still Open  → settleMarketByPubkey skipped it (match not final) → WAIT.
+ *   - leg Voided      → void_market left winning_bucket = None (abandoned)  → VOID.
+ *
+ * `pending` takes PRECEDENCE over `abandoned`: if ANY bucketless leg is still
+ * Open we never report abandoned, because that leg might yet complete. A short/
+ * undefined leg is treated as pending (never void on incomplete information).
+ * Only inspects the first `numLegs` (padded tail ignored). Pure; tested in
+ * settle-contest.test.ts.
+ */
+export function classifyLegReadiness(
+  legs: { status: LegStatus; bucket: number }[],
+  numLegs: number,
+): LegReadiness {
+  let anyMissing = false;
+  let anyOpenMissing = false;
+  for (let i = 0; i < numLegs; i++) {
+    const leg = legs[i];
+    const hasBucket = leg != null && leg.bucket >= 0;
+    if (hasBucket) continue;
+    anyMissing = true;
+    if (leg == null || leg.status === "open") anyOpenMissing = true;
+  }
+  if (!anyMissing) return "ready";
+  return anyOpenMissing ? "pending" : "abandoned";
+}
+
 /**
  * Guard predicate mirroring the on-chain `perfect_count <= entry_count` check
  * (`PerfectCountExceedsEntries`). A parlay can have at most `entry_count` perfect

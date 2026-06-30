@@ -10,7 +10,9 @@ import { describe, it, expect } from "vitest";
 import {
   legMarketsInOrder,
   allLegsHaveBuckets,
+  classifyLegReadiness,
   perfectCountWithinEntries,
+  type LegStatus,
 } from "../contest.js";
 
 // ── legMarketsInOrder ─────────────────────────────────────────────────────────
@@ -88,6 +90,64 @@ describe("allLegsHaveBuckets", () => {
 
   it("treats undefined (short array) as missing", () => {
     expect(allLegsHaveBuckets([0, 1], 4)).toBe(false);
+  });
+});
+
+// ── classifyLegReadiness (wait-vs-void money gate) ────────────────────────────
+
+describe("classifyLegReadiness", () => {
+  const leg = (status: LegStatus, bucket: number) => ({ status, bucket });
+
+  it("ready: every leg has a bucket (all settled)", () => {
+    const legs = [leg("settled", 0), leg("settled", 1), leg("settled", 2), leg("settled", 0)];
+    expect(classifyLegReadiness(legs, 4)).toBe("ready");
+  });
+
+  it("ready: a 0 bucket counts as present (no spurious pending/abandoned)", () => {
+    const legs = [leg("settled", 0), leg("settled", 0), leg("settled", 0), leg("settled", 0)];
+    expect(classifyLegReadiness(legs, 4)).toBe("ready");
+  });
+
+  it("ready: a Voided leg that recorded its bucket still counts as present", () => {
+    // void_market on a zero-winner market can still record the proof-determined bucket.
+    const legs = [leg("settled", 1), leg("voided", 0), leg("settled", 2), leg("settled", 1)];
+    expect(classifyLegReadiness(legs, 4)).toBe("ready");
+  });
+
+  it("abandoned: a single bucketless Voided leg (rest settled) → abandoned", () => {
+    const legs = [leg("settled", 0), leg("settled", 1), leg("voided", -1), leg("settled", 2)];
+    expect(classifyLegReadiness(legs, 4)).toBe("abandoned");
+  });
+
+  it("pending: a single bucketless Open leg (rest settled) → pending (WAIT, do not void)", () => {
+    const legs = [leg("settled", 0), leg("settled", 1), leg("open", -1), leg("settled", 2)];
+    expect(classifyLegReadiness(legs, 4)).toBe("pending");
+  });
+
+  it("MIXED: one bucketless Voided + one bucketless Open → pending (safety, NOT abandoned)", () => {
+    const legs = [leg("voided", -1), leg("settled", 1), leg("open", -1), leg("settled", 2)];
+    expect(classifyLegReadiness(legs, 4)).toBe("pending");
+  });
+
+  it("pending takes precedence even when most bucketless legs are voided", () => {
+    const legs = [leg("voided", -1), leg("voided", -1), leg("open", -1), leg("settled", 0)];
+    expect(classifyLegReadiness(legs, 4)).toBe("pending");
+  });
+
+  it("abandoned: ALL legs bucketless and Voided → abandoned", () => {
+    const legs = [leg("voided", -1), leg("voided", -1), leg("voided", -1), leg("voided", -1)];
+    expect(classifyLegReadiness(legs, 4)).toBe("abandoned");
+  });
+
+  it("ignores the padded tail beyond numLegs", () => {
+    // 4 ready legs + a padded 5th that is open/bucketless — still ready.
+    const legs = [leg("settled", 0), leg("settled", 1), leg("settled", 2), leg("settled", 0), leg("open", -1)];
+    expect(classifyLegReadiness(legs, 4)).toBe("ready");
+  });
+
+  it("treats a short/undefined leg as pending (never void on missing data)", () => {
+    const legs = [leg("settled", 0), leg("settled", 1)];
+    expect(classifyLegReadiness(legs, 4)).toBe("pending");
   });
 });
 

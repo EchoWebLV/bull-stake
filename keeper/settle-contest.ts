@@ -17,8 +17,12 @@
  *   2. Resolve the (single) fixture's phase; marketsToSettle() decides which legs
  *      are settleable NOW. Settle each settleable leg via settleMarketByPubkey
  *      (idempotent — skips already settled/voided; market 16 is a 3-way sign map).
- *   3. Read each leg's winning_bucket. If ANY leg lacks a bucket (abandoned /
- *      not-yet-final) → ABORT and direct the operator to `void-contest`.
+ *   3. Read each leg's winning_bucket + status and classify (classifyLegReadiness):
+ *      - "ready"     (every leg has a bucket) → proceed.
+ *      - "pending"   (a bucketless leg is still Open → match not final) → ABORT
+ *                    and tell the operator to WAIT and re-run later; do NOT void.
+ *      - "abandoned" (every bucketless leg is Voided) → ABORT and direct the
+ *                    operator to `void-contest` to refund.
  *   4. Count perfect entries off-chain (entry.all memcmp on contest @ offset 40).
  *   5. AUDIT (always, dry-run + live): v2 previewSettle from the CONTEST + JACKPOT
  *      PDA balances — print pot/rake/jpool/distributable/share/dust/jackpotIn/
@@ -39,8 +43,9 @@ import {
   countPerfect,
   previewSettle,
   legMarketsInOrder,
-  allLegsHaveBuckets,
+  classifyLegReadiness,
   perfectCountWithinEntries,
+  type LegStatus,
 } from "./contest.js";
 
 // Named ESM exports aren't exposed through anchor's ESM entry — use the default import.
@@ -95,10 +100,19 @@ type Auth = Awaited<ReturnType<typeof authenticateCached>>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Proofbet = ReturnType<typeof loadProofbetProgram>;
 
+type SettleOutcome =
+  | "settled"
+  | "dry-run"
+  | "aborted-wait"
+  | "aborted-void"
+  | "aborted-guard"
+  | "skipped-not-open"
+  | "skipped-too-early";
+
 /**
  * Settle one contest by its contest_id (== fixtureId). Returns a one-word outcome
  * for the no-id enumerate loop. All RPC wiring lives here; pure decisions
- * (legMarketsInOrder / allLegsHaveBuckets / perfectCountWithinEntries) are imported.
+ * (legMarketsInOrder / classifyLegReadiness / perfectCountWithinEntries) are imported.
  */
 async function settleOneContest(
   ctx: SpikeContext,
@@ -106,7 +120,7 @@ async function settleOneContest(
   proofbet: Proofbet,
   contestId: number,
   dryRun: boolean,
-): Promise<"settled" | "dry-run" | "aborted-void" | "aborted-guard"> {
+): Promise<SettleOutcome> {
   const programId = proofbet.programId;
   const keeper = ctx.wallet.publicKey;
   const connection = proofbet.provider.connection;
@@ -114,6 +128,24 @@ async function settleOneContest(
   const contest = deriveContestPda(programId, contestId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const c: any = await (proofbet.account as any).contest.fetch(contest);
+
+  // Friendly prechecks mirroring the on-chain ContestNotOpen / SettleTooEarly
+  // guards — give the operator a clear message instead of a doomed broadcast.
+  // (The no-id path pre-filters these; the explicit --contest-id path does not.)
+  const status = c.status;
+  const isOpen = status && typeof status === "object" && "open" in status;
+  if (!isOpen) {
+    const label = status && typeof status === "object" ? Object.keys(status)[0] : String(status);
+    console.log(`contest ${contestId}: status is "${label}" (not Open) — already settled/voided/rolled-over; nothing to do.`);
+    return "skipped-not-open";
+  }
+  const settleAfterTs = Number(c.settleAfterTs);
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (nowSec < settleAfterTs) {
+    console.log(`contest ${contestId}: settle window opens at ${settleAfterTs} (now ${nowSec}) — too early; nothing to do yet.`);
+    return "skipped-too-early";
+  }
+
   const numLegs = Number(c.numLegs);
   const fixtures: number[] = (c.fixtures as { toNumber(): number }[]).slice(0, numLegs).map((f) => f.toNumber());
   const marketIds: number[] = (c.marketIds as number[]).slice(0, numLegs);
@@ -154,21 +186,46 @@ async function settleOneContest(
     console.log(`leg ${i} (fixture ${fixtureId}, market ${marketId}, ${settleAt}): ${r.action}`);
   }
 
-  // 3. Read each leg's winning bucket; abort-to-void if ANY is missing.
+  // 3. Read each leg's winning bucket AND status, then classify settle-readiness.
+  //    A missing bucket means WAIT (leg still Open → match not final) or VOID
+  //    (leg Voided → abandoned) — these are opposite directives, so we must not
+  //    conflate them (void_contest has no keeper time-gate → a wrongful void on a
+  //    still-live match forces refunds).
   const winningBuckets: number[] = [];
+  const legStatuses: LegStatus[] = [];
   for (const market of legMarkets) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m: any = await (proofbet.account as any).market.fetchNullable(market);
     winningBuckets.push(m?.winningBucket ?? -1);
+    const s = m?.status;
+    // Anchor enum → lowercase string; a null account (uncreated leg) → "open"
+    // (not yet resolved → pending, never abandoned: never void on missing data).
+    const key = s && typeof s === "object" ? Object.keys(s)[0] : "open";
+    legStatuses.push(key === "settled" ? "settled" : key === "voided" ? "voided" : "open");
   }
-  if (!allLegsHaveBuckets(winningBuckets, numLegs)) {
+  const readiness = classifyLegReadiness(
+    winningBuckets.map((bucket, i) => ({ status: legStatuses[i], bucket })),
+    numLegs,
+  );
+  if (readiness === "pending") {
     console.warn(
-      `contest ${contestId}: a leg has no winning bucket (abandoned / not yet final) — ` +
-      `run void-contest instead; ABORTING (not settling).`,
+      `contest ${contestId}: match not final yet (leg(s) still open) — ` +
+      `WAIT and re-run later; do NOT void.`,
     );
     console.log(JSON.stringify({
       action: "settle_contest", contestId, fixtures, marketIds, winningBuckets,
-      aborted: "abandoned-or-not-final", dryRun,
+      legStatuses, aborted: "not-final-yet", dryRun,
+    }, null, 2));
+    return "aborted-wait";
+  }
+  if (readiness === "abandoned") {
+    console.warn(
+      `contest ${contestId}: leg(s) abandoned (Voided with no bucket) — ` +
+      `run void-contest to refund; ABORTING (not settling).`,
+    );
+    console.log(JSON.stringify({
+      action: "settle_contest", contestId, fixtures, marketIds, winningBuckets,
+      legStatuses, aborted: "abandoned", dryRun,
     }, null, 2));
     return "aborted-void";
   }
