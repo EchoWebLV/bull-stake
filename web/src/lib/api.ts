@@ -93,6 +93,7 @@ export interface ContestToday {
 }
 export interface ContestEntry {
   pubkey: string; nonce: number; picks: number[]; amount: string;
+  contestId: number;   // which contest this ticket belongs to (groups tickets per card)
   won: boolean;        // all carded picks matched (settled contests only)
   claimable: boolean;  // claiming now pays out (winner share or void refund)
   payout: string;      // lamports paid if claimed now ("0" if none)
@@ -102,3 +103,22 @@ export const getContestToday = (): Promise<ContestToday> =>
   fetch(`${ENGINE}/api/contest/today`).then(json);
 export const getContestEntries = (wallet: string): Promise<ContestEntry[]> =>
   fetch(`${ENGINE}/api/contest/entries?wallet=${wallet}`).then(json);
+
+// --- Single-match parlay (live contests) ----------------------------------
+export interface ParlayLeg {
+  fixtureId: number; marketId: number; label: string;
+  group: "result" | "goals"; numBuckets: 2 | 3; line?: number;
+  winningBucket: number | null;
+}
+export interface ContestLive {
+  contestId: number; status: "open" | "settled" | "rolledOver" | "voided"; pot: string;
+  entryPrice: string; lockTs: number; settleAfterTs: number; entryCount: number;
+  perfectCount: number; distributable: string;
+  match: { fixtureId: number; home: string; away: string; kickoffMs: number | null };
+  legs: ParlayLeg[];
+}
+
+export const getContestLive = (): Promise<ContestLive[]> =>
+  fetch(`${ENGINE}/api/contest/live`).then(json);
+export const getJackpot = (): Promise<{ pot: string }> =>
+  fetch(`${ENGINE}/api/jackpot`).then(json);
