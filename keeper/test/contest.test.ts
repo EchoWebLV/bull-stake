@@ -1,27 +1,37 @@
 import { describe, it, expect } from "vitest";
 import {
-  computeContestParams,
   countPerfect,
   selectParlayMatches,
   parlayParams,
   previewSettle,
+  buildCreateArgs,
   type SlateMatch,
 } from "../contest.js";
 
-const DAY = 86_400_000;
+describe("buildCreateArgs", () => {
+  it("assembles padded create_contest args for a one-fixture, 4-leg parlay", () => {
+    const p = parlayParams(12345, 1_700_000_000_000);
+    const a = buildCreateArgs(p);
+    // contest_id == fixtureId
+    expect(a.contestId).toBe(12345);
+    // fixtures = fixtureId repeated num_legs (4) times, padded to 5 with 0
+    expect(a.fixtures).toEqual([12345, 12345, 12345, 12345, 0]);
+    expect(a.fixtures.length).toBe(5);
+    // market_ids = [16, 15, 12, 11] padded to 5 with 0
+    expect(a.marketIds).toEqual([16, 15, 12, 11, 0]);
+    expect(a.marketIds.length).toBe(5);
+    // num_legs = 4
+    expect(a.numLegs).toBe(4);
+    // window carried straight through from parlayParams
+    expect(a.lockTs).toBe(p.lockTs);
+    expect(a.settleAfterTs).toBe(p.settleAfterTs);
+    expect(a.settleAfterTs).toBe(a.lockTs + 3 * 3600);
+  });
 
-describe("computeContestParams (v1 — left in place for create-contest.ts)", () => {
-  it("orders fixtures by kickoff and derives lock/settle/contest id", () => {
-    const r = computeContestParams([
-      { fixtureId: 200, kickoffMs: 3 * DAY + 7_200_000 }, // later
-      { fixtureId: 100, kickoffMs: 3 * DAY + 3_600_000 }, // earlier
-    ], 3 * 3600);
-    expect(r.orderedFixtures).toEqual([100, 200]);
-    expect(r.numMatches).toBe(2);
-    expect(r.lockTs).toBe(Math.floor((3 * DAY + 3_600_000) / 1000));
-    expect(r.settleAfterTs).toBe(Math.floor((3 * DAY + 7_200_000) / 1000) + 3 * 3600);
-    expect(r.contestId).toBe(3); // epoch day of the first kickoff
-    expect(r.contestId).toBeGreaterThan(0);
+  it("uses the SAME fixture for every leg (single-match parlay)", () => {
+    const a = buildCreateArgs(parlayParams(777, 1_700_000_000_000));
+    // every non-pad fixture entry equals the one fixtureId
+    expect(a.fixtures.slice(0, a.numLegs)).toEqual([777, 777, 777, 777]);
   });
 });
 

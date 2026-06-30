@@ -1,32 +1,4 @@
-/** Pure card-shaping + perfect-counting helpers for the daily sweepstake keeper. */
-
-export interface CardFixture {
-  fixtureId: number;
-  kickoffMs: number;
-}
-
-export interface ContestParams {
-  contestId: number;        // epoch day of the first kickoff (non-zero, deterministic)
-  numMatches: number;
-  lockTs: number;           // seconds — first kickoff
-  settleAfterTs: number;    // seconds — last kickoff + bufferSecs
-  orderedFixtures: number[];
-}
-
-/** Derive on-chain contest params from a card. `bufferSecs` is added after the last kickoff. */
-export function computeContestParams(fixtures: CardFixture[], bufferSecs = 3 * 60 * 60): ContestParams {
-  if (fixtures.length === 0) throw new Error("computeContestParams: empty card");
-  const sorted = [...fixtures].sort((a, b) => a.kickoffMs - b.kickoffMs);
-  const firstMs = sorted[0].kickoffMs;
-  const lastMs = sorted[sorted.length - 1].kickoffMs;
-  return {
-    contestId: Math.floor(firstMs / 86_400_000),
-    numMatches: sorted.length,
-    lockTs: Math.floor(firstMs / 1000),
-    settleAfterTs: Math.floor(lastMs / 1000) + bufferSecs,
-    orderedFixtures: sorted.map((f) => f.fixtureId),
-  };
-}
+/** Pure card-shaping + perfect-counting helpers for the parlay keeper. */
 
 /** Count entries whose first `numLegs` picks all equal the winning buckets. */
 export function countPerfect(
@@ -79,6 +51,49 @@ export function parlayParams(fixtureId: number, kickoffMs: number, bufferSecs = 
     numLegs: 4,
     lockTs,
     settleAfterTs: lockTs + bufferSecs,
+  };
+}
+
+/** On-chain arrays are [_; 5]; we use up to 4 legs. */
+const MAX_LEGS = 5;
+
+/** Padded, BN-free args for the v2 `create_contest` instruction. The `new BN(...)`
+ * wrapping happens at the RPC call site in create-parlay.ts. */
+export interface CreateArgs {
+  contestId: number;   // == fixtureId
+  fixtures: number[];  // [i64; 5] — fixtureId repeated numLegs times, padded with 0
+  marketIds: number[]; // [u8; 5] — [16, 15, 12, 11, 0]
+  numLegs: number;     // 4
+  lockTs: number;
+  settleAfterTs: number;
+}
+
+/** Pad fixtures to [i64; 5] with 0 (the program ignores entries beyond num_legs). */
+export function padFixtures(ids: number[]): number[] {
+  const out = [...ids];
+  while (out.length < MAX_LEGS) out.push(0);
+  return out;
+}
+/** Pad market ids to [u8; 5] with 0 (tail zeros). */
+export function padMarketIds(ids: number[]): number[] {
+  const out = [...ids];
+  while (out.length < MAX_LEGS) out.push(0);
+  return out;
+}
+
+/**
+ * Pure arg assembly: turn ParlayParams into the padded on-chain create_contest
+ * args. All 4 legs are on the SAME fixture, so `fixtures` is the fixtureId repeated
+ * numLegs times (padded to 5), and `marketIds` is the leg markets padded to 5.
+ */
+export function buildCreateArgs(p: ParlayParams): CreateArgs {
+  return {
+    contestId: p.contestId,
+    fixtures: padFixtures(new Array(p.numLegs).fill(p.fixtureId)),
+    marketIds: padMarketIds(p.marketIds),
+    numLegs: p.numLegs,
+    lockTs: p.lockTs,
+    settleAfterTs: p.settleAfterTs,
   };
 }
 

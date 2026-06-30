@@ -1,7 +1,7 @@
 /**
  * Dev helper: print the upcoming in-scope (allow-list) fixtures from the TxLINE slate.
  * Read-only — reuses the cached auth token (no fresh activate). Used to pick a fixed
- * card for create-contest.ts in M0.
+ * card for create-parlay.ts in M0.
  *
  * Usage: npx tsx list-slate.ts [hoursAhead] [hoursBehind]
  */
