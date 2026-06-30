@@ -56,4 +56,8 @@ pub enum ProofBetError {
     // keeps ZeroAmount..MathOverflow byte-stable for off-chain/IDL consumers.
     #[msg("num_buckets must be 2 (binary) or 3 (three-way)")]
     InvalidBucketCount,
+    // Appended at the END (after InvalidBucketCount) for the v2 per-leg market_id
+    // guard, so every pre-existing ordinal stays byte-stable for IDL consumers.
+    #[msg("market_id must be non-zero for each carded leg")]
+    InvalidMarketId,
 }

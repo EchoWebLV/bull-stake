@@ -8,13 +8,13 @@ use crate::events::ContestClaimed;
 pub struct ClaimContest<'info> {
     #[account(mut)]
     pub bettor: Signer<'info>,
-    #[account(mut, seeds = [b"jackpot_vault"], bump = vault.bump)]
-    pub vault: Account<'info, JackpotVault>,
     #[account(
         mut,
         seeds = [b"contest", contest.contest_id.to_le_bytes().as_ref()],
         bump = contest.bump,
     )]
+    // The Contest PDA holds this contest's pot; both win-shares and void refunds are
+    // paid from it directly (program-owned → sub_lamports, no system CPI).
     pub contest: Account<'info, Contest>,
     #[account(
         mut,
@@ -37,7 +37,7 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
         ProofBetError::ContestNotTerminal
     );
 
-    let floor = vault_rent_floor()?;
+    let floor = contest_rent_floor()?;
 
     let mut payout: u64 = 0;
     let mut kind: u8 = 0;
@@ -48,9 +48,9 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
             kind = 2;
         }
         ContestStatus::Settled => {
-            let nm = ctx.accounts.contest.num_matches as usize;
+            let nl = ctx.accounts.contest.num_legs as usize;
             let mut perfect = true;
-            for i in 0..nm {
+            for i in 0..nl {
                 if ctx.accounts.entry.picks[i] != ctx.accounts.contest.winning_buckets[i] {
                     perfect = false;
                     break;
@@ -66,7 +66,9 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
                 .map_err(|_| ProofBetError::MathOverflow)?;
                 // Solvency cap: never pay more claims than perfect_count, and never
                 // pay out more than distributable in total. Bounds a bad (too-low)
-                // perfect_count to over-paying early claimers, never cross-contest.
+                // perfect_count to over-paying early claimers — never beyond this
+                // contest's own distributable, and never another contest's funds
+                // (each contest holds its own pot).
                 require!(
                     ctx.accounts.contest.claimed_count < ctx.accounts.contest.perfect_count,
                     ProofBetError::VaultInsolvent
@@ -88,30 +90,40 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
     }
 
     if payout > 0 {
-        ctx.accounts.vault.sub_lamports(payout)?;
+        ctx.accounts.contest.sub_lamports(payout)?;
         ctx.accounts.bettor.add_lamports(payout)?;
-        // Release the reserved liability by exactly what left the vault (win share
-        // or void refund). vault.lamports and reserved drop together, so the
-        // invariant vault.lamports >= floor + reserved is preserved by construction
-        // — a legitimate winner/refund is always payable, even after a LATER contest
-        // has settled. checked_sub can only fire on a real accounting bug.
-        ctx.accounts.vault.reserved = ctx
-            .accounts
-            .vault
-            .reserved
-            .checked_sub(payout)
-            .ok_or(ProofBetError::MathOverflow)?;
-        require!(
-            ctx.accounts.vault.to_account_info().lamports()
-                >= floor
-                    .checked_add(ctx.accounts.vault.reserved)
-                    .ok_or(ProofBetError::MathOverflow)?,
-            ProofBetError::VaultInsolvent
-        );
         if kind == 1 {
-            let c = &mut ctx.accounts.contest;
-            c.claimed_count = c.claimed_count.checked_add(1).ok_or(ProofBetError::MathOverflow)?;
-            c.claimed_total = c.claimed_total.checked_add(payout).ok_or(ProofBetError::MathOverflow)?;
+            {
+                let c = &mut ctx.accounts.contest;
+                c.claimed_count = c.claimed_count.checked_add(1).ok_or(ProofBetError::MathOverflow)?;
+                c.claimed_total = c.claimed_total.checked_add(payout).ok_or(ProofBetError::MathOverflow)?;
+            }
+            // Solvency (winners): after a win payout the Contest PDA must still cover
+            // its rent floor AND every share not yet claimed (distributable -
+            // claimed_total). distributable was made exactly divisible at settle, so a
+            // legitimate winner is always payable — this can only fire on over-claim.
+            let outstanding = ctx
+                .accounts
+                .contest
+                .distributable
+                .checked_sub(ctx.accounts.contest.claimed_total)
+                .ok_or(ProofBetError::MathOverflow)?;
+            require!(
+                ctx.accounts.contest.to_account_info().lamports()
+                    >= floor
+                        .checked_add(outstanding)
+                        .ok_or(ProofBetError::MathOverflow)?,
+                ProofBetError::VaultInsolvent
+            );
+        } else {
+            // Void refund: the Contest PDA pays the entry stake from its own pot. The
+            // pot exactly equals Σ entry.amount (no rake/jackpot on a void), so each
+            // refund leaves the PDA at >= its rent floor; a real accounting bug would
+            // be the only way to underflow here.
+            require!(
+                ctx.accounts.contest.to_account_info().lamports() >= floor,
+                ProofBetError::VaultInsolvent
+            );
         }
     }
 

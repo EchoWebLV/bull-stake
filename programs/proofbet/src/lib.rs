@@ -45,16 +45,17 @@ pub mod proofbet {
         instructions::claim::handler(ctx)
     }
 
-    pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
-        instructions::initialize_vault::handler(ctx)
+    pub fn initialize_jackpot(ctx: Context<InitializeJackpot>) -> Result<()> {
+        instructions::initialize_jackpot::handler(ctx)
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn create_contest(
         ctx: Context<CreateContest>,
         contest_id: u64,
-        fixtures: [i64; crate::contest_state::MAX_MATCHES],
-        num_matches: u8,
+        fixtures: [i64; crate::contest_state::MAX_LEGS],
+        market_ids: [u8; crate::contest_state::MAX_LEGS],
+        num_legs: u8,
         entry_price: u64,
         lock_ts: i64,
         settle_after_ts: i64,
@@ -62,7 +63,7 @@ pub mod proofbet {
         fee_bps: u16,
     ) -> Result<()> {
         instructions::create_contest::handler(
-            ctx, contest_id, fixtures, num_matches, entry_price, lock_ts, settle_after_ts, fee_recipient, fee_bps,
+            ctx, contest_id, fixtures, market_ids, num_legs, entry_price, lock_ts, settle_after_ts, fee_recipient, fee_bps,
         )
     }
 
@@ -70,7 +71,7 @@ pub mod proofbet {
         instructions::void_contest::handler(ctx)
     }
 
-    pub fn enter(ctx: Context<Enter>, nonce: u64, picks: [u8; crate::contest_state::MAX_MATCHES]) -> Result<()> {
+    pub fn enter(ctx: Context<Enter>, nonce: u64, picks: [u8; crate::contest_state::MAX_LEGS]) -> Result<()> {
         instructions::enter::handler(ctx, nonce, picks)
     }
 

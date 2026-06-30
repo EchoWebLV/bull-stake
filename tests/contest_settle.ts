@@ -1,197 +1,281 @@
 import {
   program, freshFunded, SystemProgram, assert, balance, Keypair, expectError,
-  BN, nowSec, sleep, LAMPORTS_PER_SOL,
+  BN, nowSec, sleep, LAMPORTS_PER_SOL, connection,
 } from "./helpers";
 import {
-  jackpotVaultPda, contestPda, entryPda, fixtureArray, pickArray,
-  makeSettledResultMarket, makeZeroWinnerResultMarket,
+  jackpotPda, ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
+  makeSettledResultMarket, makeAbandonedMarket,
 } from "./contest_helpers";
 
-async function ensureVault() {
-  const keeper = await freshFunded();
-  const vault = jackpotVaultPda();
-  try {
-    await program.methods.initializeVault()
-      .accountsStrict({ keeper: keeper.publicKey, vault, systemProgram: SystemProgram.programId })
-      .signers([keeper]).rpc();
-  } catch (_) { /* singleton */ }
-  return vault;
+// Task 5: settle_contest v2 — per-leg market_id resolution + the jackpot mechanic
+// (rollover sweeps the post-rake pot INTO the jackpot; a winner scoops the whole
+// rolling pool and leaves only floor-division dust behind).
+
+async function contestRentFloor(contest: any): Promise<number> {
+  const info = await connection.getAccountInfo(contest);
+  return connection.getMinimumBalanceForRentExemption(info!.data.length);
+}
+async function jackpotPool(jackpot: any): Promise<number> {
+  const info = await connection.getAccountInfo(jackpot);
+  const floor = await connection.getMinimumBalanceForRentExemption(info!.data.length);
+  return (await balance(jackpot)) - floor;
 }
 
-describe("daily sweepstake — settle_contest", () => {
-  it("reads winning buckets from bound result markets and rakes new entries only", async () => {
-    const vault = await ensureVault();
+async function open(opts: {
+  contestId: number; keeper: Keypair; fixtures: number[]; marketIds: number[];
+  feeRecipient: PublicKeyLike; price?: number; feeBps?: number;
+}) {
+  const contest = contestPda(opts.contestId);
+  const lock = nowSec() + 5;
+  await program.methods
+    .createContest(
+      new BN(opts.contestId), fixtureArray(opts.fixtures), marketIdArray(opts.marketIds), opts.fixtures.length,
+      new BN(opts.price ?? 1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6),
+      (opts.feeRecipient as any), opts.feeBps ?? 500,
+    )
+    .accountsStrict({ keeper: opts.keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+    .signers([opts.keeper]).rpc();
+  return contest;
+}
+type PublicKeyLike = any;
+
+async function enter(contest: any, player: Keypair, nonce: number, picks: number[]) {
+  await program.methods.enter(new BN(nonce), pickArray(picks))
+    .accountsStrict({ bettor: player.publicKey, contest, entry: entryPda(contest, player.publicKey, nonce), systemProgram: SystemProgram.programId })
+    .signers([player]).rpc();
+}
+
+async function settle(opts: {
+  keeper: Keypair; jackpot: any; contest: any; feeRecipient: any; markets: any[]; perfectCount: number;
+}) {
+  await program.methods.settleContest(new BN(opts.perfectCount))
+    .accountsStrict({ settleAuthority: opts.keeper.publicKey, jackpot: opts.jackpot, contest: opts.contest, feeRecipient: opts.feeRecipient })
+    .remainingAccounts(opts.markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+    .signers([opts.keeper]).rpc();
+}
+
+describe("parlay v2 — settle_contest", () => {
+  it("(a) winners: two perfect tickets, jackpot starts empty → distributable = pot - rake", async () => {
+    const jackpot = await ensureJackpot();
     const keeper = await freshFunded();
-    const feeRecip = Keypair.generate(); // separate from the signer → clean rake measurement
-    const contestId = 50001;
-    const contest = contestPda(contestId);
-    const fixtures = [50010, 50011, 50012, 50013];
-    const lock = nowSec() + 5;
+    const feeRecip = Keypair.generate();
+    const fixtures = [150010, 150011, 150012, 150013];
+    const contest = await open({ contestId: 150001, keeper, fixtures, marketIds: [12, 12, 12, 12], feeRecipient: feeRecip.publicKey });
 
-    await program.methods
-      .createContest(
-        new BN(contestId), fixtureArray(fixtures), 4,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), feeRecip.publicKey, 500,
-      )
-      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
-      .signers([keeper]).rpc();
-
-    // One perfect ticket: picks == eventual results [0,1,2,0].
-    const winner = await freshFunded();
-    const e0 = entryPda(contest, winner.publicKey, 0);
-    await program.methods.enter(new BN(0), pickArray([0, 1, 2, 0]))
-      .accountsStrict({ bettor: winner.publicKey, vault, contest, entry: e0, systemProgram: SystemProgram.programId })
-      .signers([winner]).rpc();
-
-    // Settle the four per-match result markets to [0,1,2,0]. The oracle MUST be
-    // the contest's own keeper: settle_contest binds market.settle_authority ==
-    // contest.settle_authority, so an unrelated authority would be rejected (see
-    // the "rejects a result market settled by a non-keeper authority" test below).
     const results = [0, 1, 2, 0];
+    const w1 = await freshFunded();
+    const w2 = await freshFunded();
+    await enter(contest, w1, 0, results);
+    await enter(contest, w2, 0, results);
+
     const markets = [];
     for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
 
-    const reservedBefore = (await program.account.jackpotVault.fetch(vault)).reserved;
-    await sleep(6500); // pass settle_after_ts
-    await program.methods.settleContest(new BN(1))
-      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: feeRecip.publicKey })
-      .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
-      .signers([keeper]).rpc();
+    const poolBefore = await jackpotPool(jackpot);
+    await sleep(6500);
+    await settle({ keeper, jackpot, contest, feeRecipient: feeRecip.publicKey, markets, perfectCount: 2 });
 
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} });
     assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0]);
-    assert.equal(c.perfectCount.toNumber(), 1);
-    // rake = 5% of new entries (1 ticket * 1 SOL) = 0.05 SOL → paid to the separate
-    // fee recipient (not the tx signer), so its whole balance == rake exactly.
-    assert.equal(await balance(feeRecip.publicKey), 0.05 * LAMPORTS_PER_SOL, "rake = 5% of the 1 SOL of new entries");
-    assert.equal(c.distributable.toNumber(), 0.95 * LAMPORTS_PER_SOL);
-    // The reserve fence: settle must fence share*perfect_count (= distributable for
-    // a single winner) as a cross-contest liability. Delta (not absolute) keeps this
-    // robust to reserved accumulating across suites on the singleton vault.
-    const reservedAfter = (await program.account.jackpotVault.fetch(vault)).reserved;
-    assert.equal(
-      reservedAfter.sub(reservedBefore).toNumber(),
-      0.95 * LAMPORTS_PER_SOL,
-      "settle reserves share*perfect_count",
-    );
+    assert.equal(c.perfectCount.toNumber(), 2);
+    // rake = 5% of 2 SOL = 0.1 SOL → to the separate fee recipient.
+    assert.equal(await balance(feeRecip.publicKey), 0.1 * LAMPORTS_PER_SOL, "rake = 5% of 2 SOL of entries");
+    // pot - rake = 1.9 SOL; jackpot started empty so distributable == 1.9 SOL, share == 0.95.
+    assert.equal(c.distributable.toNumber(), 1.9 * LAMPORTS_PER_SOL);
+    assert.equal(c.distributable.toNumber() / c.perfectCount.toNumber(), 0.95 * LAMPORTS_PER_SOL, "share = distributable/2");
+    // jackpot was empty and stays empty (no dust because 1.9e9 is divisible by 2).
+    assert.equal(await jackpotPool(jackpot), poolBefore, "empty jackpot unchanged");
+    // The Contest PDA holds floor + distributable.
+    const floor = await contestRentFloor(contest);
+    assert.equal(await balance(contest), floor + c.distributable.toNumber(), "contest holds floor + distributable");
   });
 
-  it("perfect_count == 0 rolls over and leaves the (post-rake) pot in the vault", async () => {
-    const vault = await ensureVault();
+  it("(b) rollover: zero perfect → post-rake pot moves INTO the jackpot", async () => {
+    const jackpot = await ensureJackpot();
     const keeper = await freshFunded();
-    const contestId = 50002;
-    const contest = contestPda(contestId);
-    const fixtures = [50020, 50021, 50022, 50023];
-    const lock = nowSec() + 5;
-    await program.methods
-      .createContest(
-        new BN(contestId), fixtureArray(fixtures), 4,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500,
-      )
-      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
-      .signers([keeper]).rpc();
+    const fixtures = [150020, 150021, 150022, 150023];
+    const contest = await open({ contestId: 150002, keeper, fixtures, marketIds: [12, 12, 12, 12], feeRecipient: keeper.publicKey });
     const loser = await freshFunded();
-    const e0 = entryPda(contest, loser.publicKey, 0);
-    await program.methods.enter(new BN(0), pickArray([2, 2, 2, 2]))
-      .accountsStrict({ bettor: loser.publicKey, vault, contest, entry: e0, systemProgram: SystemProgram.programId })
-      .signers([loser]).rpc();
+    await enter(contest, loser, 0, [2, 2, 2, 2]);
     const results = [0, 1, 2, 0];
     const markets = [];
     for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
-    const reservedBefore = (await program.account.jackpotVault.fetch(vault)).reserved;
+
+    const poolBefore = await jackpotPool(jackpot);
     await sleep(6500);
-    await program.methods.settleContest(new BN(0))
-      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: keeper.publicKey })
-      .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
-      .signers([keeper]).rpc();
+    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 0 });
+
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { rolledOver: {} });
-    const v = await program.account.jackpotVault.fetch(vault);
-    assert.equal(v.activeContestId.toNumber(), 0, "vault freed for the next contest");
-    // The post-rake remainder (0.95 SOL) stays escrowed → rolls forward.
-    assert.isAtLeast(await balance(vault), 0.95 * LAMPORTS_PER_SOL);
-    // A rollover owes no one, so the reserve fence is untouched.
-    assert.equal(v.reserved.sub(reservedBefore).toNumber(), 0, "rollover reserves nothing");
+    assert.equal(c.distributable.toNumber(), 0);
+    // pot - rake = 0.95 SOL rolled INTO the jackpot.
+    assert.equal((await jackpotPool(jackpot)) - poolBefore, 0.95 * LAMPORTS_PER_SOL, "post-rake pot rolled into jackpot");
+    // Contest PDA swept to exactly its rent floor.
+    const floor = await contestRentFloor(contest);
+    assert.equal(await balance(contest), floor, "contest pot fully swept");
   });
 
-  it("rejects a result market settled by a non-keeper authority (oracle-binding)", async () => {
-    // The attack: an attacker front-runs the keeper, squats the deterministic
-    // result-market PDA, and settles it to favor their own ticket. settle_contest
-    // must reject any leg whose settle_authority != the contest's keeper.
-    const vault = await ensureVault();
+  it("(c) jackpot scoop: a 1-winner contest drains the rolling pool + its own pot", async () => {
+    const jackpot = await ensureJackpot();
     const keeper = await freshFunded();
-    const contestId = 50003;
-    const contest = contestPda(contestId);
-    const fixtures = [50030, 50031, 50032, 50033];
-    const lock = nowSec() + 5;
-    await program.methods
-      .createContest(
-        new BN(contestId), fixtureArray(fixtures), 4,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500,
-      )
-      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
-      .signers([keeper]).rpc();
-    const player = await freshFunded();
-    const e0 = entryPda(contest, player.publicKey, 0);
-    await program.methods.enter(new BN(0), pickArray([0, 1, 2, 0]))
-      .accountsStrict({ bettor: player.publicKey, vault, contest, entry: e0, systemProgram: SystemProgram.programId })
-      .signers([player]).rpc();
-
-    // Attacker (not the keeper) creates+settles all four result markets.
-    const attacker = await freshFunded();
-    const markets = [];
-    for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], [0, 1, 2, 0][i], attacker));
-
+    // Seed the jackpot via a rollover (contest with 0 winners).
+    const fA = [150030, 150031, 150032, 150033];
+    const cA = await open({ contestId: 150003, keeper, fixtures: fA, marketIds: [12, 12, 12, 12], feeRecipient: keeper.publicKey });
+    const loser = await freshFunded();
+    await enter(cA, loser, 0, [2, 2, 2, 2]);
+    const resA = [0, 1, 2, 0];
+    const mA = [];
+    for (let i = 0; i < 4; i++) mA.push(await makeSettledResultMarket(fA[i], resA[i], keeper));
     await sleep(6500);
-    await expectError(
-      program.methods.settleContest(new BN(1))
-        .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: keeper.publicKey })
-        .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
-        .signers([keeper]).rpc(),
-      "ResultMarketMismatch",
-    );
-    // Clean up: keeper voids the squatted contest so the singleton vault is freed.
-    await program.methods.voidContest()
-      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest })
-      .signers([keeper]).rpc();
-  });
+    await settle({ keeper, jackpot, contest: cA, feeRecipient: keeper.publicKey, markets: mA, perfectCount: 0 });
+    const poolAfterRoll = await jackpotPool(jackpot);
+    assert.isAtLeast(poolAfterRoll, 0.95 * LAMPORTS_PER_SOL, "rollover seeded the jackpot");
 
-  it("settles a leg whose winning bucket drew zero stake (Voided-with-bucket result)", async () => {
-    // A real result on a match where nobody staked the winning side: settle.rs
-    // voids that market but RECORDS winning_bucket. settle_contest must still read
-    // it (audit fix B) and settle the contest, not brick it.
-    const vault = await ensureVault();
-    const keeper = await freshFunded();
-    const contestId = 50004;
-    const contest = contestPda(contestId);
-    const fixtures = [50040, 50041, 50042, 50043];
-    const lock = nowSec() + 5;
-    await program.methods
-      .createContest(
-        new BN(contestId), fixtureArray(fixtures), 4,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500,
-      )
-      .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
-      .signers([keeper]).rpc();
+    // Contest B: one perfect ticket scoops its own pot + the whole jackpot pool.
+    const fB = [150034, 150035, 150036, 150037];
+    const cB = await open({ contestId: 150004, keeper, fixtures: fB, marketIds: [12, 12, 12, 12], feeRecipient: keeper.publicKey });
     const winner = await freshFunded();
-    const e0 = entryPda(contest, winner.publicKey, 0);
-    await program.methods.enter(new BN(0), pickArray([0, 1, 2, 0]))
-      .accountsStrict({ bettor: winner.publicKey, vault, contest, entry: e0, systemProgram: SystemProgram.programId })
-      .signers([winner]).rpc();
-
-    const markets = [];
-    // Leg 0 is a zero-winner-void market (winning bucket 0 had no stake); the rest settle normally.
-    markets.push(await makeZeroWinnerResultMarket(fixtures[0], 0, keeper));
-    for (let i = 1; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], [0, 1, 2, 0][i], keeper));
-
+    const resB = [0, 1, 2, 0];
+    await enter(cB, winner, 0, resB);
+    const mB = [];
+    for (let i = 0; i < 4; i++) mB.push(await makeSettledResultMarket(fB[i], resB[i], keeper));
+    const poolBeforeB = await jackpotPool(jackpot);
     await sleep(6500);
-    await program.methods.settleContest(new BN(1))
-      .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: keeper.publicKey })
-      .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
-      .signers([keeper]).rpc();
+    await settle({ keeper, jackpot, contest: cB, feeRecipient: keeper.publicKey, markets: mB, perfectCount: 1 });
+
+    const c = await program.account.contest.fetch(cB);
+    // distributable == its_pot(post-rake) + jackpot_pool (perfect_count 1 → no dust).
+    const ownPotNet = 0.95 * LAMPORTS_PER_SOL; // 1 SOL entry, 5% rake
+    assert.equal(c.distributable.toNumber(), ownPotNet + poolBeforeB, "distributable = own net pot + scooped jackpot pool");
+    assert.equal(await jackpotPool(jackpot), 0, "jackpot drained to dust (0 here, evenly divisible)");
+  });
+
+  it("(d) dust: distributable not divisible by perfect_count → remainder stays in the jackpot", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [150040, 150041, 150042];
+    // 3 perfect tickets at 1 SOL, 0 fee → pot = 3 SOL, jpool from prior tests is
+    // whatever it is. To force dust we add 1 lamport of jackpot via... instead use
+    // an odd raw: 3 entries, fee 0 → pot_net = 3e9. raw = 3e9 + jpool. We make
+    // perfect_count = 3 and assert dust = raw % 3 stays in the jackpot.
+    const contest = await open({ contestId: 150005, keeper, fixtures, marketIds: [12, 12, 12], feeRecipient: keeper.publicKey, feeBps: 0 });
+    const results = [0, 1, 2];
+    const players = [await freshFunded(), await freshFunded(), await freshFunded()];
+    for (const p of players) await enter(contest, p, 0, results);
+    const markets = [];
+    for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
+
+    const poolBefore = await jackpotPool(jackpot);
+    const potNet = 3 * LAMPORTS_PER_SOL; // fee 0
+    const raw = potNet + poolBefore;
+    const share = Math.floor(raw / 3);
+    const payable = share * 3;
+    const expectedDust = raw - payable;
+    await sleep(6500);
+    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 3 });
+
+    const c = await program.account.contest.fetch(contest);
+    assert.equal(c.distributable.toNumber(), payable, "distributable == share*perfect_count (divisible)");
+    assert.equal(c.distributable.toNumber() % 3, 0, "distributable exactly divisible by perfect_count");
+    assert.equal(await jackpotPool(jackpot), expectedDust, "the floor-division dust stays in the jackpot");
+  });
+
+  it("(e) leg-by-market_id: legs [16,15,12,11] read their own markets; a 2-way leg reads bucket 0/1", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const F = 150050; // SAME fixture across legs, distinguished by market_id
+    const marketIds = [16, 15, 12, 11];
+    const contest = await open({ contestId: 150006, keeper, fixtures: [F, F, F, F], marketIds, feeRecipient: keeper.publicKey });
+    // Leg buckets: 16→3way bucket 2, 15→2way bucket 1, 12→3way bucket 0, 11→2way bucket 0.
+    const buckets = [2, 1, 0, 0];
+    const numBuckets = [3, 2, 3, 2];
+    const winner = await freshFunded();
+    await enter(contest, winner, 0, buckets);
+    const markets = [];
+    for (let i = 0; i < 4; i++) {
+      markets.push(await makeSettledResultMarket(F, buckets[i], keeper, marketIds[i], numBuckets[i]));
+    }
+    await sleep(6500);
+    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 });
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} });
-    assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0], "zero-stake leg's recorded bucket is read");
+    assert.deepEqual(c.winningBuckets, [2, 1, 0, 0, 0], "each leg's bucket read from its own (fixture, market_id) market");
+  });
+
+  it("(f) oracle binding: a leg market settled by a non-keeper authority → ResultMarketMismatch", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [150060, 150061, 150062, 150063];
+    const contest = await open({ contestId: 150007, keeper, fixtures, marketIds: [12, 12, 12, 12], feeRecipient: keeper.publicKey });
+    const player = await freshFunded();
+    const results = [0, 1, 2, 0];
+    await enter(contest, player, 0, results);
+    const attacker = await freshFunded();
+    const markets = [];
+    for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], attacker));
+    await sleep(6500);
+    await expectError(
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 }),
+      "ResultMarketMismatch",
+    );
+    // Teardown so the Entry/Contest don't linger uncleaned.
+    await program.methods.voidContest()
+      .accountsStrict({ settleAuthority: keeper.publicKey, contest })
+      .signers([keeper]).rpc();
+  });
+
+  it("(g) errors: too early, wrong remaining count, abandoned (no bucket)", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [150070, 150071, 150072, 150073];
+    const contest = await open({ contestId: 150008, keeper, fixtures, marketIds: [12, 12, 12, 12], feeRecipient: keeper.publicKey });
+    const player = await freshFunded();
+    const results = [0, 1, 2, 0];
+    await enter(contest, player, 0, results);
+
+    // Too early — before settle_after_ts. settle_contest checks the settle window
+    // BEFORE it reads any result market, so this fires with no markets passed —
+    // and crucially we assert it BEFORE the slow market creation below, whose
+    // per-market entry-close sleeps would otherwise elapse the settle window and
+    // let the call through.
+    await expectError(
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets: [], perfectCount: 1 }),
+      "SettleTooEarly",
+    );
+
+    const markets = [];
+    for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
+    await sleep(6500);
+    // Wrong remaining-account count (3 instead of 4).
+    await expectError(
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets: markets.slice(0, 3), perfectCount: 1 }),
+      "ResultMarketMismatch",
+    );
+    await program.methods.voidContest()
+      .accountsStrict({ settleAuthority: keeper.publicKey, contest })
+      .signers([keeper]).rpc();
+  });
+
+  it("(g2) abandoned leg (voided market with no winning bucket) → ResultMarketNotSettled", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [150080, 150081, 150082, 150083];
+    const contest = await open({ contestId: 150009, keeper, fixtures, marketIds: [12, 12, 12, 12], feeRecipient: keeper.publicKey });
+    const player = await freshFunded();
+    const results = [0, 1, 2, 0];
+    await enter(contest, player, 0, results);
+    const markets = [];
+    // Leg 0 is genuinely ABANDONED (void_market → no bucket); the rest settle.
+    markets.push(await makeAbandonedMarket(fixtures[0], keeper));
+    for (let i = 1; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
+    await sleep(6500);
+    await expectError(
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 }),
+      "ResultMarketNotSettled",
+    );
+    await program.methods.voidContest()
+      .accountsStrict({ settleAuthority: keeper.publicKey, contest })
+      .signers([keeper]).rpc();
   });
 });

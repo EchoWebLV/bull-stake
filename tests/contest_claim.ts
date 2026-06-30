@@ -1,47 +1,39 @@
 import {
-  program, freshFunded, SystemProgram, assert, balance, expectError,
-  BN, nowSec, sleep, LAMPORTS_PER_SOL,
+  program, freshFunded, SystemProgram, assert, balance, Keypair, expectError,
+  BN, nowSec, sleep, LAMPORTS_PER_SOL, connection,
 } from "./helpers";
 import {
-  jackpotVaultPda, contestPda, entryPda, fixtureArray, pickArray, makeSettledResultMarket,
+  jackpotPda, ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
+  makeSettledResultMarket,
 } from "./contest_helpers";
 
-async function ensureVault() {
-  const keeper = await freshFunded();
-  const vault = jackpotVaultPda();
-  try {
-    await program.methods.initializeVault()
-      .accountsStrict({ keeper: keeper.publicKey, vault, systemProgram: SystemProgram.programId })
-      .signers([keeper]).rpc();
-  } catch (_) { /* singleton */ }
-  return vault;
+// Task 6: claim_contest v2 — pays win shares / void refunds from the Contest PDA.
+
+async function contestRentFloor(contest: any): Promise<number> {
+  const info = await connection.getAccountInfo(contest);
+  return connection.getMinimumBalanceForRentExemption(info!.data.length);
 }
 
-// Open a contest, enter the given tickets, settle to `results` with `perfectCount`.
-// The result markets are settled by the KEEPER (oracle binding requires
-// result_market.settle_authority == contest.settle_authority).
+// Open + enter + settle a contest from `results`, perfectCount split. Result markets
+// settled by the KEEPER (oracle binding requires market.settle_authority == keeper).
 async function runContest(opts: {
-  contestId: number;
-  fixtures: number[];
-  results: number[];
-  entries: { player: any; nonce: number; picks: number[] }[];
-  perfectCount: number;
+  contestId: number; fixtures: number[]; results: number[];
+  entries: { player: Keypair; nonce: number; picks: number[] }[]; perfectCount: number;
 }) {
-  const vault = await ensureVault();
+  const jackpot = await ensureJackpot();
   const keeper = await freshFunded();
   const contest = contestPda(opts.contestId);
   const lock = nowSec() + 5;
   await program.methods
     .createContest(
-      new BN(opts.contestId), fixtureArray(opts.fixtures), opts.fixtures.length,
+      new BN(opts.contestId), fixtureArray(opts.fixtures), marketIdArray(opts.fixtures.map(() => 12)), opts.fixtures.length,
       new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500,
     )
-    .accountsStrict({ keeper: keeper.publicKey, vault, contest, systemProgram: SystemProgram.programId })
+    .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
     .signers([keeper]).rpc();
   for (const en of opts.entries) {
-    const entry = entryPda(contest, en.player.publicKey, en.nonce);
     await program.methods.enter(new BN(en.nonce), pickArray(en.picks))
-      .accountsStrict({ bettor: en.player.publicKey, vault, contest, entry, systemProgram: SystemProgram.programId })
+      .accountsStrict({ bettor: en.player.publicKey, contest, entry: entryPda(contest, en.player.publicKey, en.nonce), systemProgram: SystemProgram.programId })
       .signers([en.player]).rpc();
   }
   const markets = [];
@@ -50,63 +42,91 @@ async function runContest(opts: {
   }
   await sleep(6500);
   await program.methods.settleContest(new BN(opts.perfectCount))
-    .accountsStrict({ settleAuthority: keeper.publicKey, vault, contest, feeRecipient: keeper.publicKey })
+    .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
     .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
     .signers([keeper]).rpc();
-  return { vault, contest };
+  return { jackpot, contest };
 }
 
-async function claim(vault: any, contest: any, player: any, nonce: number) {
-  const entry = entryPda(contest, player.publicKey, nonce);
+async function claim(contest: any, player: Keypair, nonce: number) {
   await program.methods.claimContest()
-    .accountsStrict({ bettor: player.publicKey, vault, contest, entry, systemProgram: SystemProgram.programId })
+    .accountsStrict({ bettor: player.publicKey, contest, entry: entryPda(contest, player.publicKey, nonce), systemProgram: SystemProgram.programId })
     .signers([player]).rpc();
 }
 
-describe("daily sweepstake — claim_contest", () => {
-  it("pays the perfect ticket its share and blocks a double-claim", async () => {
+describe("parlay v2 — claim_contest", () => {
+  it("(a) perfect winner claims its share; contest drops by share; entry closed; (d) double-claim fails", async () => {
     const winner = await freshFunded();
     const loser = await freshFunded();
-    const fixtures = [60010, 60011, 60012];
+    const fixtures = [160010, 160011, 160012];
     const results = [0, 1, 2];
-    const { vault, contest } = await runContest({
-      contestId: 60001, fixtures, results, perfectCount: 1,
+    const { contest } = await runContest({
+      contestId: 160001, fixtures, results, perfectCount: 1,
       entries: [
         { player: winner, nonce: 0, picks: [0, 1, 2] },
         { player: loser, nonce: 0, picks: [1, 1, 1] },
       ],
     });
-
     const c = await program.account.contest.fetch(contest);
-    const distributable = c.distributable.toNumber(); // 0.95 * 2 SOL (2 entries, perfect_count 1)
+    const distributable = c.distributable.toNumber(); // 0.95 * 2 SOL, perfect_count 1 → winner sweeps all
 
-    const vBeforeWin = await balance(vault);
-    await claim(vault, contest, winner, 0);
-    assert.equal(vBeforeWin - (await balance(vault)), distributable, "winner sweeps the full distributable (perfect_count = 1)");
+    const cBeforeWin = await balance(contest);
+    await claim(contest, winner, 0);
+    assert.equal(cBeforeWin - (await balance(contest)), distributable, "winner sweeps the full distributable");
+    const cc = await program.account.contest.fetch(contest);
+    assert.equal(cc.claimedCount.toNumber(), 1, "claimed_count advanced");
+    assert.equal(cc.claimedTotal.toNumber(), distributable, "claimed_total advanced");
 
-    await expectError(claim(vault, contest, winner, 0), "AccountNotInitialized");
+    // (d) double-claim: the Entry is closed → AccountNotInitialized.
+    await expectError(claim(contest, winner, 0), "AccountNotInitialized");
 
-    const vBeforeLose = await balance(vault);
-    await claim(vault, contest, loser, 0);
-    assert.equal(await balance(vault), vBeforeLose, "loser draws nothing from the vault");
+    // (c) loser claim → payout 0, entry closed (reclaims rent), no contest balance move.
+    const cBeforeLose = await balance(contest);
+    await claim(contest, loser, 0);
+    assert.equal(await balance(contest), cBeforeLose, "loser draws nothing from the contest");
+    const loserEntry = await connection.getAccountInfo(entryPda(contest, loser.publicKey, 0));
+    assert.isNull(loserEntry, "loser entry closed (rent reclaimed)");
   });
 
-  it("two perfect tickets split the pot; vault stays above its rent floor", async () => {
+  it("(b) two winners split; after both claim the contest holds exactly its rent floor", async () => {
     const a = await freshFunded();
     const b = await freshFunded();
-    const fixtures = [60020, 60021, 60022];
+    const fixtures = [160020, 160021, 160022];
     const results = [2, 0, 1];
-    const { vault, contest } = await runContest({
-      contestId: 60002, fixtures, results, perfectCount: 2,
+    const { contest } = await runContest({
+      contestId: 160002, fixtures, results, perfectCount: 2,
       entries: [
         { player: a, nonce: 0, picks: [2, 0, 1] },
         { player: b, nonce: 0, picks: [2, 0, 1] },
       ],
     });
-    await claim(vault, contest, a, 0);
-    await claim(vault, contest, b, 0);
-    const v = await program.account.jackpotVault.fetch(vault); // throws if GC'd
-    assert.ok(v);
-    assert.isAbove(await balance(vault), 0);
+    await claim(contest, a, 0);
+    await claim(contest, b, 0);
+    // distributable was made exactly divisible by perfect_count at settle, so after
+    // both winners claim the contest is back at exactly its rent floor.
+    const floor = await contestRentFloor(contest);
+    assert.equal(await balance(contest), floor, "contest holds exactly its rent floor after all winners claim");
+  });
+
+  it("(e) cap: a phantom extra winner beyond perfect_count → VaultInsolvent", async () => {
+    // Keeper under-reports perfect_count = 1 though TWO tickets are perfect. The
+    // first sweeps the full distributable; the second perfect ticket MUST revert at
+    // the cap (claimed_count < perfect_count), never over-drawing the contest pot.
+    const w1 = await freshFunded();
+    const w2 = await freshFunded();
+    const fixtures = [160030, 160031, 160032];
+    const results = [0, 1, 2];
+    const { contest } = await runContest({
+      contestId: 160003, fixtures, results, perfectCount: 1,
+      entries: [
+        { player: w1, nonce: 0, picks: [0, 1, 2] },
+        { player: w2, nonce: 0, picks: [0, 1, 2] },
+      ],
+    });
+    const distributable = (await program.account.contest.fetch(contest)).distributable.toNumber();
+    const cBefore = await balance(contest);
+    await claim(contest, w1, 0);
+    assert.equal(cBefore - (await balance(contest)), distributable, "first winner sweeps the full distributable");
+    await expectError(claim(contest, w2, 0), "VaultInsolvent");
   });
 });

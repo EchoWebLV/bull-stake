@@ -10,13 +10,12 @@ use crate::events::EnteredContest;
 pub struct Enter<'info> {
     #[account(mut)]
     pub bettor: Signer<'info>,
-    #[account(mut, seeds = [b"jackpot_vault"], bump = vault.bump)]
-    pub vault: Account<'info, JackpotVault>,
     #[account(
         mut,
         seeds = [b"contest", contest.contest_id.to_le_bytes().as_ref()],
         bump = contest.bump,
     )]
+    // The Contest PDA escrows the entry pot: new tickets deposit straight into it.
     pub contest: Account<'info, Contest>,
     #[account(
         init_if_needed,
@@ -29,7 +28,7 @@ pub struct Enter<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_MATCHES]) -> Result<()> {
+pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_LEGS]) -> Result<()> {
     require!(
         ctx.accounts.contest.status == ContestStatus::Open,
         ProofBetError::ContestNotOpen
@@ -37,12 +36,13 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_MATCHES]) -> Res
     let now = Clock::get()?.unix_timestamp;
     require!(now < ctx.accounts.contest.lock_ts, ProofBetError::EntryClosed);
 
-    // Validate picks: a valid 1X2 outcome (< MAX_BUCKETS) within num_matches, and
-    // exactly 0 beyond it (tail guard). MAX_BUCKETS is the result market's bucket
-    // count (3 = Home/Draw/Away) — the same outcome space a pick selects from.
-    let nm = ctx.accounts.contest.num_matches as usize;
+    // Validate picks: a valid bucket (< MAX_BUCKETS) within num_legs, and exactly 0
+    // beyond it (tail guard). MAX_BUCKETS (3) is the maximum outcome space; we do
+    // NOT special-case per-leg bucket counts — a leg that is 2-way simply never has
+    // a winning bucket of 2, so a pick of 2 on it is a guaranteed loser, not invalid.
+    let nl = ctx.accounts.contest.num_legs as usize;
     for (i, &p) in picks.iter().enumerate() {
-        if i < nm {
+        if i < nl {
             require!((p as usize) < crate::state::MAX_BUCKETS, ProofBetError::InvalidPick);
         } else {
             require!(p == 0, ProofBetError::InvalidPick);
@@ -55,11 +55,14 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_MATCHES]) -> Res
 
     if is_new {
         let price = ctx.accounts.contest.entry_price;
+        // The bettor is a wallet (system-owned signer), so a system_program transfer
+        // CPI can credit the program-owned Contest PDA — a system transfer may credit
+        // ANY account. After this the Contest PDA holds (rent_floor + Σ entries).
         let cpi = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
                 from: ctx.accounts.bettor.to_account_info(),
-                to: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.contest.to_account_info(),
             },
         );
         system_program::transfer(cpi, price)?;

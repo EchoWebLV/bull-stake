@@ -68,7 +68,7 @@ pub struct Claimed {
 pub struct ContestCreated {
     pub contest: Pubkey,
     pub contest_id: u64,
-    pub num_matches: u8,
+    pub num_legs: u8,
     pub entry_price: u64,
     pub lock_ts: i64,
     pub settle_after_ts: i64,
@@ -89,9 +89,14 @@ pub struct EnteredContest {
 pub struct ContestSettled {
     pub contest: Pubkey,
     pub contest_id: u64,
-    pub winning_buckets: [u8; crate::contest_state::MAX_MATCHES],
+    pub winning_buckets: [u8; crate::contest_state::MAX_LEGS],
     pub perfect_count: u64,
-    pub pot_snapshot: u64,
+    /// This contest's own entry pot at settle (contest.lamports - rent_floor).
+    pub pot: u64,
+    /// Jackpot pool moved INTO the contest on a win (0 on rollover).
+    pub jackpot_in: u64,
+    /// Jackpot pool received FROM the contest on a rollover (post-rake pot; 0 on a win).
+    pub jackpot_out: u64,
     pub distributable: u64,
     pub rake: u64,
     pub rolled_over: bool,
