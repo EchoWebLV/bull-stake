@@ -267,4 +267,41 @@ describe("parlay v2 — safety", () => {
       .signers([b1]).rpc();
     assert.equal(bBefore - (await balance(contestB)), bDistributable, "B's winner sweeps B's full distributable, unaffected by A");
   });
+
+  it("rejects perfect_count > entry_count (shared-jackpot brick guard)", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [182010, 182011, 182012];
+    const results = [0, 1, 2];
+    const lock = nowSec() + 5;
+    const contest = contestPda(182001);
+    await program.methods
+      .createContest(new BN(182001), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+      .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    // Exactly ONE ticket entered.
+    const player = await freshFunded();
+    await program.methods.enter(new BN(0), pickArray(results))
+      .accountsStrict({ bettor: player.publicKey, contest, entry: entryPda(contest, player.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([player]).rpc();
+    const markets = [];
+    for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
+    await sleep(6500);
+    // Over-report (perfect_count 2 > entry_count 1) → must revert BEFORE any jackpot
+    // is pulled into the contest (the brick the audit caught).
+    await expectError(
+      program.methods.settleContest(new BN(2))
+        .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
+        .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+        .signers([keeper]).rpc(),
+      "PerfectCountExceedsEntries",
+    );
+    // The honest count (1 <= entry_count) settles fine — the guard only blocks over-reports.
+    await program.methods.settleContest(new BN(1))
+      .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
+      .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+      .signers([keeper]).rpc();
+    assert.deepEqual((await program.account.contest.fetch(contest)).status, { settled: {} }, "honest perfect_count settles");
+  });
 });

@@ -33,6 +33,20 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     require!(now >= ctx.accounts.contest.settle_after_ts, ProofBetError::SettleTooEarly);
 
+    // A parlay can have at most `entry_count` perfect tickets, so a winners-settle
+    // with perfect_count > entry_count is impossible. Without this guard an over-
+    // reported perfect_count (the extreme: settling an EMPTY contest with
+    // perfect_count >= 1) sets distributable = (pot - rake) + jackpot_pool and pulls
+    // the ENTIRE shared rolling jackpot into THIS contest PDA — where, with no matching
+    // Entry to claim it, no way to un-settle (void requires Open) and no sweep path,
+    // those jackpot lamports are permanently bricked for every future contest. Bounding
+    // to entry_count keeps an empty/under-backed contest from scooping a jackpot it can
+    // never pay back. (perfect_count == 0 is the rollover path and always passes.)
+    require!(
+        perfect_count <= ctx.accounts.contest.entry_count,
+        ProofBetError::PerfectCountExceedsEntries
+    );
+
     let nl = ctx.accounts.contest.num_legs as usize;
     require!(
         ctx.remaining_accounts.len() == nl,

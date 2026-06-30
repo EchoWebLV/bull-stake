@@ -60,4 +60,8 @@ pub enum ProofBetError {
     // guard, so every pre-existing ordinal stays byte-stable for IDL consumers.
     #[msg("market_id must be non-zero for each carded leg")]
     InvalidMarketId,
+    // Appended at the END for the v2 jackpot-brick guard: perfect_count must not
+    // exceed entry_count (a parlay can have at most entry_count perfect tickets).
+    #[msg("perfect_count cannot exceed entry_count")]
+    PerfectCountExceedsEntries,
 }
