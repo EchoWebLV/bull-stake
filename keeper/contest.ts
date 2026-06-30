@@ -1,5 +1,45 @@
 /** Pure card-shaping + perfect-counting helpers for the parlay keeper. */
 
+/**
+ * The ordered (fixtureId, marketId) tuples for a contest's legs.
+ *
+ * settle_contest's on-chain handler reads `remaining_accounts[i]` against
+ * `fixtures[i]`/`market_ids[i]`, so the keeper MUST pass the leg markets in this
+ * exact order. Pure: no PDA derivation, no I/O — derivation happens at the call
+ * site (it needs the programId). Tested in settle-contest.test.ts.
+ */
+export function legMarketsInOrder(
+  fixtures: number[],
+  marketIds: number[],
+  numLegs: number,
+): { fixtureId: number; marketId: number }[] {
+  const out: { fixtureId: number; marketId: number }[] = [];
+  for (let i = 0; i < numLegs; i++) out.push({ fixtureId: fixtures[i], marketId: marketIds[i] });
+  return out;
+}
+
+/**
+ * Abort-to-void predicate: true only when EVERY leg recorded a winning bucket.
+ *
+ * A leg with no bucket (sentinel < 0, e.g. a Voided market on an abandoned match)
+ * means the contest cannot be settled — the keeper must run `void-contest` to
+ * refund. Mirrors the on-chain `ok_or(ResultMarketNotSettled)` per leg. Pure.
+ */
+export function allLegsHaveBuckets(buckets: number[], numLegs: number): boolean {
+  for (let i = 0; i < numLegs; i++) if (!(buckets[i] >= 0)) return false;
+  return true;
+}
+
+/**
+ * Guard predicate mirroring the on-chain `perfect_count <= entry_count` check
+ * (`PerfectCountExceedsEntries`). A parlay can have at most `entry_count` perfect
+ * tickets; a larger count would (on-chain) scoop the shared jackpot a contest can
+ * never pay back. Pure — keep the keeper from broadcasting a tx that would revert.
+ */
+export function perfectCountWithinEntries(perfectCount: number, entryCount: number): boolean {
+  return perfectCount <= entryCount;
+}
+
 /** Count entries whose first `numLegs` picks all equal the winning buckets. */
 export function countPerfect(
   entries: { picks: number[] }[],
