@@ -104,8 +104,15 @@ if (isMain) {
             if (day > maxDay) maxDay = day;
           }
           // Pad ±1 day so a contest locking near a day boundary still resolves.
+          // Cap the span so two contests locking weeks apart (e.g. a stuck
+          // never-settled zombie alongside a fresh one) don't fan out dozens of
+          // upstream getFixtures page requests every 30 min. A zombie weeks-old
+          // contest losing its card name is acceptable — it'll be voided anyway.
+          // (We cap the span rather than filter to status==='open' contests:
+          // /api/contest/live serves settled/voided contests too, and the web
+          // still needs their fixture names for the results card.)
           const startDay = minDay - 1;
-          const dayCount = maxDay - minDay + 3;
+          const dayCount = Math.min(maxDay - minDay + 3, 10);
           const fixtures = await fetchFixturesAcross(ctx, auth, startDay, dayCount);
           const matched = fixtures.filter((f) => wanted.has(f.fixtureId));
           liveStore.addFixtureNames(matched);

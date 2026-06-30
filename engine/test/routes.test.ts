@@ -366,6 +366,38 @@ describe("GET /api/contest/live", () => {
     await app.close();
   });
 
+  it("OMITS the leg `line` key (not null) when the marketId is out of catalog", async () => {
+    // marketById(99) is undefined, so the route's `line: marketById(...)?.line`
+    // resolves to `undefined`, which JSON.stringify drops entirely. This guards
+    // the web contract (`line?`) against a `?.line ?? null` regression that would
+    // smuggle a null line into the payload.
+    vi.mocked(readLiveContests).mockResolvedValueOnce([
+      {
+        pubkey: "Contest222", contestId: 30001,
+        settleAuthority: "Keep1111111111111111111111111111111111111111",
+        feeRecipient: "Fee11111111111111111111111111111111111111111",
+        fixtures: [202], marketIds: [99], numLegs: 1,
+        legs: [
+          { marketId: 99, label: "", group: "", numBuckets: 0, fixtureId: 202, winningBucket: null },
+        ],
+        entryPrice: "20000000", lockTs: 9999999999, settleAfterTs: 9999999999,
+        feeBps: 500, status: "open", winningBuckets: [0],
+        entryCount: 0, perfectCount: 0, pot: "0", distributable: "0",
+        claimedCount: 0, claimedTotal: "0", settledTs: 0,
+      },
+    ]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/contest/live" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const leg = body[0].legs[0];
+    expect(leg).toMatchObject({ marketId: 99, fixtureId: 202, winningBucket: null });
+    // The contract is `line?` — an unknown market must drop the key, not send null.
+    expect("line" in leg).toBe(false);
+    expect(leg).not.toHaveProperty("line");
+    await app.close();
+  });
+
   it("returns 200 + [] (not a paused object) when no contests are live", async () => {
     vi.mocked(readLiveContests).mockResolvedValueOnce([]);
     const app = buildServer(makeMockStore());
