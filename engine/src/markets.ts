@@ -46,7 +46,14 @@ export const MARKET_TEMPLATE: MarketDef[] = [
   { marketId: 13, label: "Total Yellow Cards O/U 3.5", group: "cards",   line: 3.5, statKey: 3,    statKey2: 4,    op: "add",      comparison: "greaterThan", threshold: 3, settleAt: "FT", numBuckets: 2 },
   { marketId: 14, label: "1st-Half Corners O/U 4.5",  group: "corners", line: 4.5, statKey: 1007, statKey2: 1008, op: "add",      comparison: "greaterThan", threshold: 4, settleAt: "HT", numBuckets: 2 },
   { marketId: 15, label: "1st-Half Goals O/U 0.5",    group: "goals",   line: 0.5, statKey: 1001, statKey2: 1002, op: "add",      comparison: "greaterThan", threshold: 0, settleAt: "HT", numBuckets: 2 },
+  { marketId: 16, label: "1st-Half Result",            group: "result",  line: 0,   statKey: 1001, statKey2: 1002, op: "subtract", comparison: "greaterThan", threshold: 0, settleAt: "HT", numBuckets: 3 },
 ];
+
+/** Index for per-leg label/group lookups (source of truth the engine reader joins on). */
+const BY_ID = new Map<number, MarketDef>(MARKET_TEMPLATE.map((d) => [d.marketId, d]));
+export function marketById(id: number): MarketDef | undefined {
+  return BY_ID.get(id);
+}
 
 /** Map Op string to Anchor enum object (null → null). */
 function toAnchorOp(op: Op): null | { add: Record<string, never> } | { subtract: Record<string, never> } {
