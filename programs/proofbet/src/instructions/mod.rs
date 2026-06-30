@@ -20,8 +20,8 @@ pub use void_market::*;
 pub mod claim;
 pub use claim::*;
 
-pub mod initialize_vault;
-pub use initialize_vault::*;
+pub mod initialize_jackpot;
+pub use initialize_jackpot::*;
 
 pub mod create_contest;
 pub use create_contest::*;

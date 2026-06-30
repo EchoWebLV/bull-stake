@@ -196,6 +196,18 @@ contest vault (the jackpot is untouched). ⚠️ needs a `void-contest` keeper p
 4. **`void-contest` keeper CLI**: **build it** in this work (abandoned-match refund).
 5. **`perfect_count` trust**: unchanged from v1 (keeper-supplied, dual-capped on
    claim). Acceptable for devnet; on-chain proof verification deferred.
+6. **`perfect_count <= entry_count` guard** (added post-audit). The adversarial
+   money-safety audit found that `settle_contest` folds the whole shared jackpot into
+   `distributable` (`raw = (pot − rake) + jackpot_pool`) and eagerly moves it into the
+   contest PDA, with no bound on `perfect_count`. An over-reported count — the extreme
+   being settling an **empty** contest with `perfect_count >= 1` — pulled the entire
+   jackpot into a contest no `Entry` could claim and no path could unwind (a `Settled`
+   contest can't be re-voided; no sweep), permanently **bricking the shared jackpot**.
+   Fix: `settle_contest` now requires `perfect_count <= entry_count`
+   (`PerfectCountExceedsEntries`). This kills the catastrophic/unbounded brick.
+   **Known bounded residual (accepted for devnet):** a trusted keeper that over-*counts*
+   actual winners up to `entry_count` can still strand a *bounded* amount of jackpot in
+   an unclaimable contest — inside the existing keeper-trust model, no longer unbounded.
 
 ## 10. Out of scope (future / back-burner)
 - **Across-match daily card** — preserved as a `market_ids = [12,12,…]` configuration of
@@ -204,3 +216,9 @@ contest vault (the jackpot is untouched). ⚠️ needs a `void-contest` keeper p
   streak chip, jackpot history.
 - **2nd-half legs** (needs proof extension).
 - On-chain result-proof verification (vs trusted keeper).
+- **Lazy jackpot draw (residual hardening):** eliminate the §9.6 bounded residual by
+  recording the jackpot allocation at settle and pulling each winner's jackpot share
+  *lazily at claim*, so unclaimed jackpot never leaves the pool. Alternative: a
+  permissioned recover/sweep instruction returning unclaimed residual to the jackpot
+  after a grace window. Deferred — the §9.6 guard makes the residual bounded + keeper-
+  trust-scoped, not an external attack surface.

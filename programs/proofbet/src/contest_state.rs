@@ -1,9 +1,11 @@
 use anchor_lang::prelude::*;
 
-/// Maximum matches on a sweepstake card (3..=5 used; tail stays zero).
-pub const MAX_MATCHES: usize = 5;
-/// market_id of the per-fixture 1X2 "Match Result" market (engine MARKET_TEMPLATE).
-/// settle_contest reads each card match's winning bucket from this 3-bucket market.
+/// Maximum legs on a single-match parlay card (3..=5 used; tail stays zero).
+/// A leg is a (fixture, market_id) pair, NOT necessarily a distinct match — a v2
+/// parlay reads several markets (e.g. 16/15/12/11) on the SAME fixture.
+pub const MAX_LEGS: usize = 5;
+/// Default 1X2 "Match Result" market_id (engine MARKET_TEMPLATE). Kept as the
+/// across-match default; v2 legs each name their own market_id explicitly.
 pub const RESULT_MARKET_ID: u8 = 12;
 /// Grace period after `settle_after_ts` past which ANYONE may `void_contest`
 /// (permissionless liveness backstop for a lost/absent keeper). Generous enough
@@ -19,52 +21,53 @@ pub enum ContestStatus {
 }
 
 /// Singleton escrow whose lamport balance (above its own rent floor) IS the
-/// rolling jackpot. Persists across every contest — that persistence is the rollover.
+/// rolling jackpot. Persists across every contest — that persistence is the
+/// rollover. In v2 it carries NO `active_contest_id`/`reserved`: contests are
+/// independent and each holds its OWN entry pot (the Contest PDA), so the only
+/// cross-contest money path is this rolling pool (in on rollover, out on a win).
 #[account]
 #[derive(InitSpace)]
-pub struct JackpotVault {
-    /// contest_id of the live contest, or 0 when none is live (one-at-a-time guard).
-    pub active_contest_id: u64,
-    /// Lamports owed to ALREADY-TERMINAL contests' unclaimed tickets (winner shares
-    /// not yet claimed, void refunds not yet claimed). Every pot read nets this out:
-    /// free pot = lamports − rent_floor − reserved. This fences a prior contest's
-    /// money so the next contest can never roll (and over-promise) lamports that are
-    /// still owed — the cross-contest solvency invariant. += at settle/void by what
-    /// will be paid; −= on each claim/refund.
-    pub reserved: u64,
+pub struct Jackpot {
+    /// lamports above this PDA's rent floor == the rolling pool.
     pub bump: u8,
 }
 
-/// The JackpotVault's rent-exempt minimum. NEVER part of the pot — every pot read
-/// and every debit (settle rake, claim payout/refund) nets it out and asserts
-/// `vault.lamports >= vault_rent_floor() + reserved`. Shared by settle_contest and
-/// claim_contest so the floor is computed identically in both.
-pub fn vault_rent_floor() -> Result<u64> {
-    Ok(Rent::get()?.minimum_balance(8 + JackpotVault::INIT_SPACE))
+/// The Jackpot's rent-exempt minimum. NEVER part of the pool — every pool read
+/// nets it out. Shared by settle_contest so the floor is computed identically.
+pub fn jackpot_rent_floor() -> Result<u64> {
+    Ok(Rent::get()?.minimum_balance(8 + Jackpot::INIT_SPACE))
 }
 
 #[account]
 #[derive(InitSpace)]
 pub struct Contest {
-    pub contest_id: u64,          // epoch day at open; unique deterministic id
+    pub contest_id: u64,          // unique deterministic id
     pub settle_authority: Pubkey, // keeper
     pub fee_recipient: Pubkey,    // rake destination
-    pub fixtures: [i64; MAX_MATCHES],
-    pub num_matches: u8,          // 3..=5
+    pub fixtures: [i64; MAX_LEGS],
+    /// market_id per leg: leg i = (fixtures[i], market_ids[i]). Indices >= num_legs
+    /// stay zero. A v2 parlay reads, e.g., markets [16,15,12,11] on one fixture.
+    pub market_ids: [u8; MAX_LEGS],
+    pub num_legs: u8,             // 3..=MAX_LEGS (parlay uses 4)
     pub entry_price: u64,         // lamports per ticket
     pub lock_ts: i64,             // entries close (first kickoff)
     pub settle_after_ts: i64,     // earliest settle (latest kickoff + buffer)
     pub fee_bps: u16,             // 500 = 5%
     pub status: ContestStatus,
-    pub winning_buckets: [u8; MAX_MATCHES],
+    pub winning_buckets: [u8; MAX_LEGS],
     pub entry_count: u64,         // # tickets (drives new-entry rake + void refund)
     pub perfect_count: u64,       // keeper-supplied split divisor (capped at claim)
-    pub pot_snapshot: u64,        // net pot (vault.lamports - rent_floor - reserved) at settle
-    pub distributable: u64,       // pot_snapshot - rake, stored so every claim reads one value
+    pub distributable: u64,       // winners' total (== payable; exactly divisible by perfect_count)
     pub claimed_count: u64,       // # winning claims paid (caps at perfect_count)
     pub claimed_total: u64,       // lamports paid out (caps at distributable)
     pub settled_ts: i64,
     pub bump: u8,
+}
+
+/// The Contest PDA HOLDS this contest's entry pot: the free pot is the account's
+/// native lamport balance above its own rent floor (never a stored field).
+pub fn contest_rent_floor() -> Result<u64> {
+    Ok(Rent::get()?.minimum_balance(8 + Contest::INIT_SPACE))
 }
 
 #[account]
@@ -73,7 +76,7 @@ pub struct Entry {
     pub bettor: Pubkey,   // Pubkey::default() until first written → new-ticket sentinel
     pub contest: Pubkey,
     pub nonce: u64,       // ticket index for this wallet in this contest
-    pub picks: [u8; MAX_MATCHES],
+    pub picks: [u8; MAX_LEGS],
     pub amount: u64,      // lamports paid (= contest.entry_price)
     pub bump: u8,
 }
