@@ -321,6 +321,8 @@ export async function readLiveContests(): Promise<ContestView[]> {
   const conn = program.provider.connection;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const coder = (program as any).coder.accounts;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contestSize: number = (program.account as any).contest.size ?? CONTEST_SIZE;
 
   let raw: { pubkey: PublicKey; account: { data: Buffer } }[];
   try {
@@ -328,9 +330,15 @@ export async function readLiveContests(): Promise<ContestView[]> {
     // try: an IDL-rename miss makes coder.memcmp throw synchronously, so keeping it
     // here degrades to [] (graceful) rather than bubbling out of readLiveContests.
     const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
+    // Filter by the discriminator AND the exact v2 account size. The v1 Contest shares
+    // the "Contest" discriminator but is a different size (210 vs 207 bytes) and —
+    // critically — its bytes borsh-DECODE into the v2 struct as GARBAGE rather than
+    // throwing, so a try/catch around decode does NOT skip it (an orphaned v1 contest
+    // would otherwise surface as a junk card). The dataSize filter excludes any
+    // non-v2-sized account at the RPC level.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     raw = (await (conn as any).getProgramAccounts(program.programId, {
-      filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }],
+      filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }, { dataSize: contestSize }],
     })) as { pubkey: PublicKey; account: { data: Buffer } }[];
   } catch {
     return []; // total RPC failure / discriminator miss → no live contests (route degrades gracefully)
@@ -338,6 +346,7 @@ export async function readLiveContests(): Promise<ContestView[]> {
 
   const out: ContestView[] = [];
   for (const item of raw) {
+    if (item.account.data.length !== contestSize) continue; // defensive: skip wrong-size (stale v1) accounts even if the RPC ignored the dataSize filter
     let decoded: unknown;
     try {
       decoded = coder.decode("contest", item.account.data); // throws on stale v1 layout

@@ -237,9 +237,9 @@ describe("readLiveContests — discovery skips undecodable stale v1 accounts", (
     // Three raw accounts come back from getProgramAccounts; the middle one is a
     // stale v1 contest whose bytes fail to decode under the v2 layout.
     h.getProgramAccounts.mockResolvedValue([
-      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.from("a") } },
-      { pubkey: { toBase58: () => "CBAD" }, account: { data: Buffer.from("b") } },
-      { pubkey: { toBase58: () => "CB" }, account: { data: Buffer.from("c") } },
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.alloc(207) } },
+      { pubkey: { toBase58: () => "CBAD" }, account: { data: Buffer.alloc(207) } },
+      { pubkey: { toBase58: () => "CB" }, account: { data: Buffer.alloc(207) } },
     ]);
     // Decode is driven by call order: 1st ok, 2nd throws (stale v1), 3rd ok.
     h.decode
@@ -262,6 +262,35 @@ describe("readLiveContests — discovery skips undecodable stale v1 accounts", (
     expect(contests.find((c) => c.pubkey === "CBAD")).toBeUndefined();
   });
 
+  it("skips a same-discriminator v1 contest of the wrong SIZE (decodes to garbage, not a throw)", async () => {
+    // The real failure mode the devnet deploy surfaced: an orphaned v1 Contest shares
+    // the "Contest" discriminator and its 210-byte body borsh-DECODES into the v2 struct
+    // as GARBAGE rather than throwing — so a decode try/catch does NOT skip it. The
+    // size guard must exclude it BEFORE decode is ever reached.
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => "V2" }, account: { data: Buffer.alloc(207) } },        // good v2 (correct size)
+      { pubkey: { toBase58: () => "V1GARBAGE" }, account: { data: Buffer.alloc(210) } }, // stale v1 (wrong size)
+    ]);
+    h.decode.mockReturnValue(contestAcct({ contestId: bn(7) })); // would return data even for the v1 bytes
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
+
+    const contests = await readLiveContests();
+
+    expect(contests).toHaveLength(1);
+    expect(contests[0].contestId).toBe(7);
+    expect(contests.find((c) => c.pubkey === "V1GARBAGE")).toBeUndefined();
+    // decode is reached ONLY for the correctly-sized v2 account, never for the v1 one.
+    expect(h.decode).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests a dataSize filter for the exact v2 Contest size (207)", async () => {
+    h.getProgramAccounts.mockResolvedValue([]);
+    await readLiveContests();
+    const opts = h.getProgramAccounts.mock.calls[0][1] as { filters: { dataSize?: number }[] };
+    expect(opts.filters.some((f) => f.dataSize === 207)).toBe(true);
+  });
+
   it("filters discovery by the v2 Contest discriminator (offset 0)", async () => {
     h.getProgramAccounts.mockResolvedValue([]);
 
@@ -281,7 +310,7 @@ describe("readLiveContests — discovery skips undecodable stale v1 accounts", (
 
   it("maps per-leg legs joined from the market catalog", async () => {
     h.getProgramAccounts.mockResolvedValue([
-      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.from("a") } },
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.alloc(207) } },
     ]);
     // Settled contest, markets [16,15,12,11], winning buckets [0,1,2,0].
     h.decode.mockReturnValueOnce(contestAcct({
@@ -305,7 +334,7 @@ describe("readLiveContests — discovery skips undecodable stale v1 accounts", (
 
   it("open (unsettled) contest → each leg's winningBucket is null", async () => {
     h.getProgramAccounts.mockResolvedValue([
-      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.from("a") } },
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.alloc(207) } },
     ]);
     h.decode.mockReturnValueOnce(contestAcct()); // status open by default
     h.getBalance.mockResolvedValue(0);
@@ -325,7 +354,7 @@ describe("listEntriesForWallet — enriches entries with won/claimable/payout", 
     // pubkey must be valid base58 — entriesForContest does `new PublicKey(contest.pubkey)`.
     const PA = "4NLurQabdod5ZprpqC95Xfo757emqkrTjdtRaraxf5Dn";
     h.getProgramAccounts.mockResolvedValue([
-      { pubkey: { toBase58: () => PA }, account: { data: Buffer.from("a") } },
+      { pubkey: { toBase58: () => PA }, account: { data: Buffer.alloc(207) } },
     ]);
     h.decode.mockReturnValue(contestAcct({
       contestId: bn(7),
@@ -359,8 +388,8 @@ describe("listEntriesForWallet — enriches entries with won/claimable/payout", 
     const PA = "4NLurQabdod5ZprpqC95Xfo757emqkrTjdtRaraxf5Dn";
     const PB = "CYDxTZVogVUscoWr6Fftz6M6ubnCo98PQDBn2Uo3AquM";
     h.getProgramAccounts.mockResolvedValue([
-      { pubkey: { toBase58: () => PA }, account: { data: Buffer.from("a") } },
-      { pubkey: { toBase58: () => PB }, account: { data: Buffer.from("b") } },
+      { pubkey: { toBase58: () => PA }, account: { data: Buffer.alloc(207) } },
+      { pubkey: { toBase58: () => PB }, account: { data: Buffer.alloc(207) } },
     ]);
     h.decode
       .mockReturnValueOnce(contestAcct({ contestId: bn(7), status: { open: {} } }))
