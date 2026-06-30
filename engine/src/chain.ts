@@ -321,17 +321,19 @@ export async function readLiveContests(): Promise<ContestView[]> {
   const conn = program.provider.connection;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const coder = (program as any).coder.accounts;
-  // base58 discriminator for the v2 Contest account (lowercase IDL name).
-  const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
 
   let raw: { pubkey: PublicKey; account: { data: Buffer } }[];
   try {
+    // Resolve the v2 Contest discriminator filter (lowercase IDL name) INSIDE the
+    // try: an IDL-rename miss makes coder.memcmp throw synchronously, so keeping it
+    // here degrades to [] (graceful) rather than bubbling out of readLiveContests.
+    const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     raw = (await (conn as any).getProgramAccounts(program.programId, {
       filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }],
     })) as { pubkey: PublicKey; account: { data: Buffer } }[];
   } catch {
-    return []; // total RPC failure → no live contests (route degrades gracefully)
+    return []; // total RPC failure / discriminator miss → no live contests (route degrades gracefully)
   }
 
   const out: ContestView[] = [];

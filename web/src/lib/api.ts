@@ -74,23 +74,7 @@ export const getMarkets = (fixtureId: number): Promise<LiveMarket[]> =>
 export const getHistory = (wallet: string): Promise<HistoryEntry[]> =>
   fetch(`${ENGINE}/api/history?wallet=${wallet}`).then(json);
 
-// --- Daily sweepstake (contest)
-export interface ContestCardMatch { fixtureId: number; home: string; away: string; kickoffMs: number | null }
-export interface ContestToday {
-  status: "open" | "settled" | "rolledOver" | "voided" | "paused";
-  pot: string;
-  contest?: null; // present only when paused
-  contestId?: number;
-  entryPrice?: string;
-  lockTs?: number;
-  settleAfterTs?: number;
-  entryCount?: number;
-  numMatches?: number;
-  perfectCount?: number;
-  distributable?: string;
-  winningBuckets?: number[];
-  card?: ContestCardMatch[];
-}
+// --- Contest tickets (shared by the live parlay view) ---------------------
 export interface ContestEntry {
   pubkey: string; nonce: number; picks: number[]; amount: string;
   contestId: number;   // which contest this ticket belongs to (groups tickets per card)
@@ -99,21 +83,19 @@ export interface ContestEntry {
   payout: string;      // lamports paid if claimed now ("0" if none)
 }
 
-export const getContestToday = (): Promise<ContestToday> =>
-  fetch(`${ENGINE}/api/contest/today`).then(json);
 export const getContestEntries = (wallet: string): Promise<ContestEntry[]> =>
   fetch(`${ENGINE}/api/contest/entries?wallet=${wallet}`).then(json);
 
 // --- Single-match parlay (live contests) ----------------------------------
 export interface ParlayLeg {
   fixtureId: number; marketId: number; label: string;
-  group: "result" | "goals"; numBuckets: 2 | 3; line?: number;
+  group: "corners" | "goals" | "result" | "cards"; numBuckets: 2 | 3; line?: number;
   winningBucket: number | null;
 }
 export interface ContestLive {
   contestId: number; status: "open" | "settled" | "rolledOver" | "voided"; pot: string;
   entryPrice: string; lockTs: number; settleAfterTs: number; entryCount: number;
-  perfectCount: number; distributable: string;
+  perfectCount: number; distributable: string; numLegs: number;
   match: { fixtureId: number; home: string; away: string; kickoffMs: number | null };
   legs: ParlayLeg[];
 }
