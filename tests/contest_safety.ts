@@ -201,4 +201,70 @@ describe("parlay v2 — safety", () => {
       .accountsStrict({ settleAuthority: keeper.publicKey, contest })
       .signers([keeper]).rpc();
   });
+
+  it("per-contest isolation: draining one contest's pot leaves a concurrent contest's pot untouched", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixturesA = [181010, 181011, 181012];
+    const fixturesB = [181020, 181021, 181022];
+    const results = [0, 1, 2];
+    const lock = nowSec() + 5;
+    // Two contests Open at once — no shared vault, no active-contest guard. Each
+    // Contest PDA holds ONLY its own pot, so there is no cross-contest money path
+    // at claim time (the jackpot is the only shared account, touched at settle only).
+    const contestA = contestPda(181001);
+    const contestB = contestPda(181002);
+    for (const [id, contest, fixtures] of [[181001, contestA, fixturesA], [181002, contestB, fixturesB]] as const) {
+      await program.methods
+        .createContest(new BN(id), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
+          new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+        .signers([keeper]).rpc();
+    }
+    // A: two perfect tickets; B: one perfect ticket.
+    const a1 = await freshFunded();
+    const a2 = await freshFunded();
+    const b1 = await freshFunded();
+    for (const p of [a1, a2]) {
+      await program.methods.enter(new BN(0), pickArray(results))
+        .accountsStrict({ bettor: p.publicKey, contest: contestA, entry: entryPda(contestA, p.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([p]).rpc();
+    }
+    await program.methods.enter(new BN(0), pickArray(results))
+      .accountsStrict({ bettor: b1.publicKey, contest: contestB, entry: entryPda(contestB, b1.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([b1]).rpc();
+
+    const marketsA = [];
+    const marketsB = [];
+    for (let i = 0; i < 3; i++) marketsA.push(await makeSettledResultMarket(fixturesA[i], results[i], keeper));
+    for (let i = 0; i < 3; i++) marketsB.push(await makeSettledResultMarket(fixturesB[i], results[i], keeper));
+    await sleep(6500);
+    for (const [contest, markets, pc] of [[contestA, marketsA, 2], [contestB, marketsB, 1]] as const) {
+      await program.methods.settleContest(new BN(pc))
+        .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
+        .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
+        .signers([keeper]).rpc();
+    }
+
+    // Snapshot B's escrow BEFORE we drain A.
+    const bBalanceBefore = await balance(contestB);
+    const bDistributable = (await program.account.contest.fetch(contestB)).distributable.toNumber();
+
+    // Fully drain A (both winners claim from A's own pot).
+    for (const p of [a1, a2]) {
+      await program.methods.claimContest()
+        .accountsStrict({ bettor: p.publicKey, contest: contestA, entry: entryPda(contestA, p.publicKey, 0), systemProgram: SystemProgram.programId })
+        .signers([p]).rpc();
+    }
+    assert.equal(await balance(contestA), await contestRentFloor(contestA), "A drained to its rent floor");
+    // Isolation: B's escrow is byte-for-byte untouched while A is fully drained.
+    assert.equal(await balance(contestB), bBalanceBefore, "B's pot is untouched by A's drainage (separate PDAs)");
+
+    // And B's winner still sweeps B's full distributable from B's own pot.
+    const bBefore = await balance(contestB);
+    await program.methods.claimContest()
+      .accountsStrict({ bettor: b1.publicKey, contest: contestB, entry: entryPda(contestB, b1.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([b1]).rpc();
+    assert.equal(bBefore - (await balance(contestB)), bDistributable, "B's winner sweeps B's full distributable, unaffected by A");
+  });
 });
