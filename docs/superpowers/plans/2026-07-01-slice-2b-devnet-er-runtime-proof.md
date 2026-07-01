@@ -231,6 +231,14 @@ Rent basis: `solana rent 732080` → 5.09616768; incl. 45-byte header (`732125`)
 3. Runs the chosen refund path and asserts **both seats receive `entry_price` back** and the pool cannot be double-refunded.
 4. For Fork A, run it in a mode where entries are **still delegated** at refund time — that is the specific regression this test locks in.
 
+### ✅ Step 5 DONE (2026-07-01) — Fork A implemented, reviewed, committed `3f98a3e`
+
+- **Outcome of Step 4 probe:** FORK A (delegated `LiveEntry` is fully present on BASE — dataLen 159, lamports constant — only `.owner` flips to the Delegation Program). Runtime proof 27/27, 0 errors.
+- **`refund_voided` shipped** in `programs/proofbet/src/instructions/live/refund_voided.rs` exactly as the Fork-A spec above: raw `AccountInfo` per seat, manual `LiveEntry::try_deserialize`, `entry.pool==pool` + PDA re-derive `[b"liveentry", pool, entry.player]` bind, `player_ai==entry.player` + `is_writable`, pays `entry.amount` from `LivePool`, coverage `ras.len()==player_count*2`, strictly-ascending entry keys, single-shot via `claimed_count==0`→`=player_count`, and a **final `pool.lamports() >= live_pool_rent_floor()` solvency check** that also blocks cross-path double-pay with `claim_live_pool`'s Voided branch. Errors `PoolNotVoided`/`AlreadyRefunded`; event `LivePoolRefunded`.
+- **Regression test added** (`tests/live_pool_safety.ts` + `refundVoided` helper in `tests/live_helpers.ts`): the delegated-keeper-death path (stranger cranks, exact `1e8` deltas, `claimed_count==2`, then `AlreadyRefunded`) plus `PoolNotVoided` and `ScoreMismatch` (coverage + redirect) rejections. On localnet the entries are program-owned, exercising the identical owner-agnostic `AccountInfo` code path.
+- **Verification:** isolated `live_pool_safety` suite **11/11 green** (3 new tests deterministic); a **4-lens adversarial-review workflow returned SOUND / 0 confirmed findings**. Full-suite parlay-settle failures are pre-existing real-clock timing flakiness in an unrelated module (failed 5 with the old code too), not a regression.
+- **Not yet on devnet:** the program upgraded in Step 1 does **not** include `refund_voided`. Redeploy is a separate real-◎ spend — gated on explicit user OK (RESUME recipe below reuses the paid buffer).
+
 ---
 
 ## Risks / unknowns / recovery
