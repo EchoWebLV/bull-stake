@@ -680,6 +680,59 @@ export async function readLiveEntry(wallet: string, poolId: number | bigint): Pr
   return toLiveEntryView(accts[0].publicKey, accts[0].account);
 }
 
+/**
+ * Read every LivePool (decoded + mapped), scoped to a single fixture. Reuses
+ * `readLivePools` (size-filtered scan, per-account decode tolerance) then maps
+ * each survivor through `toLivePoolView` and filters to `fixtureId`.
+ *
+ * Streak runs one pool per fixture, but the chain may briefly hold more than one
+ * (e.g. a rolled-over pool alongside a fresh one). We pick the highest poolId so
+ * a rerun's newer pool wins — deterministic, and poolId == fixtureId in practice.
+ * Returns null when no pool exists for the fixture (route serves `{ pool: null }`).
+ */
+export async function readLivePoolByFixture(fixtureId: number): Promise<LivePoolView | null> {
+  const raw = await readLivePools();
+  const views = (raw as { pubkey: PublicKey; account: unknown }[])
+    .map((r) => toLivePoolView(r.pubkey, r.account))
+    .filter((v) => v.fixtureId === fixtureId);
+  if (views.length === 0) return null;
+  // Highest poolId wins (newest pool for a reused fixture); deterministic tie-break.
+  return views.sort((a, b) => b.poolId - a.poolId)[0];
+}
+
+/**
+ * The currently-open Call for a pool (state === "open"), or null. Reuses the
+ * size-filtered `readCall(pool)` scan and maps via `toCallView`. At most one call
+ * is open at a time on-chain (the cursor's open_seq gate), so we return the first
+ * open one; degrades to null on an empty/failed scan (readCall already []-guards).
+ */
+export async function readOpenCall(pool: string): Promise<CallView | null> {
+  const raw = await readCall(pool);
+  const open = (raw as { pubkey: PublicKey; account: unknown }[])
+    .map((r) => toCallView(r.pubkey, r.account))
+    .find((c) => c.state === "open");
+  return open ?? null;
+}
+
+/**
+ * Every LiveEntry for a pool, mapped + sorted by `total` (base_pts + bonus_pts)
+ * descending — the standings leaderboard. Scans `liveEntry.all` filtered by pool
+ * at offset 40 (verified against live_state.rs). The pool key is derived from
+ * poolId (livepool PDA). Returns [] on no entries; a total RPC failure propagates
+ * so the route can 502.
+ */
+export async function readPoolStandings(poolId: number | bigint): Promise<LiveEntryView[]> {
+  const program = loadProgram();
+  const pool = deriveLivePoolPda(program.programId, poolId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accts: any[] = await (program.account as any).liveEntry.all([
+    { memcmp: { offset: 40, bytes: pool.toBase58() } }, // pool at offset 40
+  ]);
+  return accts
+    .map((a) => toLiveEntryView(a.publicKey, a.account))
+    .sort((x, y) => y.total - x.total); // leaderboard: highest total first
+}
+
 /** Fetch + map a single contest by id (scoped path). Returns null if it can't be read/decoded. */
 async function readContestById(program: anchor.Program, contestId: number): Promise<ContestView | null> {
   const cPda = deriveContestPda(program.programId, contestId);

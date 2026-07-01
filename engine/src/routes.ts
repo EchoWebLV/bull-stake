@@ -1,15 +1,57 @@
 import type { FastifyInstance } from "fastify";
 import { readFileSync } from "node:fs";
 import { Feed, type Replay } from "./feed.ts";
-import { readMarket, readLiveContests, readJackpot, listEntriesForWallet } from "./chain.ts";
+import {
+  readMarket,
+  readLiveContests,
+  readJackpot,
+  listEntriesForWallet,
+  readLivePoolByFixture,
+  readOpenCall,
+  readPoolStandings,
+  readLiveEntry,
+  type ContestView,
+} from "./chain.ts";
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
 import { M0 } from "./config.ts";
-import type { LiveStore } from "./live.ts";
+import { livePhase, type LiveStore } from "./live.ts";
 
 function loadReplay(): Replay {
   const url = new URL("../data/replay.json", import.meta.url);
   return JSON.parse(readFileSync(url, "utf8")) as Replay;
+}
+
+/**
+ * Pick "today's" single card from the set of live contests.
+ *
+ * "Streak" runs one daily card, but the chain may briefly hold more than one
+ * Open contest (e.g. yesterday's card mid-settlement alongside today's). The
+ * selection mirrors the task spec:
+ *   1. Consider only Open contests (settled/voided/rolledOver are never "today").
+ *   2. Prefer one whose in-play window [lockTs, settleAfterTs] covers `now`.
+ *   3. Otherwise fall back to the most recent Open contest.
+ *   4. Tie-break (in BOTH groups) by the latest lockTs, then highest contestId
+ *      for full determinism.
+ * Returns null when no Open contest exists (caller serves `{ card: null }`).
+ *
+ * `nowSec` is injected (defaults to wall-clock seconds) so it can be unit-tested.
+ */
+export function selectTodaysCard(
+  contests: ContestView[],
+  nowSec: number = Math.floor(Date.now() / 1000),
+): ContestView | null {
+  const open = contests.filter((c) => c.status === "open");
+  if (open.length === 0) return null;
+  // Latest first: by lockTs desc, then contestId desc (stable, deterministic).
+  const byLatest = (a: ContestView, b: ContestView) =>
+    (b.lockTs - a.lockTs) || (b.contestId - a.contestId);
+  const covering = open
+    .filter((c) => c.lockTs <= nowSec && nowSec <= c.settleAfterTs)
+    .sort(byLatest);
+  if (covering.length > 0) return covering[0];
+  // No window covers now → most recent Open card.
+  return [...open].sort(byLatest)[0];
 }
 
 export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
@@ -155,6 +197,99 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
   });
 
   /**
+   * GET /api/card
+   * TODAY's single 6-leg card — the focused view the new web reads. It reuses
+   * `readLiveContests` (same per-leg catalog join as `/api/contest/live`) and
+   * `selectTodaysCard` to pick the current day's Open contest, then folds in the
+   * standalone jackpot pot.
+   *
+   * Shape: `{ contestId, status, lockTs, settleAfterTs, entryPrice, pot, jackpot,
+   *           legs: [{ fixtureId, home, away, kickoffTs, marketId, label, group,
+   *                    line, buckets }] }`.
+   * Every leg is one match (single-match parlay), so home/away/kickoffTs are the
+   * same fixture join on each leg — resolved like `/api/contest/live`: live row,
+   * then fixture-meta names, then `#<fixtureId>`. `kickoffTs` is SECONDS (the
+   * store carries kickoffMs), null when unknown. `buckets` is the catalog bucket
+   * count; `line` is omitted (not null) for an out-of-catalog market.
+   *
+   * Empty case: when no Open contest exists, responds `{ card: null }` with 200
+   * (NOT 404 / not a paused object) so the web can render an "open later" state.
+   * A genuine RPC failure still 502s.
+   */
+  app.get("/api/card", async (_req, reply) => {
+    let contests;
+    try {
+      contests = await readLiveContests();
+    } catch (e) {
+      reply.code(502);
+      return { error: `card read failed: ${(e as Error).message}` };
+    }
+
+    const card = selectTodaysCard(contests);
+    if (!card) return { card: null }; // 200 + null sentinel: no card for today (yet)
+
+    // Jackpot is its own escrow; fold its pot in (best-effort — a jackpot RPC
+    // hiccup shouldn't blank out an otherwise-good card, so degrade to "0").
+    let jackpot = "0";
+    try {
+      jackpot = (await readJackpot()).pot;
+    } catch {
+      jackpot = "0";
+    }
+
+    // Single-match parlay: resolve the one fixture's names/kickoff once, exactly
+    // like /api/contest/live (live row → fixture-meta → "#<fixtureId>"), then
+    // stamp it onto every leg per the card shape.
+    const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
+    const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
+
+    const legs = card.legs.map((leg) => {
+      const live = byId.get(leg.fixtureId);
+      const meta = names.get(leg.fixtureId);
+      // markets catalog supplies the O/U `line`; omit the key (not null) for an
+      // unknown marketId, matching the /api/contest/live web contract.
+      const line = marketById(leg.marketId)?.line;
+      // When the live store tracks this fixture, fold in current score/minute/phase
+      // so the web can render live drama. No live row → OMIT `live` entirely (per
+      // contract) rather than emitting a zeroed placeholder.
+      const liveField = live
+        ? {
+            live: {
+              home: live.scoreH,
+              away: live.scoreA,
+              minute: live.minute,
+              phase: livePhase(live.status, live.phase),
+            },
+          }
+        : {};
+      return {
+        fixtureId: leg.fixtureId,
+        home: live?.home ?? meta?.home ?? `#${leg.fixtureId}`,
+        away: live?.away ?? meta?.away ?? "",
+        // store carries kickoffMs; the card contract is seconds (null if unknown).
+        kickoffTs: live?.kickoffMs != null ? Math.floor(live.kickoffMs / 1000) : null,
+        marketId: leg.marketId,
+        label: leg.label,
+        group: leg.group,
+        ...(line !== undefined ? { line } : {}),
+        buckets: leg.numBuckets,
+        ...liveField,
+      };
+    });
+
+    return {
+      contestId: card.contestId,
+      status: card.status,
+      lockTs: card.lockTs,
+      settleAfterTs: card.settleAfterTs,
+      entryPrice: card.entryPrice,
+      pot: card.pot,
+      jackpot,
+      legs,
+    };
+  });
+
+  /**
    * GET /api/jackpot
    * The standalone jackpot escrow view: `{ lamports, rentFloor, pot }`. The web
    * only reads `.pot`. Pre-launch chain.ts degrades the missing account to a
@@ -189,6 +324,128 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
     } catch (e) {
       reply.code(502);
       return { error: `entries fetch failed: ${(e as Error).message}` };
+    }
+  });
+
+  // ── Live-match endpoints (Slice 4) ────────────────────────────────────────
+
+  /**
+   * GET /api/live/pool?fixtureId=<number>
+   * The live-match pool for a fixture, enriched with its currently-open Call and
+   * the standings leaderboard, plus the single-fixture name/live-drama join that
+   * `/api/card` uses (live row → fixture-meta → `#<fixtureId>`; `livePhase` fold).
+   *
+   * Empty case: no pool for this fixture → 200 `{ pool: null }` (NOT 404), so the
+   * web can render a "no live game yet" state. A genuine RPC failure 502s.
+   */
+  app.get("/api/live/pool", async (req, reply) => {
+    const { fixtureId } = req.query as Record<string, string>;
+    if (!fixtureId) {
+      reply.code(400);
+      return { error: "fixtureId query param required" };
+    }
+    const id = Number(fixtureId);
+    if (!Number.isFinite(id)) {
+      reply.code(400);
+      return { error: "fixtureId must be a number" };
+    }
+
+    let pool;
+    try {
+      pool = await readLivePoolByFixture(id);
+    } catch (e) {
+      reply.code(502);
+      return { error: `live pool read failed: ${(e as Error).message}` };
+    }
+    if (!pool) return { pool: null }; // 200 + null sentinel: no live pool (yet)
+
+    // Best-effort open-call + standings — a hiccup on either shouldn't blank out an
+    // otherwise-good pool, so degrade to null / [] rather than 502.
+    let openCall = null;
+    try {
+      openCall = await readOpenCall(pool.pubkey);
+    } catch {
+      openCall = null;
+    }
+    let standings = [] as Awaited<ReturnType<typeof readPoolStandings>>;
+    try {
+      standings = await readPoolStandings(pool.poolId);
+    } catch {
+      standings = [];
+    }
+
+    // Single-fixture name + live-drama join, exactly like /api/card: live board row
+    // wins, then persisted fixture-meta names, then "#<fixtureId>".
+    const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
+    const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
+    const live = byId.get(pool.fixtureId);
+    const meta = names.get(pool.fixtureId);
+    const match = {
+      fixtureId: pool.fixtureId,
+      home: live?.home ?? meta?.home ?? `#${pool.fixtureId}`,
+      away: live?.away ?? meta?.away ?? "",
+      kickoffMs: live?.kickoffMs ?? null,
+      // Fold the store's status/phase into the coarse card phase; omit `live` when
+      // the board doesn't track this fixture (mirrors /api/card's OMIT contract).
+      ...(live
+        ? {
+            live: {
+              home: live.scoreH,
+              away: live.scoreA,
+              minute: live.minute,
+              phase: livePhase(live.status, live.phase),
+            },
+          }
+        : {}),
+    };
+
+    return { pool, openCall, standings, match };
+  });
+
+  /**
+   * GET /api/live/pool/:id/standings
+   * The pool's standings leaderboard — every LiveEntry sorted by `total`
+   * (base_pts + bonus_pts) descending. Empty pool → 200 `[]` (never 404); a
+   * genuine RPC failure 502s. `:id` is the poolId (== fixtureId in practice).
+   */
+  app.get("/api/live/pool/:id/standings", async (req, reply) => {
+    const { id } = req.params as Record<string, string>;
+    const poolId = Number(id);
+    if (!Number.isFinite(poolId)) {
+      reply.code(400);
+      return { error: "pool id must be a number" };
+    }
+    try {
+      return await readPoolStandings(poolId);
+    } catch (e) {
+      reply.code(502);
+      return { error: `standings read failed: ${(e as Error).message}` };
+    }
+  });
+
+  /**
+   * GET /api/live/entry?wallet=<base58>&poolId=<number>
+   * One wallet's LiveEntry ticket for a pool (there is at most one per player per
+   * pool). BOTH params are required → 400 otherwise. No matching entry → 200
+   * `{ entry: null }` (never 404); a genuine RPC failure 502s.
+   */
+  app.get("/api/live/entry", async (req, reply) => {
+    const { wallet, poolId } = req.query as Record<string, string>;
+    if (!wallet || !poolId) {
+      reply.code(400);
+      return { error: "wallet and poolId query params required" };
+    }
+    const id = Number(poolId);
+    if (!Number.isFinite(id)) {
+      reply.code(400);
+      return { error: "poolId must be a number" };
+    }
+    try {
+      const entry = await readLiveEntry(wallet, id);
+      return { entry }; // entry is null when no ticket exists
+    } catch (e) {
+      reply.code(502);
+      return { error: `live entry read failed: ${(e as Error).message}` };
     }
   });
 }
