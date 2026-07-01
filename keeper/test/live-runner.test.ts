@@ -1243,6 +1243,11 @@ describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool 
       },
     };
     const base: any = {
+      // Coverage check (seatsFullyScored): every seat scored to resolved_count → settle.
+      account: {
+        liveCursor: { fetch: async () => ({ resolvedCount: 2 }) },
+        liveEntry: { fetch: async () => ({ nextScoreSeq: 2 }) },
+      },
       methods: {
         endLivePool: (...a: any[]) => {
           const chain: any = {
@@ -1289,6 +1294,7 @@ describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool 
       seats,
       calls: callPdas,
       settleAfterTs: 5000,
+      playerCount: seats.length,
     });
     // First occurrence order is the contract.
     const firstIdx = (n: string) => order.indexOf(n);
@@ -1367,6 +1373,17 @@ interface HarnessOpts {
   chainTime?: number;
   /** Scripted per-call feed responses (each fetchEvents() shifts one). */
   feed?: ScoreEvent[][];
+  /** Seconds past lock_ts before delegating (default 0 here → act at lock). */
+  delegationGraceSecs?: number;
+  /** Final base cursor.resolved_count for the FT coverage check (default 0). */
+  resolvedCount?: number;
+  /** Every seat's base entry.next_score_seq for the coverage check
+   *  (default == resolvedCount → coverage passes → settle; set lower to model an
+   *  un-scored straggler → the void+refund backstop). */
+  entryNextScoreSeq?: number;
+  /** Override pool.player_count (default seats.length). Set higher than the seat
+   *  count to model an incomplete scan → the finalizeFt roster guard. */
+  playerCount?: number;
 }
 
 function makeMatchHarness(o: HarnessOpts = {}) {
@@ -1382,7 +1399,7 @@ function makeMatchHarness(o: HarnessOpts = {}) {
     lockTs,
     settleAfterTs,
     fixtureId: o.fixtureId ?? 777,
-    playerCount: seats.length,
+    playerCount: o.playerCount ?? seats.length,
   };
 
   const ownerPk = (o.cursorOwner ?? "program") === "program" ? LIVE_PROGRAM_ID : DELEGATION_PROGRAM;
@@ -1402,7 +1419,13 @@ function makeMatchHarness(o: HarnessOpts = {}) {
     provider: { connection: { getProgramAccounts: gpaOnce } },
     account: {
       livePool: { fetch: vi.fn(async () => poolRow) },
-      liveEntry: { size: 159 },
+      // FT coverage check (seatsFullyScored): cursor.resolved_count vs each seat's
+      // entry.next_score_seq. Default entryNextScoreSeq == resolvedCount → settle.
+      liveCursor: { fetch: vi.fn(async () => ({ resolvedCount: o.resolvedCount ?? 0 })) },
+      liveEntry: {
+        size: 159,
+        fetch: vi.fn(async () => ({ nextScoreSeq: o.entryNextScoreSeq ?? o.resolvedCount ?? 0 })),
+      },
     },
     coder: { accounts: { memcmp: vi.fn(() => ({ offset: 0, bytes: "DISCB58" })) } },
     methods: {
@@ -1478,6 +1501,7 @@ function makeMatchHarness(o: HarnessOpts = {}) {
     fetchEvents,
     sleepFn,
     now: async () => o.chainTime ?? lockTs + 100,
+    delegationGraceSecs: o.delegationGraceSecs ?? 0,
     erVisibility: { intervalMs: 1, timeoutMs: 50 },
     pollBase: { intervalMs: 1, timeoutMs: 50 },
     settleWindow: { intervalMs: 1, timeoutMs: 50 },
@@ -1512,6 +1536,28 @@ describe("runLiveMatch — F1: the join-window gate (premature-void regression)"
   it("POST-lock with <2 seats → void + refund (the legitimate under-filled branch)", async () => {
     const lone = Keypair.generate().publicKey;
     const h = makeMatchHarness({ seats: [lone], lockTs: 1_000, chainTime: 1_001 });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.names()).toEqual(["voidLivePool", "refundVoided"]);
+  });
+
+  // #2 fix (delegation grace): a join landing just before lock may still be
+  // indexing when the first post-lock tick fires; delegating then would MISS it
+  // and brick settle. The grace waits `delegationGraceSecs` past lock so the
+  // one-shot delegate scan sees the full roster.
+  it("WITHIN the grace window (post-lock but < lock_ts + grace) → ZERO txs (waits for the scan to settle)", async () => {
+    const seats = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+    // now = lock_ts + 3, grace = 6 → still inside the window → do nothing yet.
+    const h = makeMatchHarness({
+      seats, lockTs: 1_000, chainTime: 1_003, delegationGraceSecs: 6, cursorOwner: "program",
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.calls).toHaveLength(0); // NOT delegated yet — the grace is holding
+  });
+
+  it("once the grace elapses (now >= lock_ts + grace) it acts", async () => {
+    const lone = Keypair.generate().publicKey;
+    // now = lock_ts + 6 == lock_ts + grace → gate opens; under-filled → void proves it.
+    const h = makeMatchHarness({ seats: [lone], lockTs: 1_000, chainTime: 1_006, delegationGraceSecs: 6 });
     await runLiveMatch(POOL_PK, h.opts);
     expect(h.names()).toEqual(["voidLivePool", "refundVoided"]);
   });
@@ -1645,6 +1691,35 @@ describe("runLiveMatch — F2: delegate exactly once, then ACTUALLY play", () =>
     const n = h.names();
     expect(n).toEqual(["endAndUndelegate", "endLivePool", "settleLivePool"]);
   });
+
+  // #2 fix (coverage backstop): a straggler that slipped the delegation grace was
+  // never scored (next_score_seq < resolved_count) — settle would revert forever.
+  it("feed phase 'ft' but a seat is UNDER-SCORED → void + refund, NEVER settle (no bricked pot)", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),
+      chainTime: 2_500,
+      cursorOwner: "delegated",
+      feed: [[liveEv(90, { "1": 1, "2": 0 }, 5)]],
+      resolvedCount: 2,      // two calls resolved on-chain…
+      entryNextScoreSeq: 1,  // …but a seat only folded one → coverage fails
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    // Ends + undelegates, then VOIDS instead of settling — everyone refunded.
+    expect(h.names()).toEqual(["endAndUndelegate", "endLivePool", "voidLivePool", "refundVoided"]);
+  });
+
+  it("feed phase 'ft' but the roster scan is INCOMPLETE (seats < player_count) → waits, no finalize", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),      // scan surfaced 2…
+      playerCount: 3,         // …but the pool has 3 — a seat is still indexing
+      chainTime: 2_500,
+      cursorOwner: "delegated",
+      feed: [[liveEv(90, { "1": 1, "2": 0 }, 5)]],
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    // Neither settle NOR void on a partial roster (both need all seats) — retry next tick.
+    expect(h.calls).toHaveLength(0);
+  });
 });
 
 describe("runLiveMatch — F3: an Ended pool resumes at settle, never re-delegates", () => {
@@ -1657,6 +1732,22 @@ describe("runLiveMatch — F3: an Ended pool resumes at settle, never re-delegat
     });
     await runLiveMatch(POOL_PK, h.opts);
     expect(h.names()).toEqual(["settleLivePool"]);
+  });
+
+  // #2 fix: the coverage backstop guards the RESUME path too — an Ended pool
+  // (finalizeFt was cut short before settle) with an un-scored straggler voids on
+  // the F3 retry instead of bricking settle forever.
+  it("status Ended but a seat is UNDER-SCORED → void + refund on resume (never bricks)", async () => {
+    const seats = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+    const h = makeMatchHarness({
+      seats,
+      status: { ended: {} },
+      chainTime: 5_000,
+      resolvedCount: 2,
+      entryNextScoreSeq: 1, // a straggler never folded call #2 → un-settleable
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.names()).toEqual(["voidLivePool", "refundVoided"]);
   });
 
   it("terminal statuses (settled / voided / rolledOver) are a no-op", async () => {

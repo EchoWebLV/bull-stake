@@ -944,9 +944,53 @@ export interface FinalizeFtInput {
   calls: PublicKeyT[];
   /** The pool's `settle_after_ts` (seconds) — the on-chain settle gate. */
   settleAfterTs: number;
+  /** The pool's `player_count` — the settle coverage requirement (seen == this). */
+  playerCount: number;
   /** Poll-loop overrides (tests inject fast intervals). */
   pollBase?: PollBaseOpts;
   settleWindow?: SettleWindowOpts;
+}
+
+/** Inputs for the pre-settle scoring-coverage check. */
+export interface CoverageInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  seats: PublicKeyT[];
+}
+
+/**
+ * Has EVERY seat folded every resolved call (`entry.next_score_seq ==
+ * cursor.resolved_count`)? This is settle's per-seat fairness gate (`NotAllScored`).
+ * A seat missed by the one-shot delegate scan (an RPC-lag straggler) was never
+ * delegated → never scored → its `next_score_seq` lags → settle would brick the
+ * pot forever. The caller (`finalizeFt`) has ALREADY confirmed the roster is
+ * complete (`seats.length == player_count`), so here we only verify scoring.
+ *
+ * Reads the FINAL post-undelegate state (cursor + every entry are back under
+ * PROGRAM_ID, so a plain anchor fetch works). Returns `false` ONLY when a read
+ * SUCCEEDS and shows a seat lagging (a definitive, un-scorable straggler → the
+ * caller voids+refunds). A read ERROR PROPAGATES (throws) — an unreadable cursor/
+ * entry means "unknown", and the caller retries next tick rather than voiding a
+ * healthy pool on a transient RPC blip. camelCase account keys.
+ */
+export async function seatsFullyScored(
+  runner: LiveRunner,
+  input: CoverageInput,
+): Promise<boolean> {
+  const { pool, cursor, seats } = input;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const acct = (runner.base as any).account;
+  // A read failure here PROPAGATES (unknown coverage → caller retries, never voids).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c: any = await acct.liveCursor.fetch(cursor);
+  const resolved = Number(c.resolvedCount ?? 0);
+  for (const player of seats) {
+    const entryPda = liveEntryPda(pool, player);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e: any = await acct.liveEntry.fetch(entryPda);
+    if (Number(e.nextScoreSeq ?? -1) !== resolved) return false; // succeeded + lags → void
+  }
+  return true;
 }
 
 /**
@@ -954,15 +998,30 @@ export interface FinalizeFtInput {
  *   1. end_and_undelegate (ER) — final commit + ownership return
  *   2. pollBaseUndelegated — wait until cursor + every entry flip to PROGRAM_ID on base
  *   3. end_live_pool (base) — flip status to Ended
- *   4. awaitSettleWindow — gate on the on-chain clock ≥ settleAfterTs + 1
- *   5. settle_live_pool (base) — entries-only, ascending, non-writable, no score arg
+ *   4. COVERAGE GATE — every seat scored to resolved_count?
+ *        yes → 5a. awaitSettleWindow → settle_live_pool (entries-only, ascending)
+ *        no  → 5b. void_live_pool + refund_voided — a straggler that slipped the
+ *              delegation grace can't be scored, so settle would brick the pot
+ *              forever (NotAllScored). Refund every seat instead — fair, no funds
+ *              stranded. (void_live_pool accepts Ended; refund_voided is owner-
+ *              agnostic.)
  * Any thrown poll (undelegation / settle-window timeout) aborts the settle.
+ *
+ * ROSTER GUARD: if the base scan hasn't yet surfaced every seat
+ * (`seats.length < player_count` — a just-confirmed join still indexing), do
+ * NOTHING and retry next tick. Acting on a partial roster would either brick
+ * settle OR fail refund (both need exactly `player_count` seats); the seat's
+ * account is real (join created it atomically) and appears within seconds.
  */
 export async function finalizeFt(
   runner: LiveRunner,
   input: FinalizeFtInput,
 ): Promise<RunReport> {
-  const { pool, cursor, seats, calls, settleAfterTs } = input;
+  const { pool, cursor, seats, calls, settleAfterTs, playerCount } = input;
+
+  // ROSTER GUARD (see doc): incomplete scan → wait for the next tick.
+  if (seats.length !== playerCount) return runner.report;
+
   const entries = seats.map((player) => liveEntryPda(pool, player));
 
   // 1. ER: final commit + undelegate.
@@ -973,11 +1032,59 @@ export async function finalizeFt(
   );
   // 3. Base: end (Ended).
   await endLivePoolOnBase(runner, { pool, cursor });
-  // 4. Base: gate on the on-chain settle window.
+
+  // 4/5. Coverage-gated settle-or-void (shared with the F3 'ended' resume path).
+  return settleOrVoidEnded(runner, {
+    pool, cursor, seats, playerCount, settleAfterTs, settleWindow: input.settleWindow,
+  });
+}
+
+/** Inputs for the coverage-gated settle-or-void of an already-Ended pool. */
+export interface SettleOrVoidInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  seats: PublicKeyT[];
+  /** pool.player_count — the settle coverage requirement. */
+  playerCount: number;
+  settleAfterTs: number;
+  settleWindow?: SettleWindowOpts;
+}
+
+/**
+ * Settle an ALREADY-Ended pool, or void+refund if it provably can't settle. The
+ * SHARED settle tail — reached both from `finalizeFt` (same tick as end_live_pool)
+ * and from the F3 'ended' resume path (a later tick, after finalizeFt was cut
+ * short by a crash / coverage-read hiccup / settle-window timeout). Putting the
+ * coverage gate HERE means a straggler can't brick settle down either route:
+ *   - roster still indexing (`seats < player_count`) → retry next tick (both settle
+ *     AND refund need the full roster; never act on a partial one).
+ *   - coverage unreadable (transient RPC) → retry (never void a healthy pool).
+ *   - a seat definitively under-scored → void+refund (fair; every stake back).
+ *   - fully covered → gate on the settle window, then settle.
+ */
+export async function settleOrVoidEnded(
+  runner: LiveRunner,
+  input: SettleOrVoidInput,
+): Promise<RunReport> {
+  const { pool, cursor, seats, playerCount, settleAfterTs } = input;
+
+  // Roster guard: settle needs `seen == player_count`, refund needs the same set.
+  if (seats.length !== playerCount) return runner.report;
+
+  let settleable: boolean;
+  try {
+    settleable = await seatsFullyScored(runner, { pool, cursor, seats });
+  } catch {
+    return runner.report; // coverage unreadable → retry, never void on uncertainty
+  }
+  if (!settleable) {
+    await finalizeVoid(runner, { pool, seats });
+    return runner.report;
+  }
+
   await runner.step("settle_window", () =>
     awaitSettleWindow(runner, settleAfterTs, input.settleWindow),
   );
-  // 5. Base: settle (entries-only ascending, no score arg).
   await settleLivePoolOnBase(runner, { pool, cursor, seats });
   return runner.report;
 }
@@ -1062,7 +1169,26 @@ export interface RunLiveMatchOpts {
   erVisibility?: ErVisibilityOpts;
   pollBase?: PollBaseOpts;
   settleWindow?: SettleWindowOpts;
+  /**
+   * Seconds to wait PAST `lock_ts` before the void/delegate decision (default
+   * `DEFAULT_DELEGATION_GRACE_SECS`). Joins are hard-gated `now < lock_ts`
+   * on-chain, but a join landing just before lock may not be indexed by the base
+   * `getProgramAccounts` scan yet; delegating on the very first post-lock tick can
+   * MISS that seat, and a never-delegated seat is never scored → `settle_live_pool`
+   * reverts (`NotAllScored`) forever, bricking the pot. Waiting a few seconds lets
+   * the RPC catch up so the one-shot delegate scan sees the full roster. Tests set
+   * 0 to delegate immediately at lock.
+   */
+  delegationGraceSecs?: number;
 }
+
+/**
+ * Default seconds past `lock_ts` before delegating — the RPC-indexing grace that
+ * lets every pre-lock join become visible to the one-shot delegate scan (see
+ * `RunLiveMatchOpts.delegationGraceSecs`). A late straggler that still slips
+ * through is caught by the pre-settle coverage backstop in `finalizeFt`.
+ */
+export const DEFAULT_DELEGATION_GRACE_SECS = 6;
 
 /**
  * The on-chain clock: `getBlockTime(getSlot())` on the BASE connection. All
@@ -1205,6 +1331,7 @@ export async function runLiveMatch(
   const sleepFn = opts.sleepFn ?? sleep;
   const nowFn = opts.now ?? chainNow;
   const resolveBufferSecs = opts.resolveBufferSecs ?? 3;
+  const delegationGraceSecs = opts.delegationGraceSecs ?? DEFAULT_DELEGATION_GRACE_SECS;
 
   const cursor = liveCursorPda(poolPda);
 
@@ -1219,6 +1346,7 @@ export async function runLiveMatch(
   const lockTs = Number(pool.lockTs ?? 0);
   const settleAfterTs = Number(pool.settleAfterTs ?? 0);
   const fixtureId = Number(pool.fixtureId ?? 0);
+  const playerCount = Number(pool.playerCount ?? 0);
 
   // Terminal states — nothing to do.
   if (status === "settled" || status === "rolledOver" || status === "voided") {
@@ -1229,20 +1357,25 @@ export async function runLiveMatch(
   const calls = Array.from({ length: numCalls }, (_, s) => callPda(poolPda, s));
 
   // F3 — Ended: the pool is past gameplay (undelegated by the end path). Resume
-  // the settle tail; NEVER re-delegate.
+  // the coverage-gated settle tail (settle, or void+refund an un-scorable pool —
+  // same gate finalizeFt uses, so a straggler can't brick this resume path either).
+  // NEVER re-delegate.
   if (status === "ended") {
-    await runner.step("settle_window", () =>
-      awaitSettleWindow(runner, settleAfterTs, opts.settleWindow),
-    );
-    await settleLivePoolOnBase(runner, { pool: poolPda, cursor, seats });
-    return runner.report;
+    return settleOrVoidEnded(runner, {
+      pool: poolPda, cursor, seats, playerCount, settleAfterTs, settleWindow: opts.settleWindow,
+    });
   }
 
-  // F1 — the JOIN WINDOW gate: while the on-chain clock is before lock_ts the
-  // pool is still filling. Do NOTHING (especially not void). An unreadable
-  // clock also waits — never act blind on a money path.
+  // F1 — the JOIN WINDOW gate + RPC-indexing grace: do NOTHING (especially not
+  // void or delegate) until the on-chain clock is `delegationGraceSecs` PAST
+  // lock_ts. Joins are hard-gated `now < lock_ts` on-chain, but a join landing
+  // just before lock may not be indexed by the base scan yet — delegating on the
+  // very first post-lock tick can miss it, and a never-delegated seat bricks
+  // settle (NotAllScored). The grace lets the RPC catch up so the one-shot
+  // delegate scan below sees the FULL roster. An unreadable clock also waits —
+  // never act blind on a money path.
   const now = await runner.step("chain_now", () => nowFn(runner));
-  if (now === null || now < lockTs) return runner.report;
+  if (now === null || now < lockTs + delegationGraceSecs) return runner.report;
 
   // Post-lock, under-filled → void + refund (works even if already delegated:
   // LivePool is never delegated and refund_voided reads entries owner-agnostically).
@@ -1324,6 +1457,7 @@ export async function runLiveMatch(
       seats,
       calls,
       settleAfterTs,
+      playerCount,
       pollBase: opts.pollBase,
       settleWindow: opts.settleWindow,
     });
