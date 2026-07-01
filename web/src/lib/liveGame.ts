@@ -14,7 +14,7 @@
 
 import {
   poolIsClaimable, isWinner,
-  type LivePoolResponse, type LiveEntryView, type CallView,
+  type LivePoolResponse, type LiveEntryView, type CallView, type CallKind,
 } from "./api.ts";
 
 export interface Team { code: string; name: string; color: string; }
@@ -85,26 +85,26 @@ interface CallPresentation {
 }
 /** Map a Call's kind + the match team names to the option labels/colors/codes.
  *  `basePoints` (per option) come from the CallView; `numOptions` slices it. */
-function callPresentation(kind: number, home: string, away: string): CallPresentation {
+function callPresentation(kind: CallKind, home: string, away: string): CallPresentation {
   switch (kind) {
-    case 0: // NextGoal
+    case "nextGoal":
       return {
         kind: "⚡ Next goal", q: "Who scores next?",
         labels: [home, "No goal", away],
         colors: [HOME_COLOR, NEUTRAL_COLOR, AWAY_COLOR],
         codes: [code(home), "—", code(away)],
       };
-    case 1: // GoalRush
+    case "goalRush":
       return {
         kind: "🔥 Goal rush", q: "A goal soon?",
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
-    case 2: // CornerSoon
+    case "cornerSoon":
       return {
         kind: "⛳ Corner watch", q: "A corner soon?",
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
-    case 3: // CardSoon
+    case "cardSoon":
       return {
         kind: "🟨 Booking watch", q: "A booking soon?",
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],

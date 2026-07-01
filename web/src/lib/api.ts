@@ -156,6 +156,8 @@ export const getCard = (): Promise<Card | null> =>
 // (carries picks:[u8;64]); picks map 0xFF → null.
 export type PoolStatus = "open" | "live" | "ended" | "settled" | "rolledOver" | "voided";
 export type CallState = "empty" | "open" | "resolved" | "voided";
+/** Engine emits kind as a STRING (engine/src/chain.ts CALL_KIND), not the u8 ordinal. */
+export type CallKind = "nextGoal" | "goalRush" | "cornerSoon" | "cardSoon";
 
 export interface LivePoolView {
   pubkey: string; poolId: number; fixtureId: number;
@@ -166,7 +168,7 @@ export interface LivePoolView {
   claimedCount: number; claimedTotal: string; settledTs: number;
 }
 export interface CallView {
-  pubkey: string; pool: string; seq: number; kind: number;
+  pubkey: string; pool: string; seq: number; kind: CallKind;
   state: CallState; openedTs: number; answerSecs: number;
   numOptions: number; basePoints: number[]; outcome: number | "void" | null;
 }

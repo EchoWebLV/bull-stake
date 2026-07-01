@@ -97,7 +97,7 @@ describe("snapshotFromChain", () => {
   };
 
   const openCall: CallView = {
-    pubkey: "C", pool: "P", seq: 0, kind: 0, // NextGoal
+    pubkey: "C", pool: "P", seq: 0, kind: "nextGoal", // engine emits a STRING kind
     state: "open", openedTs: 1000, answerSecs: 10,
     numOptions: 3, basePoints: [4, 1, 4], outcome: null,
   };
@@ -162,6 +162,16 @@ describe("snapshotFromChain", () => {
     expect(c.opts.map((o) => o.t)).toEqual(["England", "No goal", "Brazil"]);
     expect(c.opts.map((o) => o.k)).toEqual(["0", "1", "2"]);
     expect(c.phase).toBe("answer");
+  });
+
+  it("maps a binary kind (goalRush) to 2 Yes/No options with the right points", () => {
+    const grCall: CallView = { ...openCall, kind: "goalRush", numOptions: 2, basePoints: [3, 1, 0] };
+    const snap = snapshotFromChain({ ...data, openCall: grCall }, myEntry, ME, 1_005_000);
+    const c = snap.call!;
+    expect(c.kind).toBe("🔥 Goal rush");
+    expect(c.opts.length).toBe(2);
+    expect(c.opts.map((o) => o.t)).toEqual(["Yes", "No"]);
+    expect(c.opts.map((o) => o.p)).toEqual([3, 1]);
   });
 
   it("maps the live score/clock and refuses to fabricate unavailable stats", () => {
