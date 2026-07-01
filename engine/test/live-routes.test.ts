@@ -21,7 +21,28 @@ const h = vi.hoisted(() => ({
   memcmp: vi.fn((_name?: string) => ({ offset: 0, bytes: "d9UCMmqzRPV" })),
   cursorFetch: vi.fn(async (_pda: unknown): Promise<unknown> => ({})),
   entryAll: vi.fn(async (_filters?: unknown): Promise<unknown[]> => []),
+  // MagicBlock ER connection seams (erConn() in chain.ts). Default to "not on the
+  // rollup" so every existing test reads base exactly as before; the live-play
+  // tests arm these to serve the delegated open call / live points.
+  erGetAccountInfo: vi.fn(async (_pda: unknown): Promise<unknown> => null),
+  erGetMulti: vi.fn(async (_pdas: unknown[]): Promise<unknown[]> => []),
 }));
+
+// The ER connection is a real `new Connection(ER_RPC)`; partial-mock web3.js so it
+// routes to the hoisted ER seams (PublicKey et al. stay real — REAL_WALLET needs
+// the genuine ctor, and the base reads go through the mocked Anchor Program, not
+// this Connection).
+vi.mock("@solana/web3.js", async (orig) => {
+  const actual = await orig<typeof import("@solana/web3.js")>();
+  return {
+    ...actual,
+    Connection: class {
+      constructor(_url?: string, _commitment?: unknown) {}
+      getAccountInfo = h.erGetAccountInfo;
+      getMultipleAccountsInfo = h.erGetMulti;
+    },
+  };
+});
 
 vi.mock("@coral-xyz/anchor", async () => {
   const { PublicKey } = await import("@solana/web3.js");
@@ -67,11 +88,17 @@ import {
   readCall,
   readLiveCursor,
   readLiveEntry,
+  readOpenCall,
+  readPoolStandings,
+  deriveLiveCursorPda,
+  deriveCallPda,
   toLivePoolView,
   toCallView,
   toLiveEntryView,
   toLiveCursorView,
 } from "../src/chain.ts";
+import { PROGRAM_ID } from "../src/config.ts";
+import { PublicKey } from "@solana/web3.js";
 
 // ── BN mock helper (mirrors the mocked @coral-xyz/anchor BN above) ───────────
 class TestBN {
@@ -89,6 +116,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Re-arm the memcmp default (cleared above) so discovery can build its filter.
   h.memcmp.mockReturnValue({ offset: 0, bytes: "d9UCMmqzRPV" });
+  // Restore the "nothing on the ER" default so a prior live-play test can't leak
+  // rollup rows into a base-only test.
+  h.erGetAccountInfo.mockResolvedValue(null);
+  h.erGetMulti.mockResolvedValue([]);
+  // Restore the base getAccountInfo default too: the scoped-read tests arm it
+  // per-case, and readOpenCall now reads the cursor (getAccountInfo) before its
+  // scan fallback — a leaked value would fake a cursor and skip the scan.
+  h.getAccountInfo.mockResolvedValue(null);
 });
 
 // ── S4-T1: readLivePools + readCall (size-filtered scan) ─────────────────────
@@ -306,6 +341,143 @@ describe("readLiveEntry — direct derived-PDA read, owner-agnostic (stress-test
 
     h.getAccountInfo.mockRejectedValue(new Error("rpc down"));
     await expect(readLiveEntry(REAL_WALLET, 1)).rejects.toThrow("rpc down");
+  });
+});
+
+// ── #1 FIX: ER-FIRST live reads (the open call is on the rollup, not base) ────
+//
+// A call opens → is tapped → resolves entirely on the Ephemeral Rollup, and the
+// keeper only commits ER→base AFTER it resolves — so an OPEN call is NEVER on
+// base. Reading base (even dual-owner) returns null for the whole answer window,
+// which made the live game untappable. These tests pin the ER-first paths:
+//   - readLiveCursor / readLiveEntry read the ER copy when present (base frozen)
+//   - readOpenCall derives the open call from the cursor's open_seq + reads it ER
+//   - readPoolStandings overlays live ER points onto the base roster
+// The pool arg is REAL_WALLET (any valid base58 key) so the real PDA derivations
+// used to key the ER mock match what the readers derive.
+describe("ER-first live reads (#1 — makes the live game playable)", () => {
+  const poolPk = new PublicKey(REAL_WALLET);
+  const cursorPda = deriveLiveCursorPda(PROGRAM_ID, poolPk);
+
+  /** A decoded open Call at `seq` (state=open, NextGoal 3-opt). */
+  function openCallRaw(seq: number) {
+    return {
+      pool: pk("POOL"), seq, kind: { nextGoal: {} }, state: { open: {} },
+      openedTs: bn(1750000100), answerSecs: 9, numOptions: 3, basePoints: [4, 1, 4],
+      outcome: 0xff, bump: 5,
+    };
+  }
+  /** A decoded LiveCursor with the given open_seq. */
+  function cursorRaw(openSeq: number) {
+    return { pool: pk("POOL"), nextSeq: openSeq + 1, openSeq, resolvedCount: 1, bump: 7 };
+  }
+
+  it("readLiveCursor prefers the ER copy over the (frozen) base copy", async () => {
+    // ER serves openSeq=2; base is armed to a STALE cursor that must NOT win.
+    h.erGetAccountInfo.mockResolvedValue({ data: Buffer.alloc(53, 0xE) });
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(53, 0x0) }); // frozen base
+    h.decode.mockImplementation((name: string, data?: any) =>
+      name === "liveCursor"
+        ? cursorRaw(data?.[0] === 0xe ? 2 : 999) // ER buffer (0xE) → the live open_seq
+        : undefined,
+    );
+
+    const c = await readLiveCursor(REAL_WALLET);
+
+    expect(c!.openSeq).toBe(2); // ER won; base's stale 999 never surfaced
+    expect(h.getAccountInfo).not.toHaveBeenCalled(); // ER short-circuited base
+  });
+
+  it("readOpenCall: cursor.open_seq → derive that Call PDA → read it from the ER", async () => {
+    const callPda = deriveCallPda(PROGRAM_ID, poolPk, 2);
+    // ER serves BOTH the cursor (53) and, at the derived seq-2 PDA, the open call (62).
+    h.erGetAccountInfo.mockImplementation(async (pda: any) => {
+      if (pda.toBase58() === cursorPda.toBase58()) return { data: Buffer.alloc(53, 0xC) };
+      if (pda.toBase58() === callPda.toBase58()) return { data: Buffer.alloc(62, 0xA) };
+      return null;
+    });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveCursor" ? cursorRaw(2) : name === "call" ? openCallRaw(2) : undefined,
+    );
+
+    const view = await readOpenCall(REAL_WALLET);
+
+    expect(view).not.toBeNull();
+    expect(view!.state).toBe("open");
+    expect(view!.seq).toBe(2);
+    // Sourced entirely from the ER — no base getAccountInfo, no dual-owner scan.
+    expect(h.getAccountInfo).not.toHaveBeenCalled();
+    expect(h.getProgramAccounts).not.toHaveBeenCalled();
+  });
+
+  it("readOpenCall returns null (no scan) when the cursor reports NONE_SEQ", async () => {
+    h.erGetAccountInfo.mockResolvedValue({ data: Buffer.alloc(53, 0xC) });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveCursor" ? cursorRaw(4294967295) : undefined, // NONE_SEQ = u32::MAX
+    );
+
+    expect(await readOpenCall(REAL_WALLET)).toBeNull();
+    // Authoritative "nothing open" — must NOT fall back to the dual-owner scan.
+    expect(h.getProgramAccounts).not.toHaveBeenCalled();
+  });
+
+  it("readLiveEntry prefers the ER copy so LIVE points win over the frozen base", async () => {
+    h.erGetAccountInfo.mockResolvedValue({ data: Buffer.alloc(159, 0xE) }); // live
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(159, 0x0) });   // frozen base
+    h.decode.mockImplementation((name: string, data?: any) =>
+      name === "liveEntry"
+        ? entryRaw({ player: "WALLET", basePts: data?.[0] === 0xe ? 12 : 0, bonusPts: data?.[0] === 0xe ? 5 : 0 })
+        : undefined,
+    );
+
+    const e = await readLiveEntry(REAL_WALLET, 1);
+
+    expect(e!.total).toBe(17); // ER's live 12+5, not base's frozen 0
+    expect(h.getAccountInfo).not.toHaveBeenCalled();
+  });
+
+  it("readPoolStandings overlays live ER points onto the base roster", async () => {
+    // Base scan supplies the ROSTER (2 seats), tagged with byte 0x1 (frozen bytes).
+    h.getProgramAccounts.mockImplementation(async (_owner: unknown, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      if (size !== 159) return [];
+      return [
+        { pubkey: pk("E1"), account: { data: Buffer.alloc(159, 0x1) } },
+        { pubkey: pk("E2"), account: { data: Buffer.alloc(159, 0x1) } },
+      ];
+    });
+    // ER returns LIVE bytes (0x9) for both seats — higher points than the base bytes.
+    h.erGetMulti.mockResolvedValue([
+      { data: Buffer.alloc(159, 0x9) },
+      { data: Buffer.alloc(159, 0x9) },
+    ]);
+    h.decode.mockImplementation((name: string, data?: any) => {
+      if (name !== "liveEntry") return undefined;
+      // Frozen base bytes → 1 pt; live ER bytes → 20 pts (E1) / 5 pts (E2 by pubkey? no —
+      // keyed by call order). Distinguish the two seats by returning different points.
+      const live = data?.[0] === 0x9;
+      return entryRaw({ player: "P", basePts: live ? 20 : 1, bonusPts: 0 });
+    });
+
+    const rows = await readPoolStandings(1);
+
+    expect(rows.map((r) => r.total)).toEqual([20, 20]); // both seats reflect LIVE ER points
+    expect(h.erGetMulti).toHaveBeenCalledTimes(1);
+  });
+
+  it("readPoolStandings falls back to base bytes when the ER is unreachable", async () => {
+    h.getProgramAccounts.mockImplementation(async (_owner: unknown, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 159 ? [{ pubkey: pk("E1"), account: { data: Buffer.alloc(159, 0x1) } }] : [];
+    });
+    h.erGetMulti.mockRejectedValue(new Error("er down"));
+    h.decode.mockImplementation((name: string) =>
+      name === "liveEntry" ? entryRaw({ player: "P", basePts: 7, bonusPts: 0 }) : undefined,
+    );
+
+    const rows = await readPoolStandings(1);
+
+    expect(rows.map((r) => r.total)).toEqual([7]); // base bytes used — no throw
   });
 });
 

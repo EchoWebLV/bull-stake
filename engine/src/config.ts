@@ -5,6 +5,17 @@ export const PROGRAM_ID = new PublicKey(
 );
 export const RPC_URL = process.env.RPC_URL ?? "https://api.devnet.solana.com";
 
+/**
+ * MagicBlock Ephemeral Rollup RPC. While a live pool is in play its Call /
+ * LiveCursor / LiveEntry PDAs are delegated to the ER, and their LIVE state
+ * (the open call, taps landing, points ticking up) exists ONLY here — the
+ * base-layer copy is frozen at the last `commit_live`, which the keeper only
+ * ever runs AFTER a call resolves, so an open call is never visible on base.
+ * The engine reads delegated accounts ER-first (base as pre-lock / post-settle
+ * fallback). LivePool is never delegated → always base.
+ */
+export const ER_RPC = process.env.ER_RPC ?? "https://devnet.magicblock.app";
+
 // M0 market identity (filled in after create-market).
 export const M0 = {
   fixtureId: Number(process.env.M0_FIXTURE_ID ?? 0),

@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
-import { PROGRAM_ID, RPC_URL } from "./config.ts";
+import { PROGRAM_ID, RPC_URL, ER_RPC } from "./config.ts";
 import { marketById } from "./markets.ts";
 
 /** i64 little-endian as 8 bytes (matches Rust fixture_id.to_le_bytes()). */
@@ -100,6 +100,62 @@ function u64le(n: number | bigint): Buffer {
   const b = Buffer.alloc(8);
   b.writeBigUInt64LE(BigInt(n));
   return b;
+}
+
+/** 4-byte unsigned little-endian — the Call seq is a u32 (matches live-pda.ts). */
+function u32le(n: number): Buffer {
+  const b = Buffer.alloc(4);
+  b.writeUInt32LE(n >>> 0);
+  return b;
+}
+
+/**
+ * `LiveCursor.open_seq` sentinel for "no call currently open for taps"
+ * (live_state.rs: `pub const NONE_SEQ: u32 = u32::MAX`). When the cursor reports
+ * this, `readOpenCall` returns null WITHOUT falling back to a base scan — the
+ * cursor is authoritative that nothing is open.
+ */
+const NONE_SEQ = 0xffff_ffff;
+
+/**
+ * Cached read-only connection to the MagicBlock Ephemeral Rollup. Delegated
+ * Call / LiveCursor / LiveEntry PDAs carry their LIVE mid-match state here; the
+ * base copy is frozen at the last commit (see ER_RPC docs). Lazily built so unit
+ * tests that never touch a live pool don't open a socket.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let cachedEr: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function erConn(): any {
+  if (!cachedEr) cachedEr = new Connection(ER_RPC, "confirmed");
+  return cachedEr;
+}
+
+/**
+ * Read a delegated account's raw bytes ER-FIRST, base as fallback. The ER holds
+ * the live copy while the pool is delegated; before delegation and after
+ * undelegate the account lives on base and the ER returns null (→ base). An ER
+ * RPC error is swallowed (→ base) so a flaky rollup never blanks a readable
+ * account. `expectSize` guards against a short/again-delegating ER row: only a
+ * correctly-sized ER buffer wins; otherwise base. Returns null when NEITHER has
+ * it (a genuine base RPC error propagates so the route can 502).
+ */
+async function readDelegatedInfo(
+  pda: PublicKey,
+  expectSize: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  baseConn: any,
+): Promise<{ data: Buffer } | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const erInfo: any = await erConn().getAccountInfo(pda);
+    if (erInfo?.data && erInfo.data.length === expectSize) return erInfo;
+  } catch {
+    // ER unreachable / not serving this account → fall through to base.
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const baseInfo: any = await baseConn.getAccountInfo(pda);
+  return baseInfo?.data ? baseInfo : null;
 }
 
 export function deriveJackpotPda(programId: PublicKey): PublicKey {
@@ -507,6 +563,12 @@ export function deriveLivePoolPda(programId: PublicKey, poolId: number | bigint)
 export function deriveLiveCursorPda(programId: PublicKey, pool: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("livecursor"), pool.toBuffer()], programId)[0];
 }
+/** call PDA: [b"call", pool.key, u32le(seq)] — seq is a u32 (4 bytes). */
+export function deriveCallPda(programId: PublicKey, pool: PublicKey, seq: number): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("call"), pool.toBuffer(), u32le(seq)], programId,
+  )[0];
+}
 /** liveentry PDA: [b"liveentry", pool.key, player.key]. */
 export function deriveLiveEntryPda(programId: PublicKey, pool: PublicKey, player: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
@@ -687,10 +749,13 @@ export function toLiveCursorView(pubkey: PublicKey, c: any): LiveCursorView {
  */
 export async function readLiveCursor(pool: string): Promise<LiveCursorView | null> {
   const program = loadProgram();
-  const cursorPda = deriveLiveCursorPda(program.programId, new PublicKey(pool));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const size: number = (program.account as any).liveCursor.size;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const info: any = await (program.provider.connection as any).getAccountInfo(cursorPda);
+    const cursorPda = deriveLiveCursorPda(program.programId, new PublicKey(pool));
+    // ER-FIRST: mid-match the cursor's live open_seq lives on the rollup; the base
+    // copy is frozen at the last commit. Pre-lock / post-undelegate it reads base.
+    const info = await readDelegatedInfo(cursorPda, size, program.provider.connection);
     if (!info?.data) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const c = (program as any).coder.accounts.decode("liveCursor", info.data);
@@ -714,11 +779,13 @@ export async function readLiveEntry(wallet: string, poolId: number | bigint): Pr
   const player = new PublicKey(wallet);
   const pool = deriveLivePoolPda(program.programId, poolId);
   const entryPda = deriveLiveEntryPda(program.programId, pool, player);
-  // An RPC failure PROPAGATES (the route 502s) — swallowing it would tell a
-  // joined, playing seat "no ticket". Only a missing account or garbage data
-  // reads as null.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const info: any = await (program.provider.connection as any).getAccountInfo(entryPda);
+  const size: number = (program.account as any).liveEntry.size;
+  // ER-FIRST: a joined seat's LIVE points (base_pts/bonus_pts ticking up as the
+  // keeper scores each call) are on the rollup; base is frozen. An ER hiccup
+  // falls to base, but a BASE RPC failure PROPAGATES (the route 502s) — swallowing
+  // it would tell a joined, playing seat "no ticket". Missing/garbage → null.
+  const info = await readDelegatedInfo(entryPda, size, program.provider.connection);
   if (!info?.data) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -750,12 +817,41 @@ export async function readLivePoolByFixture(fixtureId: number): Promise<LivePool
 }
 
 /**
- * The currently-open Call for a pool (state === "open"), or null. Reuses the
- * size-filtered `readCall(pool)` scan and maps via `toCallView`. At most one call
- * is open at a time on-chain (the cursor's open_seq gate), so we return the first
- * open one; degrades to null on an empty/failed scan (readCall already []-guards).
+ * The currently-open Call for a pool (state === "open"), or null.
+ *
+ * ER-FIRST via the cursor (the fix that makes the live game playable): a call is
+ * opened → tapped → resolved entirely on the rollup, and the keeper only commits
+ * to base AFTER it resolves — so an OPEN call never appears on base and the old
+ * base scan returned null for the whole answer window. We instead read the cursor
+ * (ER-first) for the authoritative `open_seq`, derive that one Call PDA, and read
+ * it ER-first. NONE_SEQ means nothing is open (return null, no scan). When the
+ * cursor can't be read at all (ER + base both blank — e.g. pre-lock), we fall
+ * back to the dual-owner base scan so a committed open call is still found.
  */
 export async function readOpenCall(pool: string): Promise<CallView | null> {
+  const program = loadProgram();
+  const cursor = await readLiveCursor(pool);
+  if (cursor) {
+    if (cursor.openSeq === NONE_SEQ) return null; // authoritative: nothing open
+    const callPda = deriveCallPda(program.programId, new PublicKey(pool), cursor.openSeq);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const size: number = (program.account as any).call.size;
+    try {
+      const info = await readDelegatedInfo(callPda, size, program.provider.connection);
+      if (info?.data) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const c = (program as any).coder.accounts.decode("call", info.data);
+        const view = toCallView(callPda, c);
+        if (view.state === "open") return view;
+      }
+    } catch {
+      // decode / read hiccup on the derived call — the cursor said a call is open
+      // but we couldn't read it this tick. Return null (not a base scan: base never
+      // holds the open call during live play); the next 2s poll retries.
+    }
+    return null;
+  }
+  // Cursor unavailable (ER + base both blank — e.g. pre-lock) → dual-owner base scan.
   const raw = await readCall(pool);
   const open = (raw as { pubkey: PublicKey; account: unknown }[])
     .map((r) => toCallView(r.pubkey, r.account))
@@ -788,11 +884,29 @@ export async function readPoolStandings(poolId: number | bigint): Promise<LiveEn
     { memcmp: { offset: 40, bytes: pool.toBase58() } }, // LiveEntry.pool@40
   ];
   const raw = await scanBothOwners(program.provider.connection, program.programId, filters);
-  const views: LiveEntryView[] = [];
-  for (const item of raw) {
-    if (item.account.data.length !== size) continue;
+
+  // The base scan gives the ROSTER (every seat's pubkey — stable, and visible even
+  // mid-match via the Delegation-Program-owned copy). But base points are frozen at
+  // the last commit, so overlay each seat's LIVE bytes from the ER by pubkey: one
+  // getMultipleAccountsInfo, correctly-sized ER rows win, everything else keeps the
+  // base bytes. An ER hiccup → base points (pre-live behavior). camelCase decode key.
+  let erInfos: (({ data: Buffer } | null)[]) = [];
+  if (raw.length > 0) {
     try {
-      views.push(toLiveEntryView(item.pubkey, coder.decode("liveEntry", item.account.data)));
+      erInfos = (await erConn().getMultipleAccountsInfo(raw.map((r) => r.pubkey))) ?? [];
+    } catch {
+      erInfos = []; // ER unreachable → fall back to base bytes for every seat.
+    }
+  }
+
+  const views: LiveEntryView[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const erData = erInfos[i]?.data;
+    const data = erData && erData.length === size ? erData : item.account.data;
+    if (data.length !== size) continue;
+    try {
+      views.push(toLiveEntryView(item.pubkey, coder.decode("liveEntry", data)));
     } catch {
       continue; // skip an undecodable entry, keep the leaderboard
     }
