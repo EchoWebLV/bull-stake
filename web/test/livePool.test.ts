@@ -203,4 +203,16 @@ describe("snapshotFromChain", () => {
     expect(snap.over!.big).toBe("◎0.1");
     expect(isWinner(settledPool, myEntry)).toBe(true);
   });
+
+  it("treats a voided call as a no-op, not a loss", () => {
+    const picks: (number | null)[] = Array(64).fill(null);
+    picks[0] = 0; // you picked option 0
+    const voidCall: CallView = { ...openCall, state: "resolved", outcome: "void" };
+    const voidData: LivePoolResponse = { ...data, openCall: voidCall };
+    const snap = snapshotFromChain(voidData, mkEntry(ME, 5, { picks }), ME, 2_000_000);
+    const c = snap.call!;
+    expect(c.opts[0].state).toBe("sel"); // neutral, NOT "wrong"
+    expect(c.border).toBe("");           // no red loss border on a void
+    expect(c.verdict).toEqual({ tone: "skip", text: "void" });
+  });
 });

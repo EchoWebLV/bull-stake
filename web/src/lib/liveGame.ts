@@ -298,13 +298,15 @@ function buildCall(
   const phase: SnapCall["phase"] = answering ? "answer" : "done";
 
   const myPick = entry?.picks[openCall.seq] ?? null; // 0xFF already mapped → null
+  const voided = openCall.outcome === "void"; // global void: a no-op, points refunded — NEVER a loss
 
   const opts: SnapOption[] = [];
   for (let i = 0; i < n; i++) {
     let state: SnapOption["state"] = "";
     if (myPick === i) {
-      state = resolved ? (openCall.outcome === i ? "correct" : "wrong") : "sel";
-    } else if (resolved && openCall.outcome === i) {
+      // On a void, show the pick neutrally ("sel") — never "wrong".
+      state = (!resolved || voided) ? "sel" : (openCall.outcome === i ? "correct" : "wrong");
+    } else if (resolved && !voided && openCall.outcome === i) {
       state = "correct";
     }
     opts.push({
@@ -317,9 +319,9 @@ function buildCall(
     });
   }
 
-  // border: only when resolved AND you had a pick.
+  // border: only when resolved to a REAL outcome (never on a void) AND you had a pick.
   let border: SnapCall["border"] = "";
-  if (resolved && myPick != null) {
+  if (resolved && !voided && myPick != null) {
     border = openCall.outcome === myPick ? "win" : "lose";
   }
 
