@@ -1,66 +1,8 @@
 import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
-import { Connection, Transaction } from "@solana/web3.js";
+import { Transaction } from "@solana/web3.js";
 import { connection, erConnection } from "../lib/anchorClient.ts";
+import { broadcastAndConfirm } from "../lib/broadcast.ts";
 import { SOLANA_CHAIN, pickPrivyWallet } from "../lib/wallet.ts";
-
-/** How long to keep polling for confirmation before giving up (ms). A devnet
- *  blockhash is valid for ~150 slots (~60-90s); we poll a bit past that so we
- *  don't report failure while the tx could still land. */
-const CONFIRM_TIMEOUT_MS = 90_000;
-/** Delay between status polls + re-broadcasts (ms). */
-const POLL_INTERVAL_MS = 2_000;
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Broadcast an already-signed legacy tx over HTTP and confirm by polling
- *  getSignatureStatuses — no WebSocket dependency. Re-broadcasts on each poll
- *  so a dropped tx still lands while its blockhash is valid. Returns the
- *  base58 signature once it reaches the 'confirmed' commitment. */
-async function broadcastAndConfirm(
-  rawTx: Uint8Array,
-  conn: Connection = connection,
-  fast = false,
-): Promise<string> {
-  // sendRawTransaction returns the base58 signature; skipPreflight:false runs a
-  // server-side simulation first so encoding/PDA errors surface as a throw here
-  // instead of a silent drop.
-  const signature = await conn.sendRawTransaction(rawTx, {
-    skipPreflight: false,
-    preflightCommitment: "confirmed",
-    maxRetries: 5,
-  });
-
-  // ER taps land in the ER's own state fast — "processed" is enough for the keeper
-  // to read the pick. Base money txs hold out for "confirmed".
-  const done = (level: string | null | undefined): boolean =>
-    fast
-      ? level === "processed" || level === "confirmed" || level === "finalized"
-      : level === "confirmed" || level === "finalized";
-
-  const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const { value } = await conn.getSignatureStatuses([signature], {
-      searchTransactionHistory: false,
-    });
-    const status = value[0];
-    if (status) {
-      if (status.err) {
-        throw new Error(`transaction failed: ${JSON.stringify(status.err)}`);
-      }
-      if (done(status.confirmationStatus)) return signature;
-    }
-    await sleep(POLL_INTERVAL_MS);
-    // Re-broadcast while waiting: cheap, idempotent (same signature), and keeps
-    // the tx in leaders' mempools if the first send was dropped. Ignore the
-    // "already processed" / duplicate errors that a re-send can raise.
-    try {
-      await conn.sendRawTransaction(rawTx, { skipPreflight: true, maxRetries: 5 });
-    } catch {
-      /* duplicate / already-processed — status poll above is the source of truth */
-    }
-  }
-  throw new Error("transaction not confirmed within timeout");
-}
 
 /** Returns a function that takes an unsigned web3.js v1 Transaction, has Privy
  *  SIGN it (no broadcast), then broadcasts + confirms over our own devnet RPC
@@ -107,7 +49,7 @@ export function usePrivySigner(): {
     if (!signed.signature) throw new Error("wallet returned an unsigned transaction");
     const rawTx = signed.serialize();
 
-    return broadcastAndConfirm(new Uint8Array(rawTx));
+    return broadcastAndConfirm(new Uint8Array(rawTx), connection);
   }
 
   /** Tap path: sign an ER tx with NO wallet modal (embedded wallets) and broadcast
@@ -128,7 +70,7 @@ export function usePrivySigner(): {
     });
     const signed = Transaction.from(signedTransaction);
     if (!signed.signature) throw new Error("wallet returned an unsigned transaction");
-    return broadcastAndConfirm(new Uint8Array(signed.serialize()), erConnection, true);
+    return broadcastAndConfirm(new Uint8Array(signed.serialize()), erConnection, { fast: true });
   }
 
   return { address: wallet?.address, signAndSend, signAndSendEr };
