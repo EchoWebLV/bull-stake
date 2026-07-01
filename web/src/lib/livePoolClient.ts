@@ -46,9 +46,13 @@ export async function buildClaimLivePoolTx(
   return withBlockhash(tx, player);
 }
 
-/** Phase A: base-layer, player-signed tap (a wallet popup per tap). `seq` selects
- *  the on-chain Call PDA; `option` is the picked bucket index. Phase B replaces
- *  this with an ephemeral-session-signed ER tx (popup-free). */
+/** ⚠️ STUB (Slice 5 correction): taps must go to the ER via the MagicRouter — the
+ *  keeper delegates each LiveEntry for ER gameplay, so a BASE-layer lock_pick
+ *  reverts on a delegated entry (base owner == Delegation Program). The real tap
+ *  path is an ER/router tx (router blockhash + router broadcast), signed by the
+ *  player (popup) or an ephemeral session key (gasless). This base builder is kept
+ *  only for shape reference until the ER tap path lands. `seq` selects the Call
+ *  PDA; `option` is the picked bucket index. */
 export async function buildLockPickTx(
   playerAddress: string,
   poolId: number | bigint,
