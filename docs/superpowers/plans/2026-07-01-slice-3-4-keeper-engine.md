@@ -5,6 +5,17 @@
 > - **Slice 3** — commits `db9a30b` (T1), `c342d33` (T2), `98ed1a0` (T3), `699d4bb` (T4), `a203cc8` (T5), `0c0f57f` (T6, amended), `8b6da8b` (T7), `65a0f19` (T8). Full keeper suite **215/215, hermetic**.
 > - **Review catch (S3-T6, critical):** `CALL_SPECS` binary kinds had 2-element `basePoints` vs the on-chain fixed `[u8;3]` → borsh under-serialization → 3/4 call kinds un-openable on-chain. Fixed (pad to `[3,1,0]`/`[2,1,0]` + binary-kind test).
 > - **Not yet run on devnet.** Next: a live devnet dry-run of `create-match-pool` + `live-runner` on a real fixture, then Slice 5 (web wiring) + Slice 6 (session keys).
+>
+> **STRESS TEST (2026-07-01) — 7 findings fixed.** A 6-lens adversarial bug-hunt + verify pass found bugs the per-task tests structurally couldn't (nothing drove `runLiveMatch` end-to-end):
+> - **F1 (critical, keeper `5e4b98e`):** premature void — any <2-seat pool voided immediately, incl. Open pools still in their join window → every new pool bricked ~30s after creation. Fixed: all action gated on the on-chain clock reaching `lock_ts`.
+> - **F2 (critical, keeper `5e4b98e`):** `runLiveMatch` stopped after delegation (gameplay/finalize were never called) and re-delegated every tick → pots stranded. Fixed: bounded, idempotent, status-driven state machine (delegate once → one feed-driven step/tick → FT/void terminal).
+> - **F3 (high, keeper `5e4b98e`):** an Ended pool re-entered delegation. Fixed: Ended → settle tail only.
+> - **gatherSeats (found while fixing, keeper `5e4b98e`):** owner-scoped `.all()` read a delegated pool as 0 seats → would void a live match mid-play. Fixed: dual-owner scan.
+> - **F6 (high, keeper `5e4b98e`):** NextGoal resolved on cumulative deltas → both-teams-score paid "no goal". Fixed: `firstGoalSide` event-order resolution; unorderable batch voids.
+> - **F5 (high, engine `ed80f80`):** delegated Call/Cursor/Entry reads went blind mid-match (owner-scoped gPA) → `/api/live/*` blanked the live game. Fixed: dual-owner scans + direct derived-PDA reads.
+> - **F4 (high, program `c7226b4`, redeployed devnet sig `o4kzajCn…`):** claim_live_pool's Voided branch shared no guard with refund_voided → donated lamports drainable via a second per-seat refund. Fixed: `claimed_count>0` → close-only claim.
+>
+> All fixed + committed; suites: keeper 248/248, engine 202/202, live_pool_safety 12/12. F4 redeployed to devnet in place (same id). A test-blind-spot (create-daily-card.ts has zero tests) was spun off as a background task, not blocking.
 
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Each task is TDD: write the failing test, watch it fail, implement minimally, watch it pass, commit.
