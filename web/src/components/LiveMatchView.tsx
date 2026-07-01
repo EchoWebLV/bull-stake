@@ -3,7 +3,7 @@ import { snapshotFromChain, SCORING_HINT, type GameSnapshot } from "../lib/liveG
 import { useLivePool } from "../lib/useLivePool.ts";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import {
-  buildJoinLivePoolTx, buildClaimLivePoolTx, buildLockPickTx,
+  buildJoinLivePoolTx, buildClaimLivePoolTx, buildLockPickTxER,
 } from "../lib/livePoolClient.ts";
 import { poolIsClaimable, isWinner } from "../lib/api.ts";
 
@@ -22,7 +22,7 @@ import { poolIsClaimable, isWinner } from "../lib/api.ts";
  * ──────────────────────────────────────────────────────────────────────── */
 
 export function LiveMatchView() {
-  const { address, signAndSend } = usePrivySigner();
+  const { address, signAndSend, signAndSendEr } = usePrivySigner();
   const { data, entry, refresh } = useLivePool(address ?? null);
 
   // Heartbeat: bump nowMs 150ms so the countdown ticks between 2s polls.
@@ -68,8 +68,8 @@ export function LiveMatchView() {
     if (!entry) { flash("Join the pool to make calls."); return; }
     setBusy("tap"); flash("");
     try {
-      const tx = await buildLockPickTx(address, pool.poolId, openCall.seq, Number(k));
-      await signAndSend(tx);
+      const tx = await buildLockPickTxER(address, pool.poolId, openCall.seq, Number(k));
+      await signAndSendEr(tx); // ER tap — no wallet modal (embedded wallets)
       await refresh();
     } catch (e) {
       flash(e instanceof Error ? e.message : "Tap failed");

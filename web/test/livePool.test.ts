@@ -5,17 +5,22 @@ import {
   poolIsClaimable, isWinner,
   type LivePoolResponse, type LivePoolView, type CallView, type LiveEntryView,
 } from "../src/lib/api.ts";
-import { connection } from "../src/lib/anchorClient.ts";
+import { connection, erConnection } from "../src/lib/anchorClient.ts";
 import {
-  buildJoinLivePoolTx, buildClaimLivePoolTx, buildLockPickTx,
+  buildJoinLivePoolTx, buildClaimLivePoolTx, buildLockPickTxER,
 } from "../src/lib/livePoolClient.ts";
 import { snapshotFromChain } from "../src/lib/liveGame.ts";
 
 const PAYER = "So11111111111111111111111111111111111111112";
 const POOL_ID = 1782924013084000; // from the Slice-2b devnet proof
 
-// Keep the builder tests offline: withBlockhash() calls getLatestBlockhash.
+// Keep the builder tests offline: withBlockhash() (base) and buildLockPickTxER (ER)
+// both call getLatestBlockhash.
 vi.spyOn(connection, "getLatestBlockhash").mockResolvedValue({
+  blockhash: "11111111111111111111111111111111",
+  lastValidBlockHeight: 1,
+} as never);
+vi.spyOn(erConnection, "getLatestBlockhash").mockResolvedValue({
   blockhash: "11111111111111111111111111111111",
   lastValidBlockHeight: 1,
 } as never);
@@ -66,12 +71,13 @@ describe("live tx builders", () => {
     expect(tx.feePayer?.equals(new PublicKey(PAYER))).toBe(true);
     expect(tx.instructions.length).toBe(1);
   });
-  it("lock_pick includes the derived call + entry accounts", async () => {
-    const tx = await buildLockPickTx(PAYER, POOL_ID, 0, 1);
+  it("lock_pick (ER) includes the derived call + entry accounts", async () => {
+    const tx = await buildLockPickTxER(PAYER, POOL_ID, 0, 1);
     const pool = livePoolPda(POOL_ID);
     const metas = tx.instructions[0].keys.map((k) => k.pubkey.toBase58());
     expect(metas).toContain(callPda(pool, 0).toBase58());
     expect(metas).toContain(liveEntryPda(pool, new PublicKey(PAYER)).toBase58());
+    expect(tx.feePayer?.equals(new PublicKey(PAYER))).toBe(true);
   });
 });
 

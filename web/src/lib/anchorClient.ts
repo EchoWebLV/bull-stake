@@ -12,6 +12,11 @@ const RPC = import.meta.env.VITE_RPC_URL ?? "https://api.devnet.solana.com";
 export const PROGRAM_ID = new PublicKey((idl as { address: string }).address);
 export const connection = new Connection(RPC, "confirmed");
 
+/** MagicBlock Ephemeral Rollup RPC (devnet). Delegated LiveEntry/Call live in the
+ *  ER, so taps (lock_pick) are sent HERE, not to base. Mirrors keeper `ER_RPC`. */
+export const ER_RPC = import.meta.env.VITE_ER_RPC_URL ?? "https://devnet.magicblock.app";
+export const erConnection = new Connection(ER_RPC, "confirmed");
+
 /** On-chain parlay leg arrays are [_; MAX_LEGS]; mirrors contest_state.rs MAX_LEGS. */
 export const MAX_LEGS = 6;
 

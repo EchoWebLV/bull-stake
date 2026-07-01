@@ -1,6 +1,6 @@
 import { useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
-import { Transaction } from "@solana/web3.js";
-import { connection } from "../lib/anchorClient.ts";
+import { Connection, Transaction } from "@solana/web3.js";
+import { connection, erConnection } from "../lib/anchorClient.ts";
 import { SOLANA_CHAIN, pickPrivyWallet } from "../lib/wallet.ts";
 
 /** How long to keep polling for confirmation before giving up (ms). A devnet
@@ -16,19 +16,30 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  *  getSignatureStatuses — no WebSocket dependency. Re-broadcasts on each poll
  *  so a dropped tx still lands while its blockhash is valid. Returns the
  *  base58 signature once it reaches the 'confirmed' commitment. */
-async function broadcastAndConfirm(rawTx: Uint8Array): Promise<string> {
+async function broadcastAndConfirm(
+  rawTx: Uint8Array,
+  conn: Connection = connection,
+  fast = false,
+): Promise<string> {
   // sendRawTransaction returns the base58 signature; skipPreflight:false runs a
   // server-side simulation first so encoding/PDA errors surface as a throw here
   // instead of a silent drop.
-  const signature = await connection.sendRawTransaction(rawTx, {
+  const signature = await conn.sendRawTransaction(rawTx, {
     skipPreflight: false,
     preflightCommitment: "confirmed",
     maxRetries: 5,
   });
 
+  // ER taps land in the ER's own state fast — "processed" is enough for the keeper
+  // to read the pick. Base money txs hold out for "confirmed".
+  const done = (level: string | null | undefined): boolean =>
+    fast
+      ? level === "processed" || level === "confirmed" || level === "finalized"
+      : level === "confirmed" || level === "finalized";
+
   const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const { value } = await connection.getSignatureStatuses([signature], {
+    const { value } = await conn.getSignatureStatuses([signature], {
       searchTransactionHistory: false,
     });
     const status = value[0];
@@ -36,23 +47,19 @@ async function broadcastAndConfirm(rawTx: Uint8Array): Promise<string> {
       if (status.err) {
         throw new Error(`transaction failed: ${JSON.stringify(status.err)}`);
       }
-      const level = status.confirmationStatus;
-      if (level === "confirmed" || level === "finalized") return signature;
+      if (done(status.confirmationStatus)) return signature;
     }
     await sleep(POLL_INTERVAL_MS);
     // Re-broadcast while waiting: cheap, idempotent (same signature), and keeps
     // the tx in leaders' mempools if the first send was dropped. Ignore the
     // "already processed" / duplicate errors that a re-send can raise.
     try {
-      await connection.sendRawTransaction(rawTx, {
-        skipPreflight: true,
-        maxRetries: 5,
-      });
+      await conn.sendRawTransaction(rawTx, { skipPreflight: true, maxRetries: 5 });
     } catch {
       /* duplicate / already-processed — status poll above is the source of truth */
     }
   }
-  throw new Error("transaction not confirmed within timeout (devnet)");
+  throw new Error("transaction not confirmed within timeout");
 }
 
 /** Returns a function that takes an unsigned web3.js v1 Transaction, has Privy
@@ -66,6 +73,7 @@ async function broadcastAndConfirm(rawTx: Uint8Array): Promise<string> {
 export function usePrivySigner(): {
   address: string | undefined;
   signAndSend: (tx: Transaction) => Promise<string>;
+  signAndSendEr: (tx: Transaction) => Promise<string>;
 } {
   const { wallets } = useWallets();
   const { signTransaction } = useSignTransaction();
@@ -102,5 +110,26 @@ export function usePrivySigner(): {
     return broadcastAndConfirm(new Uint8Array(rawTx));
   }
 
-  return { address: wallet?.address, signAndSend };
+  /** Tap path: sign an ER tx with NO wallet modal (embedded wallets) and broadcast
+   *  to the Ephemeral Rollup. `showWalletUIs:false` suppresses the per-tap modal so
+   *  rapid in-play taps feel gasless; join/claim keep `signAndSend` (base + modal,
+   *  a real-money confirmation). External wallets ignore the flag and still prompt. */
+  async function signAndSendEr(tx: Transaction): Promise<string> {
+    if (!wallet) throw new Error("no Solana wallet connected");
+    tx.recentBlockhash = (await erConnection.getLatestBlockhash("confirmed")).blockhash;
+    const unsigned = new Uint8Array(
+      tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
+    );
+    const { signedTransaction } = await signTransaction({
+      transaction: unsigned,
+      wallet,
+      chain: SOLANA_CHAIN,
+      options: { uiOptions: { showWalletUIs: false } },
+    });
+    const signed = Transaction.from(signedTransaction);
+    if (!signed.signature) throw new Error("wallet returned an unsigned transaction");
+    return broadcastAndConfirm(new Uint8Array(signed.serialize()), erConnection, true);
+  }
+
+  return { address: wallet?.address, signAndSend, signAndSendEr };
 }

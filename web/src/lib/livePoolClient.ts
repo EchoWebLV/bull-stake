@@ -9,7 +9,7 @@
  * Mirrors anchorClient.ts's readonlyProgram/withBlockhash builder pattern.
  */
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { readonlyProgram, withBlockhash } from "./anchorClient.ts";
+import { readonlyProgram, withBlockhash, erConnection } from "./anchorClient.ts";
 import { livePoolPda, liveEntryPda, callPda } from "./pdasLive.ts";
 
 /** Build an unsigned join_live_pool tx (base layer). Deposits entry_price and
@@ -46,14 +46,13 @@ export async function buildClaimLivePoolTx(
   return withBlockhash(tx, player);
 }
 
-/** ⚠️ STUB (Slice 5 correction): taps must go to the ER via the MagicRouter — the
- *  keeper delegates each LiveEntry for ER gameplay, so a BASE-layer lock_pick
- *  reverts on a delegated entry (base owner == Delegation Program). The real tap
- *  path is an ER/router tx (router blockhash + router broadcast), signed by the
- *  player (popup) or an ephemeral session key (gasless). This base builder is kept
- *  only for shape reference until the ER tap path lands. `seq` selects the Call
- *  PDA; `option` is the picked bucket index. */
-export async function buildLockPickTx(
+/** Build an unsigned ER lock_pick tx (a tap). The LiveEntry + Call are delegated
+ *  to the MagicBlock ER, so this MUST be sent to the ER (`erConnection`) — signed
+ *  by the player via Privy (no-modal). NO program change: the deployed lock_pick's
+ *  `player: Signer` + `has_one = player` authorizes the embedded wallet directly,
+ *  and inside the ER the delegated entry reads as program-owned. `seq` selects the
+ *  Call PDA; `option` is the picked bucket index. */
+export async function buildLockPickTxER(
   playerAddress: string,
   poolId: number | bigint,
   seq: number,
@@ -68,5 +67,8 @@ export async function buildLockPickTx(
     .lockPick(option)
     .accountsStrict({ player, call, entry })
     .transaction();
-  return withBlockhash(tx, player);
+  // ER blockhash (not base) — the signer refreshes it once more right before signing.
+  tx.feePayer = player;
+  tx.recentBlockhash = (await erConnection.getLatestBlockhash("confirmed")).blockhash;
+  return tx;
 }
