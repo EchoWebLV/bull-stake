@@ -89,6 +89,7 @@ import {
   readLiveCursor,
   readLiveEntry,
   readOpenCall,
+  readLastResolvedCall,
   readPoolStandings,
   deriveLiveCursorPda,
   deriveCallPda,
@@ -367,9 +368,17 @@ describe("ER-first live reads (#1 — makes the live game playable)", () => {
       outcome: 0xff, bump: 5,
     };
   }
-  /** A decoded LiveCursor with the given open_seq. */
-  function cursorRaw(openSeq: number) {
-    return { pool: pk("POOL"), nextSeq: openSeq + 1, openSeq, resolvedCount: 1, bump: 7 };
+  /** A decoded RESOLVED Call at `seq` with the given winning-option index. */
+  function resolvedCallRaw(seq: number, outcome: number) {
+    return {
+      pool: pk("POOL"), seq, kind: { nextGoal: {} }, state: { resolved: {} },
+      openedTs: bn(1750000100), answerSecs: 9, numOptions: 3, basePoints: [4, 1, 4],
+      outcome, bump: 5,
+    };
+  }
+  /** A decoded LiveCursor with the given open_seq and resolved_count. */
+  function cursorRaw(openSeq: number, resolvedCount = 1) {
+    return { pool: pk("POOL"), nextSeq: openSeq + 1, openSeq, resolvedCount, bump: 7 };
   }
 
   it("readLiveCursor prefers the ER copy over the (frozen) base copy", async () => {
@@ -478,6 +487,36 @@ describe("ER-first live reads (#1 — makes the live game playable)", () => {
     const rows = await readPoolStandings(1);
 
     expect(rows.map((r) => r.total)).toEqual([7]); // base bytes used — no throw
+  });
+
+  // #7 — the just-resolved call, for the web's between-calls verdict flash.
+  it("readLastResolvedCall derives seq = resolved_count-1 and returns that resolved call", async () => {
+    const lastPda = deriveCallPda(PROGRAM_ID, poolPk, 2); // resolved_count 3 → seq 2
+    h.erGetAccountInfo.mockImplementation(async (pda: any) => {
+      if (pda.toBase58() === cursorPda.toBase58()) return { data: Buffer.alloc(53, 0xC) };
+      if (pda.toBase58() === lastPda.toBase58()) return { data: Buffer.alloc(62, 0xB) };
+      return null;
+    });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveCursor" ? cursorRaw(4294967295, 3) // nothing open, 3 resolved
+        : name === "call" ? resolvedCallRaw(2, 0) : undefined,
+    );
+
+    const view = await readLastResolvedCall(REAL_WALLET);
+
+    expect(view).not.toBeNull();
+    expect(view!.seq).toBe(2);
+    expect(view!.state).toBe("resolved");
+    expect(view!.outcome).toBe(0);
+  });
+
+  it("readLastResolvedCall returns null when nothing has resolved yet (resolved_count 0)", async () => {
+    h.erGetAccountInfo.mockResolvedValue({ data: Buffer.alloc(53, 0xC) });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveCursor" ? cursorRaw(4294967295, 0) : undefined,
+    );
+
+    expect(await readLastResolvedCall(REAL_WALLET)).toBeNull();
   });
 });
 

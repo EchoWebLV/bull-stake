@@ -860,6 +860,35 @@ export async function readOpenCall(pool: string): Promise<CallView | null> {
 }
 
 /**
+ * The most-recently-resolved (or voided) Call for a pool, or null. Calls resolve
+ * strictly in seq order and the cursor's `resolved_count` counts them, so the last
+ * one is at seq `resolved_count - 1`. The web uses this to flash a just-tapped
+ * call's verdict ("✓ correct" / "✕ missed" / "void") in the gap between calls —
+ * `readOpenCall` only ever returns the OPEN call, so without this the per-call
+ * result is never shown. Read ER-first (base fallback), same as the open call.
+ * Returns null when nothing has resolved yet, or on any read/decode hiccup.
+ */
+export async function readLastResolvedCall(pool: string): Promise<CallView | null> {
+  const program = loadProgram();
+  const cursor = await readLiveCursor(pool);
+  if (!cursor || cursor.resolvedCount <= 0) return null;
+  const seq = cursor.resolvedCount - 1;
+  const callPda = deriveCallPda(program.programId, new PublicKey(pool), seq);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const size: number = (program.account as any).call.size;
+  try {
+    const info = await readDelegatedInfo(callPda, size, program.provider.connection);
+    if (!info?.data) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (program as any).coder.accounts.decode("call", info.data);
+    const view = toCallView(callPda, c);
+    return view.state === "resolved" || view.state === "voided" ? view : null;
+  } catch {
+    return null; // read/decode hiccup → no last-call this tick
+  }
+}
+
+/**
  * Every LiveEntry for a pool, mapped + sorted by `total` (base_pts + bonus_pts)
  * descending — the standings leaderboard.
  *

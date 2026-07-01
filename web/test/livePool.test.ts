@@ -164,6 +164,16 @@ describe("snapshotFromChain", () => {
     expect(c.phase).toBe("answer");
   });
 
+  it("an OPEN call past its local countdown is 'resolving' — no taps at 0.0s (#6/#9)", () => {
+    // state still 'open' on-chain (the keeper resolves ~2s later), but now is past
+    // openedTs+answerSecs (window ends at 1_010_000). The tap window is closed.
+    const snap = snapshotFromChain(data, myEntry, ME, 1_012_000);
+    const c = snap.call!;
+    expect(c.phase).toBe("resolving"); // NOT "answer" → LiveMatchView canTap is false
+    expect(c.timerText).toBe("resolving…");
+    expect(c.barPct).toBe(0);
+  });
+
   it("maps a binary kind (goalRush) to 2 Yes/No options with the right points", () => {
     const grCall: CallView = { ...openCall, kind: "goalRush", numOptions: 2, basePoints: [3, 1, 0] };
     const snap = snapshotFromChain({ ...data, openCall: grCall }, myEntry, ME, 1_005_000);
@@ -230,6 +240,49 @@ describe("snapshotFromChain", () => {
     expect(c.opts[0].state).toBe("sel"); // neutral, NOT "wrong"
     expect(c.border).toBe("");           // no red loss border on a void
     expect(c.verdict).toEqual({ tone: "skip", text: "void" });
+  });
+
+  // #7 — per-call feedback via lastCall (openCall only ever carries the OPEN call).
+  it("flashes a just-resolved call's verdict from lastCall when no call is open (#7)", () => {
+    const picks: (number | null)[] = Array(64).fill(null);
+    picks[0] = 0; // you picked England (option 0), the winner
+    const lastCall: CallView = { ...openCall, state: "resolved", outcome: 0 };
+    // openCall null (between calls); lastCall's window ended 1_010_000, now is 1_012_000.
+    const snap = snapshotFromChain(
+      { ...data, openCall: null, lastCall }, mkEntry(ME, 5, { picks }), ME, 1_012_000,
+    );
+    const c = snap.call!;
+    expect(c.phase).toBe("done");
+    expect(c.border).toBe("win");
+    expect(c.verdict).toEqual({ tone: "win", text: "✓ correct" });
+  });
+
+  it("clears a stale lastCall verdict → 'waiting for the next call' (recency gate, #7)", () => {
+    const lastCall: CallView = { ...openCall, state: "resolved", outcome: 0 };
+    // well past window end (1_010_000) + VERDICT_SHOW_MS (10s) → no longer shown.
+    const snap = snapshotFromChain({ ...data, openCall: null, lastCall }, myEntry, ME, 1_030_000);
+    expect(snap.call).toBeNull();
+  });
+
+  it("prefers the OPEN call over a lastCall verdict when both are present (#7)", () => {
+    const lastCall: CallView = { ...openCall, seq: 0, state: "resolved", outcome: 0 };
+    const open2: CallView = { ...openCall, seq: 1 };
+    const snap = snapshotFromChain({ ...data, openCall: open2, lastCall }, myEntry, ME, 1_005_000);
+    expect(snap.call!.phase).toBe("answer"); // the live open call wins, not the verdict
+  });
+
+  it("shows a 'void' verdict for a voided lastCall (real state='voided') — the dead branch (#7)", () => {
+    const picks: (number | null)[] = Array(64).fill(null);
+    picks[0] = 0;
+    // On-chain a void is state='voided' + outcome='void' (NOT state='resolved').
+    const voidLast: CallView = { ...openCall, state: "voided", outcome: "void" };
+    const snap = snapshotFromChain(
+      { ...data, openCall: null, lastCall: voidLast }, mkEntry(ME, 5, { picks }), ME, 1_012_000,
+    );
+    const c = snap.call!;
+    expect(c.verdict).toEqual({ tone: "skip", text: "void" });
+    expect(c.border).toBe("");
+    expect(c.opts[0].state).toBe("sel");
   });
 
   it("a logged-in NON-entrant sees no over-card on a settled pool (no invented result)", () => {

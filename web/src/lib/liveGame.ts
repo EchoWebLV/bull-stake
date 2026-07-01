@@ -117,6 +117,18 @@ function callPresentation(kind: CallKind, home: string, away: string): CallPrese
   }
 }
 
+/** How long after a call's answer window closes to keep flashing its verdict (ms).
+ *  Spans the keeper's ~3s resolve buffer + a few seconds of display, then clears. */
+const VERDICT_SHOW_MS = 10_000;
+
+/** Should a just-resolved call's verdict still be shown? True from the moment its
+ *  answer window closed until VERDICT_SHOW_MS later (the call only becomes
+ *  `lastCall` after it resolves, so `nowMs` is already past the window end). */
+function resolvedRecently(call: CallView, nowMs: number): boolean {
+  const windowEndMs = (call.openedTs + call.answerSecs) * 1000;
+  return nowMs >= windowEndMs && nowMs < windowEndMs + VERDICT_SHOW_MS;
+}
+
 /** 3-letter uppercased team code, or "—" when the name is a placeholder. */
 function code(name: string): string {
   if (!name || name === "—") return "—";
@@ -195,8 +207,15 @@ export function snapshotFromChain(
   const bonus = entry?.bonusPts ?? 0;
   const callsUsed = entry ? entry.picks.filter((p) => p != null).length : 0;
 
-  // ── call (the open on-chain Call, if any) ──────────────────────────────────
-  const call = buildCall(data?.openCall ?? null, entry, homeName, awayName, nowMs);
+  // ── call (the open Call, else a just-resolved one's verdict) ───────────────
+  // #7: `openCall` only ever carries the OPEN call, so a resolved call's result is
+  // never seen without `lastCall`. In the gap between calls (openCall null) surface
+  // the just-resolved call so the player sees "✓ correct" / "✕ missed" / "void" —
+  // gated on recency so a stale verdict clears to "waiting for the next call…".
+  const openCall = data?.openCall ?? null;
+  const lastCall = data?.lastCall ?? null;
+  const callToShow = openCall ?? (lastCall && resolvedRecently(lastCall, nowMs) ? lastCall : null);
+  const call = buildCall(callToShow, entry, homeName, awayName, nowMs);
 
   // ── standings (top 6, always include your row) ────────────────────────────
   let show = rawStandings.slice(0, 6);
@@ -296,8 +315,15 @@ function buildCall(
   const pres = callPresentation(openCall.kind, home, away);
   const n = Math.max(0, Math.min(openCall.numOptions, pres.labels.length));
   const resolved = openCall.state === "resolved";
-  const answering = openCall.state === "open";
-  const phase: SnapCall["phase"] = answering ? "answer" : "done";
+  const isOpen = openCall.state === "open";
+  const remainingMs = (openCall.openedTs + openCall.answerSecs) * 1000 - nowMs;
+  // A call still OPEN on-chain but whose LOCAL countdown has expired is "resolving":
+  // the tap window is CLOSED (no taps past 0s — taps are gated on the `answer` phase)
+  // while we wait for the chain to post the outcome on a later 2s poll. This both
+  // stops the "tappable at 0.0s" race (#6) and makes the resolving phase reachable
+  // (#9) — the keeper's resolve buffer means the on-chain state lags the countdown.
+  const answering = isOpen && remainingMs > 0;
+  const phase: SnapCall["phase"] = answering ? "answer" : isOpen ? "resolving" : "done";
 
   const myPick = entry?.picks[openCall.seq] ?? null; // 0xFF already mapped → null
   const voided = openCall.outcome === "void"; // global void: a no-op, points refunded — NEVER a loss
@@ -327,20 +353,21 @@ function buildCall(
     border = openCall.outcome === myPick ? "win" : "lose";
   }
 
-  // verdict: honest read of your pick vs the outcome.
+  // verdict: honest read of your pick vs the outcome. A void is a state="voided"
+  // call (NOT state="resolved"), so gate it on `voided` independently — otherwise
+  // the void verdict is unreachable and a resolved call's win/miss shows correctly.
   let verdict: SnapCall["verdict"] = null;
-  if (resolved) {
-    if (openCall.outcome === "void") {
-      verdict = { tone: "skip", text: "void" };
-    } else if (myPick != null) {
-      verdict = openCall.outcome === myPick
-        ? { tone: "win", text: "✓ correct" }
-        : { tone: "lose", text: "✕ missed" };
-    }
+  if (voided) {
+    verdict = { tone: "skip", text: "void" };
+  } else if (resolved && myPick != null) {
+    verdict = openCall.outcome === myPick
+      ? { tone: "win", text: "✓ correct" }
+      : { tone: "lose", text: "✕ missed" };
   }
 
-  const remainingMs = (openCall.openedTs + openCall.answerSecs) * 1000 - nowMs;
-  const timerText = answering ? `${Math.max(0, remainingMs / 1000).toFixed(1)}s` : "locked";
+  const timerText = answering
+    ? `${Math.max(0, remainingMs / 1000).toFixed(1)}s`
+    : phase === "resolving" ? "resolving…" : "locked";
   const barPct = answering
     ? Math.max(0, Math.min(100, (remainingMs / (openCall.answerSecs * 1000)) * 100))
     : 0;

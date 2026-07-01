@@ -182,6 +182,9 @@ export interface LiveEntryView {
 export interface LivePoolResponse {
   pool: LivePoolView | null;
   openCall?: CallView | null;
+  /** The most-recently-resolved/voided call — the web flashes its verdict in the
+   *  gap between calls (openCall only ever carries the OPEN one). */
+  lastCall?: CallView | null;
   standings?: LiveEntryView[];
   match?: {
     fixtureId: number; home: string; away: string; kickoffMs: number | null;

@@ -8,6 +8,7 @@ import {
   listEntriesForWallet,
   readLivePoolByFixture,
   readOpenCall,
+  readLastResolvedCall,
   readPoolStandings,
   readLiveEntry,
   type ContestView,
@@ -367,6 +368,14 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
     } catch {
       openCall = null;
     }
+    // The just-resolved call (if any) — the web flashes its verdict in the gap
+    // between calls, since `openCall` only ever carries the OPEN one. Best-effort.
+    let lastCall = null;
+    try {
+      lastCall = await readLastResolvedCall(pool.pubkey);
+    } catch {
+      lastCall = null;
+    }
     let standings = [] as Awaited<ReturnType<typeof readPoolStandings>>;
     try {
       standings = await readPoolStandings(pool.poolId);
@@ -399,7 +408,7 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
         : {}),
     };
 
-    return { pool, openCall, standings, match };
+    return { pool, openCall, lastCall, standings, match };
   });
 
   /**
