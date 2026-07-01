@@ -1,5 +1,12 @@
 # Slice 3 (keeper feed→calls) + Slice 4 (engine read routes) — Implementation Plan
 
+> **✅ COMPLETE (2026-07-01).** Both slices built via subagent-driven workflows (TDD per task → parallel spec+code review → fix loop).
+> - **Slice 4** — commits `cd9713b` (S4-T1), `7b76d3d` (S4-T2), `9b26add` (S4-T3). 42 live-routes tests; full engine suite **200/200**; tsc clean.
+> - **Slice 3** — commits `db9a30b` (T1), `c342d33` (T2), `98ed1a0` (T3), `699d4bb` (T4), `a203cc8` (T5), `0c0f57f` (T6, amended), `8b6da8b` (T7), `65a0f19` (T8). Full keeper suite **215/215, hermetic**.
+> - **Review catch (S3-T6, critical):** `CALL_SPECS` binary kinds had 2-element `basePoints` vs the on-chain fixed `[u8;3]` → borsh under-serialization → 3/4 call kinds un-openable on-chain. Fixed (pad to `[3,1,0]`/`[2,1,0]` + binary-kind test).
+> - **Not yet run on devnet.** Next: a live devnet dry-run of `create-match-pool` + `live-runner` on a real fixture, then Slice 5 (web wiring) + Slice 6 (session keys).
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Each task is TDD: write the failing test, watch it fail, implement minimally, watch it pass, commit.
 
 **Goal:** Build the off-chain backend that drives the already-deployed live-match program (`By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ`, devnet) — a keeper that composes a match pool, delegates to the ER, paces calls, resolves outcomes from the TxLINE feed, scores, and settles on-chain (Slice 3); plus engine read routes that expose live pools/standings/entries to the web app (Slice 4).
