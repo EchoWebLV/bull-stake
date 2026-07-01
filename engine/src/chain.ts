@@ -83,14 +83,18 @@ const JACKPOT_SIZE = 8 + 1;
  * Fallback for the on-chain Contest account size (8 disc + INIT_SPACE). Real
  * Anchor exposes `program.account.contest.size`; this constant keeps real code
  * from ever passing `undefined` to getMinimumBalanceForRentExemption and matches
- * the v2 IDL layout: 8 disc + 8 (contest_id) + 32 (settle_authority) + 32
- * (fee_recipient) + 40 (fixtures [i64;5]) + 5 (market_ids [u8;5]) + 1 (num_legs)
+ * the v2 IDL layout (MAX_LEGS = 6): 8 disc + 8 (contest_id) + 32 (settle_authority)
+ * + 32 (fee_recipient) + 48 (fixtures [i64;6]) + 6 (market_ids [u8;6]) + 1 (num_legs)
  * + 8 (entry_price) + 8 (lock_ts) + 8 (settle_after_ts) + 2 (fee_bps) + 1 (status)
- * + 5 (winning_buckets [u8;5]) + 8 (entry_count) + 8 (perfect_count)
+ * + 6 (winning_buckets [u8;6]) + 8 (entry_count) + 8 (perfect_count)
  * + 8 (distributable) + 8 (claimed_count) + 8 (claimed_total) + 8 (settled_ts)
- * + 1 (bump) = 207.
+ * + 1 (bump) = 217.
+ *
+ * This grew from the 5-leg v1 layout (207 bytes); the +10 (fixtures +8, market_ids
+ * +1, winning_buckets +1) is what makes the dataSize discovery filter exclude the
+ * orphaned 5-leg contests — only true 6-leg v2 cards pass.
  */
-const CONTEST_SIZE = 207;
+const CONTEST_SIZE = 217;
 
 function u64le(n: number | bigint): Buffer {
   const b = Buffer.alloc(8);
@@ -164,7 +168,7 @@ export interface EntryView {
   pubkey: string;
   contestId: number;            // which contest this entry belongs to
   nonce: number;
-  picks: number[];              // raw [u8; 5]
+  picks: number[];              // raw [u8; MAX_LEGS]
   amount: string;
   won: boolean;                 // all carded picks match the winning buckets (settled contests only)
   claimable: boolean;          // a claim_contest now would transfer lamports (winner share or void refund)
@@ -330,12 +334,13 @@ export async function readLiveContests(): Promise<ContestView[]> {
     // try: an IDL-rename miss makes coder.memcmp throw synchronously, so keeping it
     // here degrades to [] (graceful) rather than bubbling out of readLiveContests.
     const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
-    // Filter by the discriminator AND the exact v2 account size. The v1 Contest shares
-    // the "Contest" discriminator but is a different size (210 vs 207 bytes) and —
-    // critically — its bytes borsh-DECODE into the v2 struct as GARBAGE rather than
-    // throwing, so a try/catch around decode does NOT skip it (an orphaned v1 contest
-    // would otherwise surface as a junk card). The dataSize filter excludes any
-    // non-v2-sized account at the RPC level.
+    // Filter by the discriminator AND the exact v2 account size. Orphaned older
+    // contests share the "Contest" discriminator but are a different size (the prior
+    // 5-leg layout is 207 bytes vs the current 6-leg 217) and — critically — their
+    // bytes borsh-DECODE into the current struct as GARBAGE rather than throwing, so a
+    // try/catch around decode does NOT skip them (an orphaned contest would otherwise
+    // surface as a junk card). The dataSize filter excludes any wrong-sized account at
+    // the RPC level, so ONLY current 6-leg cards pass.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     raw = (await (conn as any).getProgramAccounts(program.programId, {
       filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }, { dataSize: contestSize }],
@@ -355,6 +360,105 @@ export async function readLiveContests(): Promise<ContestView[]> {
     }
     const pot = await readContestPot(program, item.pubkey);
     out.push(toContestView(item.pubkey, decoded, pot));
+  }
+  return out;
+}
+
+// ── Live-match readers (Slice 4) ────────────────────────────────────────────
+
+/**
+ * Discover every LivePool with per-account decode tolerance — the live-match
+ * mirror of readLiveContests. We deliberately do NOT use
+ * `program.account.livePool.all()`: it decodes every account internally and
+ * rejects the ENTIRE call if any single one fails to decode. Instead we scan raw
+ * accounts via getProgramAccounts (filtered by the LivePool discriminator at
+ * offset 0 AND the exact account size) and decode each in its own try/catch.
+ *
+ * Size is read at RUNTIME (`program.account.livePool.size`) — never hardcoded.
+ * Delegated accounts have a flipped `.owner`, but their data stays readable and
+ * the dataSize filter still finds them, so we do NOT depend on program-ownership.
+ * A total RPC failure (or an IDL-name miss that makes coder.memcmp throw) → []
+ * so the route degrades gracefully rather than throwing.
+ */
+export async function readLivePools(): Promise<unknown[]> {
+  const program = loadProgram();
+  const conn = program.provider.connection;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coder = (program as any).coder.accounts;
+  // Runtime size (8 disc + INIT_SPACE); LivePool is base-layer, size 176.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const size: number = (program.account as any).livePool.size;
+
+  let raw: { pubkey: PublicKey; account: { data: Buffer } }[];
+  try {
+    // camelCase account name — PascalCase ('LivePool') would throw. Resolved
+    // INSIDE the try so an IDL-name miss degrades to [] rather than bubbling out.
+    const disc = coder.memcmp("livePool"); // { offset: 0, bytes: <base58> }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    raw = (await (conn as any).getProgramAccounts(program.programId, {
+      filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }, { dataSize: size }],
+    })) as { pubkey: PublicKey; account: { data: Buffer } }[];
+  } catch {
+    return []; // total RPC failure / discriminator miss → no live pools
+  }
+
+  const out: unknown[] = [];
+  for (const item of raw) {
+    if (item.account.data.length !== size) continue; // defensive: skip wrong-size accounts
+    let decoded: unknown;
+    try {
+      decoded = coder.decode("livePool", item.account.data);
+    } catch {
+      continue; // skip undecodable account, keep the rest
+    }
+    out.push({ pubkey: item.pubkey, account: decoded });
+  }
+  return out;
+}
+
+/**
+ * Scan Call accounts (size-filtered), optionally scoped to a single pool. Clones
+ * readLivePools; adds a `{offset:8, bytes:pool}` memcmp when `pool` is given
+ * (Call.pool lives at offset 8, verified against live_state.rs). camelCase 'call'
+ * account name; runtime size (`program.account.call.size`, 62). Same per-account
+ * decode tolerance and graceful-[] on total RPC/IDL failure as readLivePools.
+ */
+export async function readCall(pool?: string): Promise<unknown[]> {
+  const program = loadProgram();
+  const conn = program.provider.connection;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coder = (program as any).coder.accounts;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const size: number = (program.account as any).call.size;
+
+  let raw: { pubkey: PublicKey; account: { data: Buffer } }[];
+  try {
+    const disc = coder.memcmp("call"); // { offset: 0, bytes: <base58> }
+    const filters: { memcmp?: { offset: number; bytes: string }; dataSize?: number }[] = [
+      { memcmp: { offset: disc.offset, bytes: disc.bytes } },
+      { dataSize: size },
+    ];
+    // Scope to one pool: Call.pool is at offset 8.
+    if (pool !== undefined) filters.push({ memcmp: { offset: 8, bytes: pool } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    raw = (await (conn as any).getProgramAccounts(program.programId, { filters })) as {
+      pubkey: PublicKey;
+      account: { data: Buffer };
+    }[];
+  } catch {
+    return []; // total RPC failure / discriminator miss → no calls
+  }
+
+  const out: unknown[] = [];
+  for (const item of raw) {
+    if (item.account.data.length !== size) continue; // defensive: skip wrong-size accounts
+    let decoded: unknown;
+    try {
+      decoded = coder.decode("call", item.account.data);
+    } catch {
+      continue; // skip undecodable account, keep the rest
+    }
+    out.push({ pubkey: item.pubkey, account: decoded });
   }
   return out;
 }
