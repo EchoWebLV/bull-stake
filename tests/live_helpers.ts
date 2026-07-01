@@ -93,7 +93,15 @@ export async function createPool(opts: {
     .createLivePool(poolId, new BN(fixtureId), new BN(entryPrice), new BN(lockTs), new BN(settleAfterTs), feeRecipient.publicKey, feeBps, numCalls)
     .accountsStrict({ keeper: keeper.publicKey, pool, cursor, systemProgram: SystemProgram.programId })
     .signers([keeper]).rpc();
-  return { keeper, feeRecipient, poolId, pool, cursor, entryPrice, lockTs, settleAfterTs, numCalls };
+  const ctx: PoolCtx = { keeper, feeRecipient, poolId, pool, cursor, entryPrice, lockTs, settleAfterTs, numCalls };
+  // Pre-create every call PDA on the base layer (CallState::Empty) so open_call only
+  // MUTATES it (Empty→Open) — the ER model forbids creating accounts inside the
+  // rollup, so all calls must exist and be delegatable before kickoff. Mirrors the
+  // real keeper flow: create → prealloc ×N → (delegate) → open/lock/resolve.
+  // Fire them CONCURRENTLY so N preallocs cost ~1 round-trip, not N — otherwise a
+  // large numCalls burns the join window and later joins would hit JoinClosed.
+  await Promise.all(Array.from({ length: numCalls }, (_, s) => preallocCall(ctx, s)));
+  return ctx;
 }
 
 export async function joinPool(ctx: PoolCtx, player?: Keypair): Promise<{ player: Keypair; entry: PublicKey }> {
@@ -106,12 +114,19 @@ export async function joinPool(ctx: PoolCtx, player?: Keypair): Promise<{ player
   return { player: p, entry };
 }
 
+export async function preallocCall(ctx: PoolCtx, seq: number): Promise<void> {
+  await program.methods
+    .preallocCall(seq)
+    .accountsStrict({ keeper: ctx.keeper.publicKey, pool: ctx.pool, call: callPda(ctx.pool, seq), systemProgram: SystemProgram.programId })
+    .signers([ctx.keeper]).rpc();
+}
+
 export async function openCall(ctx: PoolCtx, seq: number, spec: {
   kind?: any; numOptions?: number; basePoints?: number[]; answerSecs?: number;
 } = {}): Promise<void> {
   await program.methods
     .openCall(seq, spec.kind ?? KIND.nextGoal, spec.numOptions ?? 3, spec.basePoints ?? [4, 1, 4], spec.answerSecs ?? 120)
-    .accountsStrict({ keeper: ctx.keeper.publicKey, pool: ctx.pool, cursor: ctx.cursor, call: callPda(ctx.pool, seq), systemProgram: SystemProgram.programId })
+    .accountsStrict({ keeper: ctx.keeper.publicKey, pool: ctx.pool, cursor: ctx.cursor, call: callPda(ctx.pool, seq) })
     .signers([ctx.keeper]).rpc();
 }
 

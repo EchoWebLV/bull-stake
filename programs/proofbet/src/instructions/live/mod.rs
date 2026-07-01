@@ -10,8 +10,17 @@ pub use create_live_pool::*;
 pub mod join_live_pool;
 pub use join_live_pool::*;
 
+pub mod prealloc_call;
+pub use prealloc_call::*;
+
 pub mod open_call;
 pub use open_call::*;
+
+pub mod delegate_live;
+pub use delegate_live::*;
+
+pub mod commit_live;
+pub use commit_live::*;
 
 pub mod lock_pick;
 pub use lock_pick::*;

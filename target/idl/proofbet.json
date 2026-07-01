@@ -283,6 +283,61 @@
       "args": []
     },
     {
+      "name": "commit_live",
+      "discriminator": [
+        29,
+        15,
+        61,
+        60,
+        6,
+        77,
+        41,
+        65
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_contest",
       "discriminator": [
         129,
@@ -487,6 +542,662 @@
           "type": "u32"
         }
       ]
+    },
+    {
+      "name": "delegate_call",
+      "discriminator": [
+        225,
+        112,
+        249,
+        54,
+        207,
+        134,
+        251,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                207,
+                72,
+                102,
+                128,
+                193,
+                109,
+                110,
+                115,
+                208,
+                216,
+                249,
+                93,
+                84,
+                236,
+                32,
+                10,
+                154,
+                203,
+                13,
+                188,
+                233,
+                144,
+                236,
+                33,
+                42,
+                181,
+                215,
+                104,
+                242,
+                64,
+                234
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "docs": [
+            "enforced by the seeds passed to `delegate_pda` — a wrong account fails to",
+            "re-derive. `del` wires the `#[delegate]` macro's delegation CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "delegate_cursor",
+      "discriminator": [
+        159,
+        55,
+        163,
+        35,
+        13,
+        29,
+        100,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                207,
+                72,
+                102,
+                128,
+                193,
+                109,
+                110,
+                115,
+                208,
+                216,
+                249,
+                93,
+                84,
+                236,
+                32,
+                10,
+                154,
+                203,
+                13,
+                188,
+                233,
+                144,
+                236,
+                33,
+                42,
+                181,
+                215,
+                104,
+                242,
+                64,
+                234
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "docs": [
+            "enforced by the seeds passed to `delegate_pda` — a wrong account fails to",
+            "re-derive. `del` wires the `#[delegate]` macro's delegation CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_entry",
+      "discriminator": [
+        14,
+        244,
+        184,
+        129,
+        178,
+        22,
+        198,
+        94
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                207,
+                72,
+                102,
+                128,
+                193,
+                109,
+                110,
+                115,
+                208,
+                216,
+                249,
+                93,
+                84,
+                236,
+                32,
+                10,
+                154,
+                203,
+                13,
+                188,
+                233,
+                144,
+                236,
+                33,
+                42,
+                181,
+                215,
+                104,
+                242,
+                64,
+                234
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "docs": [
+            "enforced by the seeds passed to `delegate_pda` — a wrong account fails to",
+            "re-derive. `del` wires the `#[delegate]` macro's delegation CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "player",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "end_and_undelegate",
+      "discriminator": [
+        172,
+        88,
+        39,
+        156,
+        152,
+        25,
+        165,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "end_live_pool",
@@ -976,7 +1687,6 @@
         },
         {
           "name": "pool",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1051,10 +1761,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1200,6 +1906,123 @@
         {
           "name": "amount",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "prealloc_call",
+      "discriminator": [
+        169,
+        114,
+        160,
+        251,
+        36,
+        71,
+        243,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "call",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "arg",
+                "path": "seq"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer"
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
         }
       ]
     },
@@ -2426,6 +3249,16 @@
       "code": 6045,
       "name": "WinnerCountZero",
       "msg": "winner_count must be greater than zero to pay a winner"
+    },
+    {
+      "code": 6046,
+      "name": "CallNotEmpty",
+      "msg": "call must be pre-created (Empty) before it can be opened"
+    },
+    {
+      "code": 6047,
+      "name": "NotEnoughToDelegate",
+      "msg": "a live pool needs at least 2 players before it can be delegated"
     }
   ],
   "types": [

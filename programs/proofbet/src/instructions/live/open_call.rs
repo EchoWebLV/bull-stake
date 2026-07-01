@@ -9,8 +9,11 @@ use crate::live_state::*;
 pub struct OpenCall<'info> {
     #[account(mut)]
     pub keeper: Signer<'info>,
+    // Read-only: open_call runs on the ER, where LivePool (never delegated) is NOT
+    // writable. Only cursor + call (delegated) are mutated here; the pool is read
+    // for the keeper constraint / seq bound / seeds only. (Never write LivePool from
+    // an ER instruction — see resolve_call, which is also read-only on the pool.)
     #[account(
-        mut,
         seeds = [b"livepool", pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.bump,
         constraint = pool.settle_authority == keeper.key() @ ProofBetError::Unauthorized,
@@ -23,16 +26,14 @@ pub struct OpenCall<'info> {
     )]
     pub cursor: Account<'info, LiveCursor>,
     #[account(
-        init,
-        payer = keeper,
-        space = 8 + Call::INIT_SPACE,
+        mut,
         seeds = [b"call", pool.key().as_ref(), seq.to_le_bytes().as_ref()],
-        bump,
+        bump = call.bump,
     )]
-    // SLICE 1 creates the Call lazily here (base layer). SLICE 2 pre-creates all
-    // calls at pool creation so none is created inside the ER.
+    // The Call is pre-created on the base layer by `prealloc_call` (CallState::Empty)
+    // so that no account is ever created inside the ER. `open_call` only mutates
+    // Empty → Open, which is legal on a delegated account.
     pub call: Account<'info, Call>,
-    pub system_program: Program<'info, System>,
 }
 
 pub fn handler(
@@ -51,13 +52,15 @@ pub fn handler(
     require!(seq == ctx.accounts.cursor.next_seq, ProofBetError::CallSeqMismatch);
     require!(seq < ctx.accounts.pool.num_calls, ProofBetError::CallLimitReached);
     require!(num_options == 2 || num_options == 3, ProofBetError::InvalidOption);
+    // The Call must have been pre-created (Empty) by `prealloc_call`; opening is a
+    // mutation, never a creation (ER-compatible).
+    require!(ctx.accounts.call.state == CallState::Empty, ProofBetError::CallNotEmpty);
 
     let now = Clock::get()?.unix_timestamp;
     let pool_key = ctx.accounts.pool.key();
 
     let call = &mut ctx.accounts.call;
-    call.pool = pool_key;
-    call.seq = seq;
+    // pool/seq/bump were set at prealloc; open_call fills the live fields.
     call.kind = kind;
     call.state = CallState::Open;
     call.opened_ts = now;
@@ -65,13 +68,10 @@ pub fn handler(
     call.num_options = num_options;
     call.base_points = base_points;
     call.outcome = OUTCOME_UNSET;
-    call.bump = ctx.bumps.call;
 
     let cursor = &mut ctx.accounts.cursor;
     cursor.next_seq = seq.checked_add(1).ok_or(ProofBetError::MathOverflow)?;
     cursor.open_seq = seq;
-
-    ctx.accounts.pool.status = PoolStatus::Live;
 
     emit!(CallOpened { pool: pool_key, seq, kind, num_options });
     Ok(())

@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::anchor::ephemeral;
 
 pub mod contest_state;
 pub mod errors;
@@ -11,6 +12,7 @@ use instructions::*;
 
 declare_id!("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
 
+#[ephemeral]
 #[program]
 pub mod proofbet {
     use super::*;
@@ -106,6 +108,10 @@ pub mod proofbet {
         instructions::live::join_live_pool::handler(ctx)
     }
 
+    pub fn prealloc_call(ctx: Context<PreallocCall>, seq: u32) -> Result<()> {
+        instructions::live::prealloc_call::handler(ctx, seq)
+    }
+
     pub fn open_call(
         ctx: Context<OpenCall>,
         seq: u32,
@@ -143,5 +149,33 @@ pub mod proofbet {
 
     pub fn void_live_pool(ctx: Context<VoidLivePool>) -> Result<()> {
         instructions::live::void_live_pool::handler(ctx)
+    }
+
+    // ── MagicBlock Ephemeral Rollup layer (SLICE 2) ──────────────────────────
+    // Delegate the score-carrying PDAs (cursor / entries / calls) to the ER so
+    // taps are cheap+fast; LivePool (the pot) is never delegated. Runtime-proven
+    // on devnet (needs the ER validator); these entrypoints establish the surface.
+    pub fn delegate_cursor(ctx: Context<DelegateLiveAccount>) -> Result<()> {
+        instructions::live::delegate_live::delegate_cursor_handler(ctx)
+    }
+
+    pub fn delegate_entry(ctx: Context<DelegateLiveAccount>, player: Pubkey) -> Result<()> {
+        instructions::live::delegate_live::delegate_entry_handler(ctx, player)
+    }
+
+    pub fn delegate_call(ctx: Context<DelegateLiveAccount>, seq: u32) -> Result<()> {
+        instructions::live::delegate_live::delegate_call_handler(ctx, seq)
+    }
+
+    pub fn commit_live<'info>(
+        ctx: Context<'_, '_, '_, 'info, CommitLive<'info>>,
+    ) -> Result<()> {
+        instructions::live::commit_live::commit_live_handler(ctx)
+    }
+
+    pub fn end_and_undelegate<'info>(
+        ctx: Context<'_, '_, '_, 'info, CommitLive<'info>>,
+    ) -> Result<()> {
+        instructions::live::commit_live::end_and_undelegate_handler(ctx)
     }
 }

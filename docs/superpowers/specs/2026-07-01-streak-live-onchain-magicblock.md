@@ -504,3 +504,91 @@ Then relocate `lock_pick`/`resolve_call`/`score_entry` onto the ER; add delegate
 Final complete design doc is above. It is self-contained and buildable: **SLICE 1 (base-layer `LivePool` program) is fully specified with zero ER or feed dependency** — create/join/open/lock/resolve/score/settle/claim/void all run on base layer with the existing `anchor test` harness, and the two review criticals that live *inside* SLICE 1 (C1 on-chain argmax recompute; C2 rewritten scoring oracle) are resolved in the signatures and tests rather than deferred. All ten other findings are either fixed in the design or explicitly acknowledged with a concrete sequencing decision (C3/H3), traced in the appendix.
 
 Key structural changes from the draft, verified against the actual code: settlement no longer takes keeper-supplied scores (`settle_contest.rs:56–97` reads oracle markets and self-proves at claim — argmax cannot, so the program now recomputes `max` over all seats with PDA/owner/coverage binding); custody (`LivePool`) is never delegated so `void_contest`-style permissionless refund (`void_contest.rs:28–55`) stays reachable if the keeper dies; `LiveEntry` uses `init` not `enter.rs:21`'s `init_if_needed`; and the ER layer (absent from the repo entirely) is gated behind a mandatory SLICE-2 spike.
+---
+
+## Spike log — SLICE 2 kickoff (2026-07-01)
+
+**Status: SLICE 1 committed (`56242e9`, 34/34 tests). ER compatibility spike opened.**
+
+### Finding 1 (the make-or-break): NO Anchor 1.0 migration required.
+`ephemeral-rollups-sdk` latest is **0.15.5** (Jun 2026). Its feature flags include
+**`anchor-compat`** (→ `anchor-lang >=0.28,<1.0` + `backward-compat`) alongside the
+default `anchor` = `anchor-modern` (→ `anchor-lang ^1.0`). The docs' quickstart now
+recommends Anchor 1.0.2 / Solana 3.1.9, but `anchor-compat` targets exactly our
+0.28–0.31 range. The throwaway crate `spike/live-er/` (`ephemeral-rollups-sdk 0.15.5`,
+`features=["anchor-compat"]`, `anchor-lang 0.31.1`, `#[ephemeral]` program) **builds
+clean under our Anchor 0.31 + Agave SBF toolchain** (`cargo build-sbf` → 196 KB .so,
+warnings only). So the whole ER layer does NOT force the feared program rewrite.
+
+### Finding 2 (the next thing to resolve): transitive version split.
+`cargo tree` on the spike shows `anchor-compat` pulled **`anchor-lang 0.32.1`** (highest
+matching `<1.0`) for the SDK's own glue, and **two `solana-program` versions coexist
+(2.3.0 via our anchor-0.31 + 3.0.0 via the SDK's modern sub-crates)**. `#[ephemeral]`
+(a program-level proc-macro) is fine across that, but `delegate`/`commit_accounts`/
+`commit_and_undelegate_accounts` cross the SDK↔program boundary via `AccountInfo`, whose
+type differs between solana-program 2.3 and 3.0. So the real risk moved from "Anchor
+major migration" (ruled out) to "pin the SDK/anchor/solana trio so the delegate/commit
+boundary types are single-version."
+
+### Next spike steps (before touching `live_state.rs`):
+1. Extend `spike/live-er/` with a real `Counter` + `delegate` + `increment` (ER) +
+   `commit_and_undelegate` flow; `cargo build-sbf` until the `AccountInfo` boundary
+   resolves single-version. Options if it doesn't: (a) pin an **older** SDK line that
+   targets anchor 0.30/0.31 + solana ~1.18/2.x cleanly (the "canonical example"
+   approach), or (b) a **minor** program bump 0.31.1 → 0.32.1 (NOT 1.0) to align with
+   the SDK's compat anchor — re-run all 24 + 34 tests under it.
+2. On green build: deploy to **devnet**, delegate one PDA to the delegation program
+   (`DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh`, validator
+   `MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57`), one ER write via the router
+   (`https://devnet-router.magicblock.app`), `commit_and_undelegate`, confirm via
+   `GetCommitmentSignature`. Measure: ER CU ceiling, gasless behavior, and confirm
+   **no lamports move in-ER** (the design keeps custody on base layer).
+3. Only then wire `delegate_live` / `commit_live` / `end_and_undelegate` into the real
+   program (cursor + entries + calls delegated; `LivePool` never delegated).
+
+### Finding 3 (RESOLVED): the exact ER integration pin — a MINOR anchor bump, no 1.0.
+Extended `spike/live-er/` to the full delegate → (ER) increment → `commit_and_undelegate`
+flow (mirrors magicblock's canonical `00-LEGACY_EXAMPLES/anchor-counter/public-counter`).
+Results:
+- **anchor-lang 0.31.1 + sdk 0.14.4 → FAILS** with `MagicProgram: anchor_lang::Id is not
+  satisfied`. The `#[commit]` macro injects `Program<'info, MagicProgram>`, and the SDK
+  implements `Id` for `MagicProgram` against ITS anchor (0.32.1); our 0.31.1 `Id` is a
+  different trait. So delegate/commit needs our program on the SDK's compat anchor.
+- **anchor-lang 0.32.1 + sdk 0.14.4 (`anchor-compat`) → BUILDS CLEAN** (343 KB .so).
+  `cargo tree`: single `anchor-lang v0.32.1` + `ephemeral-rollups-sdk v0.14.4` — the
+  dual-version split from Finding 2 is gone. This is exactly the canonical example's pin.
+
+**DECISION — the ER integration path (no Anchor 1.0 migration):**
+1. Bump `programs/proofbet` **anchor-lang 0.31.1 → 0.32.1** (minor) + `Anchor.toml`
+   `anchor_version = "0.32.1"` (avm already has it). Rebuild; re-run ALL 24 existing +
+   34 live tests under 0.32 — this bump is the prerequisite and the main local risk.
+2. Add `ephemeral-rollups-sdk = { version = "0.14.4", features = ["anchor-compat"] }`.
+3. Working API surface (verified in the spike):
+   - `use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};`
+   - `use ephemeral_rollups_sdk::cpi::DelegateConfig;`
+   - `use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;`
+   - `#[ephemeral]` on the program mod; `#[delegate]` + `#[account(mut, del)] pda: AccountInfo`
+     on the delegate ctx → generates `ctx.accounts.delegate_<field>(&payer, &[seeds], DelegateConfig{ validator, ..})`.
+   - `#[commit]` on the commit ctx injects `magic_context` + `magic_program`;
+     `MagicIntentBundleBuilder::new(payer, magic_context, magic_program).commit(&[..]).build_and_invoke()`
+     and `.commit_and_undelegate(&[..])`. Call `acct.exit(&crate::ID)?` before committing a mutated Anchor account.
+4. THEN the devnet runtime proof (delegate a PDA → ER write → undelegate) — needs a funded
+   devnet keypair; pause for the go-ahead before spending.
+
+---
+
+## SLICE 2a — local ER layer built + adversarially reviewed (2026-07-01)
+
+**Landed locally (no devnet spend):**
+- anchor-lang **0.31.1 → 0.32.1** bump; full suite **98/98 green** under 0.32 (commit `55965f8`).
+- `#[ephemeral]` on the program mod + `ephemeral-rollups-sdk 0.14.4` dep — proven NOT to disturb the money layer (isolated 98/98 run).
+- **Call lifecycle reconciled for the ER:** new `prealloc_call` (base-layer, creates `CallState::Empty`) + `open_call` reworked from `init` → mutate `Empty → Open`. No account is ever created inside the ER.
+- **Delegation instructions** (compile-verified vs the 0.14.4 SDK; runtime-proven in 2b): `delegate_cursor` / `delegate_entry` / `delegate_call` (gated `player_count >= 2`; `LivePool` never delegated) + `commit_live` + `end_and_undelegate` (`MagicIntentBundleBuilder`). GOTCHA: the commit handlers need an explicit `<'info>` binding — `Context<'_, '_, '_, 'info, CommitLive<'info>>` — or `remaining_accounts`'s `'info` and the accounts struct's `'info` are independent elided lifetimes and `MagicIntentBundleBuilder<'info>` (invariant) won't unify them. Also: `build_and_invoke` is a `FoldableIntentBuilder` trait method → must import the trait.
+
+**Adversarial review (5-lens workflow, each finding refute-or-confirm): 4 CONFIRMED, 0 false positives.**
+- **[FIXED]** `open_call` wrote `pool.status = Live` to the never-delegated `LivePool` — illegal on the ER (only delegated accounts are writable), so the first ER `open_call` would be rejected and the in-play loop would be dead on-chain. Now `pool` is read-only in `open_call`. (Base-layer tests never assert "live", so this was invisible to the passing suite — caught only by the ER-semantics lens.)
+- **[FIXED]** test harness: `createPool`'s sequential prealloc loop burned the join window → `JoinClosed` (5 real test failures). Now preallocs fire concurrently (`Promise.all`).
+- **[DEFERRED to 2b — TOP ITEM] keeper-death refund freezes when entries are delegated.** `claim_live_pool`'s Voided branch reads `entry.amount` via an owner-checked `Account<LiveEntry>` + `close = player`; a delegated entry (owner = Delegation Program) makes the refund revert, and there is no permissionless undelegate → the pot is frozen. This breaks §1.3's promised keeper-death recovery ("every seat refunds regardless of whether entries are still delegated"). **The fix is 2b-gated because it depends on an unproven ER runtime fact: is a delegated account's data readable on the base layer?**
+  - If YES → permissionless atomic all-seats `refund_voided`: read each entry as `UncheckedAccount` for the player pubkey + PDA-bind, pay `entry_price` from the non-delegated `LivePool`, coverage `seen == player_count`, status-guarded against re-run — works regardless of entry ownership.
+  - If NO → require a permissionless force-undelegate path (if MagicBlock exposes one) before refund.
+  - DECIDE after the 2b spike observes a real delegated account on the base layer. Add the SLICE-2 test: *keeper delegates then vanishes → anyone voids after grace → every seat refunds in full*, against genuinely-delegated entries.

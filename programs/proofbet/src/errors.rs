@@ -105,4 +105,8 @@ pub enum ProofBetError {
     NotEnoughPlayers,
     #[msg("winner_count must be greater than zero to pay a winner")]
     WinnerCountZero,
+    #[msg("call must be pre-created (Empty) before it can be opened")]
+    CallNotEmpty,
+    #[msg("a live pool needs at least 2 players before it can be delegated")]
+    NotEnoughToDelegate,
 }
