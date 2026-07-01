@@ -44,8 +44,21 @@ pub fn handler(ctx: Context<ClaimLivePool>) -> Result<()> {
 
     match status {
         PoolStatus::Voided => {
-            payout = ctx.accounts.entry.amount;
-            kind = 2;
+            // Mutual exclusion with the permissionless bulk `refund_voided` — BY
+            // STATE, not by lamport slack. refund_voided pays every seat and sets
+            // claimed_count = player_count (it is the ONLY writer of claimed_count
+            // on a Voided pool; per-seat void-claims don't touch it and a Settled
+            // pool can never become Voided). claimed_count > 0 here therefore means
+            // every seat was already made whole: a second stake payout would
+            // double-pay out of any lamports later landing in the PDA
+            // (donation/dust) — the rent-floor solvency check alone cannot see
+            // that. The claim still SUCCEEDS as close-only (payout 0, kind 0): the
+            // seat's stake came back via refund_voided (which cannot close a
+            // delegated entry), and `close = player` here returns the entry rent.
+            if ctx.accounts.pool.claimed_count == 0 {
+                payout = ctx.accounts.entry.amount;
+                kind = 2;
+            }
         }
         PoolStatus::Settled => {
             let total =

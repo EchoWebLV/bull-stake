@@ -1,4 +1,5 @@
 import { program, connection, freshFunded, sleep, SystemProgram, expectError, assert } from "./helpers";
+import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import {
   createPool, joinPool, openCall, lockPick, resolveCall, endPool, claimPool,
   refundVoided, callPda, KIND,
@@ -58,6 +59,42 @@ describe("live_pool_safety", () => {
 
     // Single-shot: a second refund fails fast (and the drained pot would fail solvency).
     await expectError(refundVoided(ctx, seats, stranger), "AlreadyRefunded");
+  });
+
+  it("SECURITY: after refund_voided, a per-seat void claim is CLOSE-ONLY — no second stake payout even from donated lamports", async () => {
+    // Stress-test finding: claim_live_pool's Voided branch shared no state guard
+    // with refund_voided; once the bulk refund ran, any lamports later landing in
+    // the pool PDA (donation/dust) could be drained by a second per-seat "refund"
+    // — the rent-floor solvency check can't see slack above the floor. The fix
+    // keys on claimed_count (refund_voided is its only writer on a Voided pool):
+    // claimed_count > 0 → the seat's stake already came back, so the claim pays
+    // ZERO stake but still closes the entry (rent back to the player).
+    const ctx = await createPool({ entryPrice: 1e8 });
+    const { player: p0, entry: e0 } = await joinPool(ctx);
+    const { player: p1, entry: e1 } = await joinPool(ctx);
+    await voidBy(ctx, ctx.keeper);
+    await refundVoided(ctx, [
+      { entry: e0, playerWallet: p0.publicKey },
+      { entry: e1, playerWallet: p1.publicKey },
+    ]);
+
+    // Adversarial top-up: a full entry_price lands in the pool PDA after the refund.
+    const donor = await freshFunded();
+    const donate = new Transaction().add(
+      SystemProgram.transfer({ fromPubkey: donor.publicKey, toPubkey: ctx.pool, lamports: 1e8 }),
+    );
+    await sendAndConfirmTransaction(connection, donate, [donor]);
+    const poolBefore = await connection.getBalance(ctx.pool);
+
+    // The already-refunded seat claims: succeeds, but only the ENTRY RENT moves
+    // (close = player) — the 1e8 stake is NOT paid a second time.
+    const before = await connection.getBalance(p0.publicKey);
+    await claimPool(ctx, p0);
+    const delta = (await connection.getBalance(p0.publicKey)) - before;
+    assert.isAbove(delta, 0); // entry rent came back…
+    assert.isBelow(delta, 0.5e8); // …but nowhere near a second 1e8 stake
+    // The pool's lamports (floor + donation) are untouched by the claim.
+    assert.equal(await connection.getBalance(ctx.pool), poolBefore);
   });
 
   it("refund_voided rejects a non-voided pool (PoolNotVoided)", async () => {
