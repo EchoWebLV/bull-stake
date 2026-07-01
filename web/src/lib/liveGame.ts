@@ -214,9 +214,11 @@ export function snapshotFromChain(
   });
 
   // ── over (terminal states only) ────────────────────────────────────────────
+  // ONLY a wallet that actually holds a seat gets a personal result card — a
+  // logged-in non-entrant must never see an invented "you lost / 0 pts" over-card.
   let over: GameSnapshot["over"] = null;
-  if (poolIsClaimable(pool)) {
-    const won = entry ? isWinner(pool, entry) : false;
+  if (entry && poolIsClaimable(pool)) {
+    const won = isWinner(pool, entry);
     if (won) {
       const share = pool.winnerCount > 0
         ? settledDistributable / pool.winnerCount / LAMPORTS_PER_SOL
@@ -231,7 +233,7 @@ export function snapshotFromChain(
         ],
       };
     } else if (pool.status === "voided") {
-      const refund = Number(entry?.amount ?? 0) / LAMPORTS_PER_SOL;
+      const refund = Number(entry.amount) / LAMPORTS_PER_SOL;
       over = {
         won: false,
         title: "Refunded",

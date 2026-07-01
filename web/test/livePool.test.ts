@@ -231,4 +231,31 @@ describe("snapshotFromChain", () => {
     expect(c.border).toBe("");           // no red loss border on a void
     expect(c.verdict).toEqual({ tone: "skip", text: "void" });
   });
+
+  it("a logged-in NON-entrant sees no over-card on a settled pool (no invented result)", () => {
+    const settledPool: LivePoolView = {
+      ...poolView, status: "settled", winningScore: 7, winnerCount: 1, distributable: "100000000",
+    };
+    const snap = snapshotFromChain({ ...data, pool: settledPool, openCall: null }, null, ME, 2_100_000_000_000);
+    expect(snap.over).toBeNull();
+  });
+
+  it("a voided pool refunds the seat's full stake in the over-card", () => {
+    const voidedPool: LivePoolView = { ...poolView, status: "voided" };
+    const snap = snapshotFromChain({ ...data, pool: voidedPool, openCall: null }, mkEntry(ME, 0), ME, 2_100_000_000_000);
+    expect(snap.over).not.toBeNull();
+    expect(snap.over!.won).toBe(false);
+    expect(snap.over!.title).toBe("Refunded");
+    expect(snap.over!.big).toBe("◎0.035"); // full entry_price back
+  });
+
+  it("a settled non-winner (has a seat) sees the full-time loss card", () => {
+    const settledPool: LivePoolView = {
+      ...poolView, status: "settled", winningScore: 12, winnerCount: 1, distributable: "100000000",
+    };
+    const snap = snapshotFromChain({ ...data, pool: settledPool, openCall: null }, mkEntry(ME, 5), ME, 2_100_000_000_000);
+    expect(snap.over).not.toBeNull();
+    expect(snap.over!.won).toBe(false);
+    expect(snap.over!.title).toBe("Full time");
+  });
 });
