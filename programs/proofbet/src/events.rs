@@ -200,3 +200,13 @@ pub struct LivePoolClaimed {
     /// 0 = no payout (loser/rolled), 1 = win share, 2 = void refund.
     pub kind: u8,
 }
+
+#[event]
+pub struct LivePoolRefunded {
+    pub pool: Pubkey,
+    pub pool_id: u64,
+    /// number of seats refunded (== player_count)
+    pub seats: u64,
+    /// total lamports returned to players (== seats * entry_price)
+    pub total: u64,
+}

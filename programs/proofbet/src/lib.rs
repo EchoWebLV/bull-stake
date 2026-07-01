@@ -151,6 +151,13 @@ pub mod proofbet {
         instructions::live::void_live_pool::handler(ctx)
     }
 
+    /// Permissionless all-seats refund for a Voided pool whose entries are still
+    /// delegated (the keeper-death case `claim_live_pool` can't handle). See
+    /// `refund_voided.rs`. remaining_accounts = [entry, player] pairs.
+    pub fn refund_voided(ctx: Context<RefundVoided>) -> Result<()> {
+        instructions::live::refund_voided::handler(ctx)
+    }
+
     // ── MagicBlock Ephemeral Rollup layer (SLICE 2) ──────────────────────────
     // Delegate the score-carrying PDAs (cursor / entries / calls) to the ER so
     // taps are cheap+fast; LivePool (the pot) is never delegated. Runtime-proven

@@ -1,7 +1,7 @@
 import { program, connection, freshFunded, sleep, SystemProgram, expectError, assert } from "./helpers";
 import {
   createPool, joinPool, openCall, lockPick, resolveCall, endPool, claimPool,
-  callPda, KIND,
+  refundVoided, callPda, KIND,
 } from "./live_helpers";
 
 const sk = (s: any) => Object.keys(s)[0];
@@ -27,6 +27,72 @@ describe("live_pool_safety", () => {
     const after = await connection.getBalance(p0.publicKey);
     assert.isAbove(after - before, 1e8); // full refund + rent, minus a tiny fee
     await claimPool(ctx, p1);
+  });
+
+  it("refund_voided: permissionless all-seats refund of a voided pool (the delegated keeper-death path)", async () => {
+    // Mirrors Finding [2]'s frozen state: on devnet the entries would be delegated
+    // (owner = Delegation Program) so claim_live_pool reverts; refund_voided reads
+    // each seat owner-agnostically. On localnet the entries are program-owned, which
+    // exercises the identical UncheckedAccount code path (the owner is never checked).
+    const ctx = await createPool({ entryPrice: 1e8 });
+    const { player: p0, entry: e0 } = await joinPool(ctx);
+    const { player: p1, entry: e1 } = await joinPool(ctx);
+    await voidBy(ctx, ctx.keeper);
+
+    const seats = [
+      { entry: e0, playerWallet: p0.publicKey },
+      { entry: e1, playerWallet: p1.publicKey },
+    ];
+    const b0 = await connection.getBalance(p0.publicKey);
+    const b1 = await connection.getBalance(p1.publicKey);
+    // Permissionless: a STRANGER cranks it and pays the fee. Players never sign, so
+    // their balance deltas are EXACTLY the refunded entry_price.
+    const stranger = await freshFunded();
+    await refundVoided(ctx, seats, stranger);
+    assert.equal((await connection.getBalance(p0.publicKey)) - b0, 1e8);
+    assert.equal((await connection.getBalance(p1.publicKey)) - b1, 1e8);
+
+    const pool = await program.account.livePool.fetch(ctx.pool);
+    assert.equal(pool.claimedCount.toNumber(), 2);
+    assert.equal(pool.claimedTotal.toNumber(), 2e8);
+
+    // Single-shot: a second refund fails fast (and the drained pot would fail solvency).
+    await expectError(refundVoided(ctx, seats, stranger), "AlreadyRefunded");
+  });
+
+  it("refund_voided rejects a non-voided pool (PoolNotVoided)", async () => {
+    const ctx = await createPool({ entryPrice: 1e8 });
+    const { player: p0, entry: e0 } = await joinPool(ctx);
+    const { player: p1, entry: e1 } = await joinPool(ctx);
+    await expectError(
+      refundVoided(ctx, [
+        { entry: e0, playerWallet: p0.publicKey },
+        { entry: e1, playerWallet: p1.publicKey },
+      ]),
+      "PoolNotVoided",
+    );
+  });
+
+  it("refund_voided rejects incomplete coverage and a redirected refund (ScoreMismatch)", async () => {
+    const ctx = await createPool({ entryPrice: 1e8 });
+    const { player: p0, entry: e0 } = await joinPool(ctx);
+    const { player: p1, entry: e1 } = await joinPool(ctx);
+    await voidBy(ctx, ctx.keeper);
+
+    // Coverage: only one of two seats passed → count guard fails.
+    await expectError(
+      refundVoided(ctx, [{ entry: e0, playerWallet: p0.publicKey }]),
+      "ScoreMismatch",
+    );
+    // Redirect: correct entries, but seat 0's wallet swapped for an attacker's.
+    const attacker = await freshFunded();
+    await expectError(
+      refundVoided(ctx, [
+        { entry: e0, playerWallet: attacker.publicKey },
+        { entry: e1, playerWallet: p1.publicKey },
+      ]),
+      "ScoreMismatch",
+    );
   });
 
   it("under-filled pool (1 player) is voided-and-refunded, never settled", async () => {

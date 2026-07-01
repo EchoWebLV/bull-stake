@@ -2027,6 +2027,62 @@
       ]
     },
     {
+      "name": "refund_voided",
+      "docs": [
+        "Permissionless all-seats refund for a Voided pool whose entries are still",
+        "delegated (the keeper-death case `claim_live_pool` can't handle). See",
+        "`refund_voided.rs`. remaining_accounts = [entry, player] pairs."
+      ],
+      "discriminator": [
+        3,
+        110,
+        131,
+        202,
+        73,
+        182,
+        42,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "cranker",
+          "docs": [
+            "Permissionless: anyone may crank the refund (they only pay the tx fee; the",
+            "money can only flow to each seat's bound player). Mut = fee payer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "resolve_call",
       "discriminator": [
         192,
@@ -2954,6 +3010,19 @@
       ]
     },
     {
+      "name": "LivePoolRefunded",
+      "discriminator": [
+        21,
+        236,
+        157,
+        204,
+        195,
+        83,
+        93,
+        244
+      ]
+    },
+    {
       "name": "LivePoolSettled",
       "discriminator": [
         36,
@@ -3259,6 +3328,16 @@
       "code": 6047,
       "name": "NotEnoughToDelegate",
       "msg": "a live pool needs at least 2 players before it can be delegated"
+    },
+    {
+      "code": 6048,
+      "name": "PoolNotVoided",
+      "msg": "pool must be Voided to refund its seats"
+    },
+    {
+      "code": 6049,
+      "name": "AlreadyRefunded",
+      "msg": "this voided pool's seats have already been refunded"
     }
   ],
   "types": [
@@ -4254,6 +4333,36 @@
           },
           {
             "name": "pool_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolRefunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "seats",
+            "docs": [
+              "number of seats refunded (== player_count)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total",
+            "docs": [
+              "total lamports returned to players (== seats * entry_price)"
+            ],
             "type": "u64"
           }
         ]

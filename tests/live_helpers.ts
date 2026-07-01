@@ -176,6 +176,27 @@ export async function claimPool(ctx: PoolCtx, player: Keypair): Promise<void> {
     .signers([player]).rpc();
 }
 
+/** Permissionless all-seats refund of a Voided pool. `seats` = every (entry, wallet);
+ *  entries are sorted ascending and interleaved [entry, player] as the program expects.
+ *  `cranker` defaults to the keeper but ANY signer works (permissionless). */
+export async function refundVoided(
+  ctx: PoolCtx,
+  seats: { entry: PublicKey; playerWallet: PublicKey }[],
+  cranker?: Keypair,
+): Promise<void> {
+  const c = cranker ?? ctx.keeper;
+  const ordered = [...seats].sort((a, b) => Buffer.compare(a.entry.toBuffer(), b.entry.toBuffer()));
+  const remaining = ordered.flatMap(({ entry, playerWallet }) => [
+    { pubkey: entry, isSigner: false, isWritable: false },
+    { pubkey: playerWallet, isSigner: false, isWritable: true },
+  ]);
+  await program.methods
+    .refundVoided()
+    .accountsStrict({ cranker: c.publicKey, pool: ctx.pool })
+    .remainingAccounts(remaining)
+    .signers([c]).rpc();
+}
+
 /** Wait until the ON-CHAIN clock passes settle_after_ts. The validator's
  *  Clock.unix_timestamp lags wall-clock under load, so a wall-clock sleep isn't
  *  enough — poll getBlockTime (which tracks the same slot clock the program reads). */

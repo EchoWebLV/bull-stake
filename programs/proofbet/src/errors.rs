@@ -109,4 +109,8 @@ pub enum ProofBetError {
     CallNotEmpty,
     #[msg("a live pool needs at least 2 players before it can be delegated")]
     NotEnoughToDelegate,
+    #[msg("pool must be Voided to refund its seats")]
+    PoolNotVoided,
+    #[msg("this voided pool's seats have already been refunded")]
+    AlreadyRefunded,
 }
