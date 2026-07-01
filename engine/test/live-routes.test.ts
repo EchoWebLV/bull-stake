@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   getProgramAccounts: vi.fn(async (_programId: unknown, _opts?: unknown) => [] as unknown[]),
   decode: vi.fn((_name: string, _data: unknown): unknown => undefined),
   memcmp: vi.fn((_name?: string) => ({ offset: 0, bytes: "d9UCMmqzRPV" })),
+  cursorFetch: vi.fn(async (_pda: unknown): Promise<unknown> => ({})),
+  entryAll: vi.fn(async (_filters?: unknown): Promise<unknown[]> => []),
 }));
 
 vi.mock("@coral-xyz/anchor", async () => {
@@ -50,15 +52,36 @@ vi.mock("@coral-xyz/anchor", async () => {
         // Live-match accounts (camelCase keys; runtime sizes match live_state.rs).
         livePool: { size: 176 },
         call: { size: 62 },
-        liveCursor: { size: 53 },
-        liveEntry: { size: 159, all: vi.fn(async () => [] as unknown[]) },
+        liveCursor: { size: 53, fetch: h.cursorFetch },
+        liveEntry: { size: 159, all: h.entryAll },
       };
       constructor(_idl: unknown, _provider: unknown) {}
     },
   };
 });
 
-import { readLivePools, readCall } from "../src/chain.ts";
+import {
+  readLivePools,
+  readCall,
+  readLiveCursor,
+  readLiveEntry,
+  toLivePoolView,
+  toCallView,
+  toLiveEntryView,
+  toLiveCursorView,
+} from "../src/chain.ts";
+
+// ── BN mock helper (mirrors the mocked @coral-xyz/anchor BN above) ───────────
+class TestBN {
+  constructor(public n: number | string) {}
+  toString() { return String(this.n); }
+  toNumber() { return Number(this.n); }
+}
+function bn(n: number | string) { return new TestBN(n); }
+function pk(s: string) { return { toBase58: () => s }; }
+// A real, valid base58 pubkey — readLiveEntry feeds `wallet` to the un-mocked
+// @solana/web3.js PublicKey ctor, which rejects arbitrary strings like "WALLET".
+const REAL_WALLET = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -190,5 +213,217 @@ describe("readCall — size-filtered Call scan (optionally scoped to a pool)", (
     h.getProgramAccounts.mockRejectedValue(new Error("connection refused"));
 
     expect(await readCall()).toEqual([]);
+  });
+});
+
+// ── S4-T2: scoped reads (readLiveCursor / readLiveEntry) + View mappers ──────
+
+describe("readLiveCursor — scoped LiveCursor fetch", () => {
+  it("returns the mapped cursor view for a pool", async () => {
+    h.cursorFetch.mockResolvedValue({
+      pool: pk("POOL"), nextSeq: 3, openSeq: 4294967295, resolvedCount: 2, bump: 7,
+    });
+
+    const c = await readLiveCursor(REAL_WALLET);
+
+    expect(c).not.toBeNull();
+    expect(c!.pool).toBe("POOL");
+    expect(c!.nextSeq).toBe(3);
+    expect(c!.openSeq).toBe(4294967295);
+    expect(c!.resolvedCount).toBe(2);
+  });
+
+  it("missing / unfetchable cursor → null (never throws)", async () => {
+    h.cursorFetch.mockRejectedValue(new Error("Account does not exist"));
+
+    expect(await readLiveCursor(REAL_WALLET)).toBeNull();
+  });
+});
+
+describe("readLiveEntry — wallet+pool scoped LiveEntry", () => {
+  it("filters by wallet at offset 8 AND pool at offset 40", async () => {
+    h.entryAll.mockResolvedValue([]);
+
+    await readLiveEntry(REAL_WALLET, 777020634);
+
+    expect(h.entryAll).toHaveBeenCalledTimes(1);
+    const filters = h.entryAll.mock.calls[0][0] as { memcmp: { offset: number; bytes: string } }[];
+    const walletF = filters.find((f) => f.memcmp.offset === 8);
+    const poolF = filters.find((f) => f.memcmp.offset === 40);
+    expect(walletF).toBeDefined();
+    expect(walletF!.memcmp.bytes).toBe(REAL_WALLET);
+    expect(poolF).toBeDefined();
+    // pool is derived from poolId; just assert a pubkey memcmp is present at 40.
+    expect(typeof poolF!.memcmp.bytes).toBe("string");
+    expect(poolF!.memcmp.bytes.length).toBeGreaterThan(0);
+  });
+
+  it("no matching entry → null", async () => {
+    h.entryAll.mockResolvedValue([]);
+
+    expect(await readLiveEntry(REAL_WALLET, 1)).toBeNull();
+  });
+
+  it("returns the mapped entry view when one exists", async () => {
+    h.entryAll.mockResolvedValue([
+      {
+        publicKey: pk("ENTRY"),
+        account: {
+          player: pk("WALLET"),
+          pool: pk("POOL"),
+          amount: bn("35000000"),
+          basePts: 12,
+          bonusPts: 5,
+          streak: 2,
+          nextScoreSeq: 3,
+          picks: [1, 0, 0xff, ...Array(61).fill(0xff)],
+          bump: 4,
+        },
+      },
+    ]);
+
+    const e = await readLiveEntry(REAL_WALLET, 1);
+
+    expect(e).not.toBeNull();
+    expect(e!.pubkey).toBe("ENTRY");
+    expect(e!.total).toBe(17);
+  });
+});
+
+describe("toLivePoolView — LivePool → JSON-safe view", () => {
+  const raw = {
+    poolId: bn(777020634),
+    fixtureId: bn(777020634),
+    settleAuthority: pk("AUTH"),
+    feeRecipient: pk("FEE"),
+    entryPrice: bn("35000000"),
+    lockTs: bn(1750000000),
+    settleAfterTs: bn(1750003600),
+    feeBps: 250,
+    status: { live: {} },
+    numCalls: 8,
+    playerCount: bn(42),
+    winningScore: bn(9),
+    winnerCount: bn(3),
+    distributable: bn("1234567890"),
+    claimedCount: bn(2),
+    claimedTotal: bn("800000000"),
+    settledTs: bn(0),
+  };
+
+  it("emits every lamport field as a string (no BigInt survives JSON.stringify)", () => {
+    const v = toLivePoolView(pk("POOL") as never, raw);
+    expect(typeof v.entryPrice).toBe("string");
+    expect(v.entryPrice).toBe("35000000");
+    expect(typeof v.distributable).toBe("string");
+    expect(typeof v.claimedTotal).toBe("string");
+    // player_count / num_calls are small numbers, not strings.
+    expect(v.playerCount).toBe(42);
+    expect(v.numCalls).toBe(8);
+    // round-trips with no BigInt (would throw otherwise).
+    expect(() => JSON.stringify(v)).not.toThrow();
+  });
+
+  it("maps pubkeys via toBase58 and status via the variant idiom", () => {
+    expect(toLivePoolView(pk("POOL") as never, raw).pubkey).toBe("POOL");
+    expect(toLivePoolView(pk("POOL") as never, raw).settleAuthority).toBe("AUTH");
+    expect(toLivePoolView(pk("POOL") as never, raw).status).toBe("live");
+    expect(toLivePoolView(pk("POOL") as never, { ...raw, status: { settled: {} } }).status).toBe("settled");
+    expect(toLivePoolView(pk("POOL") as never, { ...raw, status: { voided: {} } }).status).toBe("voided");
+    expect(toLivePoolView(pk("POOL") as never, { ...raw, status: { rolledOver: {} } }).status).toBe("rolledOver");
+    expect(toLivePoolView(pk("POOL") as never, { ...raw, status: { ended: {} } }).status).toBe("ended");
+    expect(toLivePoolView(pk("POOL") as never, { ...raw, status: { open: {} } }).status).toBe("open");
+  });
+});
+
+describe("toCallView — Call → JSON-safe view", () => {
+  const base = {
+    pool: pk("POOL"),
+    seq: 2,
+    kind: { nextGoal: {} },
+    state: { open: {} },
+    openedTs: bn(1750000100),
+    answerSecs: 9,
+    numOptions: 3,
+    basePoints: [4, 1, 4],
+    outcome: 0xff,
+    bump: 5,
+  };
+
+  it("kind + state via the variant idiom, arrays copied", () => {
+    const v = toCallView(pk("CALL") as never, base);
+    expect(v.pubkey).toBe("CALL");
+    expect(v.pool).toBe("POOL");
+    expect(v.seq).toBe(2);
+    expect(v.kind).toBe("nextGoal");
+    expect(v.state).toBe("open");
+    expect(v.basePoints).toEqual([4, 1, 4]);
+    expect(v.numOptions).toBe(3);
+  });
+
+  it("outcome sentinels: 0xFF → null, 0xFE → 'void', else the index", () => {
+    expect(toCallView(pk("C") as never, { ...base, outcome: 0xff }).outcome).toBeNull();
+    expect(toCallView(pk("C") as never, { ...base, outcome: 0xfe }).outcome).toBe("void");
+    expect(toCallView(pk("C") as never, { ...base, outcome: 0 }).outcome).toBe(0);
+    expect(toCallView(pk("C") as never, { ...base, outcome: 2 }).outcome).toBe(2);
+  });
+
+  it("maps the other CallKind / CallState variants", () => {
+    expect(toCallView(pk("C") as never, { ...base, kind: { goalRush: {} } }).kind).toBe("goalRush");
+    expect(toCallView(pk("C") as never, { ...base, kind: { cornerSoon: {} } }).kind).toBe("cornerSoon");
+    expect(toCallView(pk("C") as never, { ...base, kind: { cardSoon: {} } }).kind).toBe("cardSoon");
+    expect(toCallView(pk("C") as never, { ...base, state: { empty: {} } }).state).toBe("empty");
+    expect(toCallView(pk("C") as never, { ...base, state: { resolved: {} } }).state).toBe("resolved");
+    expect(toCallView(pk("C") as never, { ...base, state: { voided: {} } }).state).toBe("voided");
+  });
+});
+
+describe("toLiveEntryView — LiveEntry → JSON-safe view", () => {
+  const raw = {
+    player: pk("WALLET"),
+    pool: pk("POOL"),
+    amount: bn("35000000"),
+    basePts: 12,
+    bonusPts: 5,
+    streak: 2,
+    nextScoreSeq: 3,
+    picks: [1, 0, 0xff, ...Array(61).fill(0xff)],
+    bump: 4,
+  };
+
+  it("amount as string; total = base_pts + bonus_pts", () => {
+    const v = toLiveEntryView(pk("ENTRY") as never, raw);
+    expect(typeof v.amount).toBe("string");
+    expect(v.amount).toBe("35000000");
+    expect(v.total).toBe(17);
+    expect(v.basePts).toBe(12);
+    expect(v.bonusPts).toBe(5);
+    expect(() => JSON.stringify(v)).not.toThrow();
+  });
+
+  it("picks 0xFF → null (NO_PICK sentinel), real picks pass through", () => {
+    const v = toLiveEntryView(pk("ENTRY") as never, raw);
+    expect(v.picks[0]).toBe(1);
+    expect(v.picks[1]).toBe(0);
+    expect(v.picks[2]).toBeNull();
+    expect(v.picks[3]).toBeNull();
+  });
+});
+
+describe("toLiveCursorView — LiveCursor → JSON-safe view", () => {
+  it("maps pool + small counters; NONE_SEQ open_seq passes through as the number", () => {
+    const v = toLiveCursorView(pk("CURSOR") as never, {
+      pool: pk("POOL"),
+      nextSeq: 3,
+      openSeq: 4294967295,
+      resolvedCount: 2,
+      bump: 7,
+    });
+    expect(v.pubkey).toBe("CURSOR");
+    expect(v.pool).toBe("POOL");
+    expect(v.nextSeq).toBe(3);
+    expect(v.openSeq).toBe(4294967295);
+    expect(v.resolvedCount).toBe(2);
+    expect(() => JSON.stringify(v)).not.toThrow();
   });
 });

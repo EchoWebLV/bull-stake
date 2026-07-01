@@ -463,6 +463,223 @@ export async function readCall(pool?: string): Promise<unknown[]> {
   return out;
 }
 
+// ── Live-match PDA derivers ──────────────────────────────────────────────────
+
+/** livepool PDA: [b"livepool", u64le(pool_id)]. */
+export function deriveLivePoolPda(programId: PublicKey, poolId: number | bigint): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("livepool"), u64le(poolId)], programId)[0];
+}
+/** livecursor PDA: [b"livecursor", pool.key]. */
+export function deriveLiveCursorPda(programId: PublicKey, pool: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("livecursor"), pool.toBuffer()], programId)[0];
+}
+/** liveentry PDA: [b"liveentry", pool.key, player.key]. */
+export function deriveLiveEntryPda(programId: PublicKey, pool: PublicKey, player: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("liveentry"), pool.toBuffer(), player.toBuffer()], programId,
+  )[0];
+}
+
+// ── Live-match View mappers (Slice 4 S4-T2) ──────────────────────────────────
+
+/** PoolStatus{Open0,Live1,Ended2,Settled3,RolledOver4,Voided5} → label via the variant idiom. */
+const POOL_STATUS = ["open", "live", "ended", "settled", "rolledOver", "voided"] as const;
+function poolStatusString(s: Record<string, unknown>): (typeof POOL_STATUS)[number] {
+  for (const k of POOL_STATUS) if (k in s) return k;
+  return "open";
+}
+
+/** CallKind{NextGoal0,GoalRush1,CornerSoon2,CardSoon3} → label via the variant idiom. */
+const CALL_KIND = ["nextGoal", "goalRush", "cornerSoon", "cardSoon"] as const;
+function callKindString(s: Record<string, unknown>): (typeof CALL_KIND)[number] {
+  for (const k of CALL_KIND) if (k in s) return k;
+  return "nextGoal";
+}
+
+/** CallState{Empty0,Open1,Resolved2,Voided3} → label via the variant idiom. */
+const CALL_STATE = ["empty", "open", "resolved", "voided"] as const;
+function callStateString(s: Record<string, unknown>): (typeof CALL_STATE)[number] {
+  for (const k of CALL_STATE) if (k in s) return k;
+  return "empty";
+}
+
+const NO_PICK = 0xff;
+const VOID_OUTCOME = 0xfe;
+const OUTCOME_UNSET = 0xff;
+
+export interface LivePoolView {
+  pubkey: string;
+  poolId: number;
+  fixtureId: number;
+  settleAuthority: string;
+  feeRecipient: string;
+  entryPrice: string;
+  lockTs: number;
+  settleAfterTs: number;
+  feeBps: number;
+  status: (typeof POOL_STATUS)[number];
+  numCalls: number;
+  playerCount: number;
+  winningScore: number;
+  winnerCount: number;
+  distributable: string;
+  claimedCount: number;
+  claimedTotal: string;
+  settledTs: number;
+}
+
+export interface CallView {
+  pubkey: string;
+  pool: string;
+  seq: number;
+  kind: (typeof CALL_KIND)[number];
+  state: (typeof CALL_STATE)[number];
+  openedTs: number;
+  answerSecs: number;
+  numOptions: number;
+  basePoints: number[];
+  /** 0xFF (unset) → null, 0xFE (void) → "void", else the winning option index. */
+  outcome: number | "void" | null;
+}
+
+export interface LiveEntryView {
+  pubkey: string;
+  player: string;
+  pool: string;
+  amount: string;
+  basePts: number;
+  bonusPts: number;
+  /** No stored total on-chain: base_pts + bonus_pts. */
+  total: number;
+  streak: number;
+  nextScoreSeq: number;
+  /** [u8;64]; 0xFF (NO_PICK) → null. */
+  picks: (number | null)[];
+}
+
+export interface LiveCursorView {
+  pubkey: string;
+  pool: string;
+  nextSeq: number;
+  openSeq: number;
+  resolvedCount: number;
+}
+
+/** Map a decoded LivePool → LivePoolView. Lamport BNs → strings; enums via variant idiom. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function toLivePoolView(pubkey: PublicKey, p: any): LivePoolView {
+  return {
+    pubkey: pubkey.toBase58(),
+    poolId: Number(p.poolId),
+    fixtureId: Number(p.fixtureId),
+    settleAuthority: p.settleAuthority.toBase58(),
+    feeRecipient: p.feeRecipient.toBase58(),
+    entryPrice: p.entryPrice.toString(),
+    lockTs: Number(p.lockTs),
+    settleAfterTs: Number(p.settleAfterTs),
+    feeBps: Number(p.feeBps),
+    status: poolStatusString(p.status),
+    numCalls: Number(p.numCalls),
+    playerCount: Number(p.playerCount),
+    winningScore: Number(p.winningScore),
+    winnerCount: Number(p.winnerCount),
+    distributable: p.distributable.toString(),
+    claimedCount: Number(p.claimedCount),
+    claimedTotal: p.claimedTotal.toString(),
+    settledTs: Number(p.settledTs),
+  };
+}
+
+/** Map a decoded Call → CallView. outcome sentinels resolved (0xFF→null, 0xFE→"void"). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function toCallView(pubkey: PublicKey, c: any): CallView {
+  const outcomeRaw = Number(c.outcome);
+  const outcome: number | "void" | null =
+    outcomeRaw === OUTCOME_UNSET ? null : outcomeRaw === VOID_OUTCOME ? "void" : outcomeRaw;
+  return {
+    pubkey: pubkey.toBase58(),
+    pool: c.pool.toBase58(),
+    seq: Number(c.seq),
+    kind: callKindString(c.kind),
+    state: callStateString(c.state),
+    openedTs: Number(c.openedTs),
+    answerSecs: Number(c.answerSecs),
+    numOptions: Number(c.numOptions),
+    basePoints: (c.basePoints as number[]).map(Number),
+    outcome,
+  };
+}
+
+/** Map a decoded LiveEntry → LiveEntryView. amount→string; total=base+bonus; picks 0xFF→null. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function toLiveEntryView(pubkey: PublicKey, e: any): LiveEntryView {
+  const basePts = Number(e.basePts);
+  const bonusPts = Number(e.bonusPts);
+  return {
+    pubkey: pubkey.toBase58(),
+    player: e.player.toBase58(),
+    pool: e.pool.toBase58(),
+    amount: e.amount.toString(),
+    basePts,
+    bonusPts,
+    total: basePts + bonusPts,
+    streak: Number(e.streak),
+    nextScoreSeq: Number(e.nextScoreSeq),
+    picks: (e.picks as number[]).map((v) => (Number(v) === NO_PICK ? null : Number(v))),
+  };
+}
+
+/** Map a decoded LiveCursor → LiveCursorView. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function toLiveCursorView(pubkey: PublicKey, c: any): LiveCursorView {
+  return {
+    pubkey: pubkey.toBase58(),
+    pool: c.pool.toBase58(),
+    nextSeq: Number(c.nextSeq),
+    openSeq: Number(c.openSeq),
+    resolvedCount: Number(c.resolvedCount),
+  };
+}
+
+// ── Live-match scoped reads (Slice 4 S4-T2) ──────────────────────────────────
+
+/**
+ * Fetch a pool's LiveCursor (delegated, size 53). Derives the livecursor PDA from
+ * the pool key and fetches it; returns null on any miss/RPC error (the cursor
+ * doesn't exist until delegation, and reads must degrade gracefully — never throw).
+ * camelCase `liveCursor` account key (PascalCase would throw).
+ */
+export async function readLiveCursor(pool: string): Promise<LiveCursorView | null> {
+  const program = loadProgram();
+  const cursorPda = deriveLiveCursorPda(program.programId, new PublicKey(pool));
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = await (program.account as any).liveCursor.fetch(cursorPda);
+    return toLiveCursorView(cursorPda, c);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read one wallet's LiveEntry for a given pool (there is at most one per player per
+ * pool). Scans `liveEntry.all` with two memcmp filters — player at offset 8, pool at
+ * offset 40 (verified against live_state.rs) — and maps the single match, or null.
+ * The pool key is derived from poolId (livepool PDA). camelCase `liveEntry` key.
+ */
+export async function readLiveEntry(wallet: string, poolId: number | bigint): Promise<LiveEntryView | null> {
+  const program = loadProgram();
+  const player = new PublicKey(wallet);
+  const pool = deriveLivePoolPda(program.programId, poolId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accts: any[] = await (program.account as any).liveEntry.all([
+    { memcmp: { offset: 8, bytes: player.toBase58() } },   // player at offset 8
+    { memcmp: { offset: 40, bytes: pool.toBase58() } },    // pool at offset 40
+  ]);
+  if (accts.length === 0) return null;
+  return toLiveEntryView(accts[0].publicKey, accts[0].account);
+}
+
 /** Fetch + map a single contest by id (scoped path). Returns null if it can't be read/decoded. */
 async function readContestById(program: anchor.Program, contestId: number): Promise<ContestView | null> {
   const cPda = deriveContestPda(program.programId, contestId);
