@@ -28,9 +28,13 @@ import anchorDefault from "@coral-xyz/anchor";
 import type { Idl, Program as ProgramT, AnchorProvider as AnchorProviderT } from "@coral-xyz/anchor";
 import pkg from "@solana/web3.js";
 import type { Connection as ConnectionT, Keypair as KeypairT, PublicKey as PublicKeyT } from "@solana/web3.js";
+import { liveEntryPda, callPda, liveCursorPda } from "./live-pda.js";
 
 const { Connection, PublicKey, Keypair } = pkg;
 const { Program, AnchorProvider, Wallet } = anchorDefault;
+
+/** Sleep helper (proof.ts:40) — only used inside async poll loops, never at import. */
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // ── constants (runtime-verified 2026-07-01; proof.ts:29-34) ─────────────────
 /** Base-layer devnet RPC (the settlement / escrow layer). */
@@ -96,6 +100,8 @@ export interface LiveRunner {
   baseConn: ConnectionT;
   erConn: ConnectionT;
   programId: PublicKeyT;
+  /** The shared keeper pubkey (settle_authority + fee_recipient + payer on devnet). */
+  keeper: PublicKeyT;
   report: RunReport;
   /** Run `fn`, record its timing/sig/error into `report`, return its value (or null on throw). */
   step<T>(name: string, fn: () => Promise<T>): Promise<T | null>;
@@ -163,7 +169,174 @@ export function createLiveRunner(opts: CreateRunnerOpts): LiveRunner {
     }
   }
 
-  return { base, er, baseConn, erConn, programId: LIVE_PROGRAM_ID, report, step };
+  return {
+    base,
+    er,
+    baseConn,
+    erConn,
+    programId: LIVE_PROGRAM_ID,
+    keeper: opts.keypair.publicKey,
+    report,
+    step,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S3-T5 — delegation phase (BASE): player-count gate + delegate_* + ER gate
+//
+// Productionizes proof.ts:179-205. The keeper gathers the pool's seats, HARD
+// GATES on player_count<2 (routing to the void+refund branch — the on-chain
+// tx lands in S3-T7), and otherwise delegates the ER working set
+// (cursor + every entry + every call) to the MagicBlock validator, pinning the
+// VALIDATOR as remainingAccounts[0] on each delegate_*. Finally it waits for the
+// ER to surface the delegated cursor (owner flips back to our PROGRAM_ID on the
+// ER RPC) before gameplay can begin.
+//
+// Account-key note: delegate_cursor / delegate_entry / delegate_call all take the
+// delegated account under the GENERIC key `pda` (NOT cursor/entry/call). The
+// validator is passed as a single non-signer, non-writable remaining account.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sort seat pubkeys strictly ascending by raw-byte `Buffer.compare`. Pure — does
+ * NOT mutate the input (returns a fresh array). This is the canonical order the
+ * on-chain `settle_live_pool` remaining_accounts contract demands (entries
+ * ascending), so every seat list the runner derives is kept in this order.
+ */
+export function sortSeatsAscending(pubkeys: PublicKeyT[]): PublicKeyT[] {
+  return [...pubkeys].sort((a, b) => Buffer.compare(a.toBuffer(), b.toBuffer()));
+}
+
+/**
+ * Gather a pool's player seats from the BASE program via
+ * `liveEntry.all([{memcmp:{offset:40, bytes: pool}}])` (pool@40 in LiveEntry).
+ * Returns the seat PLAYER pubkeys, sorted ascending (settle-order canonical).
+ * The only I/O is the `getProgramAccounts` behind `.all` — tests inject a spy.
+ */
+export async function gatherSeats(
+  baseProgram: ProgramT,
+  pool: PublicKeyT,
+): Promise<PublicKeyT[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = await (baseProgram as any).account.liveEntry.all([
+    { memcmp: { offset: 40, bytes: pool.toBase58() } },
+  ]);
+  const players = rows.map((r) => r.account.player as PublicKeyT);
+  return sortSeatsAscending(players);
+}
+
+/**
+ * HARD GATE: the on-chain live-match settlement needs ≥2 players. Fewer than two
+ * seats → the pool cannot be a real contest, so we skip delegation entirely and
+ * route to the void+refund branch (S3-T7). Exactly two (or more) → delegate.
+ */
+export function selectDelegationBranch(playerCount: number): "delegate" | "void" {
+  return playerCount < 2 ? "void" : "delegate";
+}
+
+/** Inputs for the delegation phase. */
+export interface DelegateAllInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  /** Seat player pubkeys (ascending). */
+  seats: PublicKeyT[];
+  /** Number of preallocated calls to delegate (seq 0..numCalls-1). */
+  numCalls: number;
+}
+
+/** Result of the delegation phase. */
+export interface DelegateAllResult {
+  branch: "delegate" | "void";
+  delegated: boolean;
+}
+
+/**
+ * Delegate the full ER working set for a pool on the BASE layer (proof.ts:179-205):
+ *   delegate_cursor + delegate_entry(player)×seats + delegate_call(seq)×numCalls.
+ * Each instruction takes its delegated account under the generic key `pda` and
+ * pins the VALIDATOR as `remainingAccounts[0]` (non-signer, non-writable).
+ *
+ * Enforces the player-count gate first: <2 seats → returns `{branch:'void'}`
+ * WITHOUT issuing any tx (the caller runs the void+refund path). All txs flow
+ * through `runner.step(...)` so timings/sigs/errors land in the report.
+ */
+export async function delegateAll(
+  runner: LiveRunner,
+  input: DelegateAllInput,
+): Promise<DelegateAllResult> {
+  const branch = selectDelegationBranch(input.seats.length);
+  if (branch === "void") {
+    return { branch, delegated: false };
+  }
+
+  const keeper = runner.keeper;
+  const { pool, cursor, seats, numCalls } = input;
+  const validatorRemaining = [{ pubkey: VALIDATOR, isSigner: false, isWritable: false }];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.base as any).methods;
+
+  await runner.step("delegate_cursor", () =>
+    methods
+      .delegateCursor()
+      .accountsPartial({ keeper, pool, pda: cursor })
+      .remainingAccounts(validatorRemaining)
+      .rpc(),
+  );
+
+  for (const player of seats) {
+    await runner.step(`delegate_entry ${player.toBase58().slice(0, 4)}`, () =>
+      methods
+        .delegateEntry(player)
+        .accountsPartial({ keeper, pool, pda: liveEntryPda(pool, player) })
+        .remainingAccounts(validatorRemaining)
+        .rpc(),
+    );
+  }
+
+  for (let seq = 0; seq < numCalls; seq++) {
+    await runner.step(`delegate_call(${seq})`, () =>
+      methods
+        .delegateCall(seq)
+        .accountsPartial({ keeper, pool, pda: callPda(pool, seq) })
+        .remainingAccounts(validatorRemaining)
+        .rpc(),
+    );
+  }
+
+  return { branch, delegated: true };
+}
+
+/** Poll cadence for the ER-visibility gate (proof.ts:199-204). */
+export interface ErVisibilityOpts {
+  /** Poll interval in ms (default 2500). */
+  intervalMs?: number;
+  /** Overall timeout in ms (default 60000). */
+  timeoutMs?: number;
+}
+
+/**
+ * Wait until the ER RPC surfaces the delegated `cursor` with its owner flipped
+ * back to our PROGRAM_ID (proof.ts:196-205). While the account is missing or
+ * still owned by the DELEGATION_PROGRAM, keep polling every `intervalMs` up to
+ * `timeoutMs`. Resolves `true` once ready; throws on timeout.
+ */
+export async function awaitErVisibility(
+  runner: LiveRunner,
+  cursor: PublicKeyT,
+  opts: ErVisibilityOpts = {},
+): Promise<boolean> {
+  const intervalMs = opts.intervalMs ?? 2500;
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const info: any = await runner.erConn.getAccountInfo(cursor, "confirmed");
+    if (info && info.owner && info.owner.equals(runner.programId)) {
+      return true;
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error("ER visibility timeout: cursor never surfaced under PROGRAM_ID on the ER RPC");
 }
 
 /** Options for a full live-match run (extended in S3-T5..T7). */
@@ -179,9 +352,11 @@ export interface RunLiveMatchOpts {
 }
 
 /**
- * Drive ONE live match pool through its full lifecycle. S3-T4 lands only the
- * wiring: construct (or accept) a dual-RPC runner and return its report. The
- * delegation → gameplay → settle phases are filled in by S3-T5..T7.
+ * Drive ONE live match pool through its lifecycle. S3-T5 lands the delegation
+ * phase: read the pool's `num_calls`, gather its seats, HARD GATE on
+ * player_count<2 (→ void+refund branch, wired in S3-T7), otherwise delegate the
+ * ER working set and wait for the ER to surface the delegated cursor. The
+ * ER-gameplay (S3-T6) and end→settle/void (S3-T7) phases extend from here.
  */
 export async function runLiveMatch(
   poolPda: PublicKeyT,
@@ -194,8 +369,28 @@ export async function runLiveMatch(
       idl: opts.idl,
       programFactory: opts.programFactory,
     });
-  // Phases land in S3-T5 (delegation), S3-T6 (ER gameplay), S3-T7 (settle/void).
-  void poolPda;
+
+  const cursor = liveCursorPda(poolPda);
+
+  // Read num_calls off the pool (how many Call PDAs to delegate).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pool: any = await runner.step("read_pool", () =>
+    (runner.base as any).account.livePool.fetch(poolPda),
+  );
+  const numCalls = Number(pool?.numCalls ?? 0);
+
+  const seats = await gatherSeats(runner.base, poolPda);
+
+  const del = await delegateAll(runner, { pool: poolPda, cursor, seats, numCalls });
+  if (del.branch === "void") {
+    // Under-filled pool → void+refund (the on-chain tx lands in S3-T7).
+    return runner.report;
+  }
+
+  // ER-visibility gate: block until the ER sees the delegated cursor.
+  await runner.step("er_visibility", () => awaitErVisibility(runner, cursor));
+
+  // ER gameplay (S3-T6) and end→settle/void (S3-T7) extend from here.
   return runner.report;
 }
 

@@ -25,9 +25,17 @@ import {
   ER_RPC,
   createLiveRunner,
   LIVE_PROGRAM_ID,
+  VALIDATOR,
+  DELEGATION_PROGRAM,
+  sortSeatsAscending,
+  gatherSeats,
+  selectDelegationBranch,
+  delegateAll,
+  awaitErVisibility,
 } from "../live-runner.js";
+import { liveCursorPda, liveEntryPda, callPda } from "../live-pda.js";
 
-const { Keypair } = pkg;
+const { Keypair, PublicKey } = pkg;
 
 // A deterministic keypair stands in for the funded keeper — generated in-memory,
 // never funded, never used to sign a real tx here.
@@ -177,5 +185,276 @@ describe("runLiveMatch export + hermetic import guard", () => {
     // Exactly two Programs, both from OUR factory, both this test's idl stub.
     expect(seen).toHaveLength(2);
     expect(seen.every((s) => s.idl.metadata?.name === "proofbet")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S3-T5 — delegation phase (BASE): player-count gate + delegate_* + ER gate
+//
+// *** HERMETIC ***
+//   • No real Program/Connection is ever constructed. `makeDelegationSpy()`
+//     hand-rolls a base Program whose `.methods.delegate*()` return a fluent
+//     chain (accountsPartial → remainingAccounts → rpc) that RECORDS its inputs
+//     and resolves a fake signature — it never touches a Connection.
+//   • The ER Connection is a plain object exposing only `getAccountInfo`, driven
+//     by a scripted queue of owners, so `awaitErVisibility` never opens a socket.
+//   • `sortSeatsAscending` / `gatherSeats` / `selectDelegationBranch` are pure
+//     over in-memory PublicKeys. No SOL is spent; no network is hit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A fluent `.methods.<x>()` recorder: accountsPartial→remainingAccounts→rpc. */
+function makeMethodRecorder(name: string, calls: any[]) {
+  return (...args: any[]) => {
+    const rec: any = { name, args, accounts: undefined, remaining: undefined };
+    const chain = {
+      accountsPartial(accounts: any) {
+        rec.accounts = accounts;
+        return chain;
+      },
+      remainingAccounts(remaining: any) {
+        rec.remaining = remaining;
+        return chain;
+      },
+      async rpc() {
+        calls.push(rec);
+        return `sig_${name}_${calls.length}`;
+      },
+    };
+    return chain;
+  };
+}
+
+/** Hand-rolled base Program spy with delegate_* recorders + a liveEntry.all stub. */
+function makeBaseSpy(seats: any[] = []) {
+  const calls: any[] = [];
+  const base: any = {
+    methods: {
+      delegateCursor: makeMethodRecorder("delegateCursor", calls),
+      delegateEntry: makeMethodRecorder("delegateEntry", calls),
+      delegateCall: makeMethodRecorder("delegateCall", calls),
+    },
+    account: {
+      liveEntry: {
+        all: vi.fn(async (_filters: any) =>
+          seats.map((player: any) => ({ publicKey: liveEntryPda(POOL_PK, player), account: { player } })),
+        ),
+      },
+    },
+  };
+  return { base, calls };
+}
+
+const POOL_PK = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
+const CURSOR_PK = liveCursorPda(POOL_PK);
+
+describe("sortSeatsAscending (pure)", () => {
+  it("orders pubkeys strictly ascending by Buffer.compare", () => {
+    const a = new PublicKey("11111111111111111111111111111112");
+    const b = new PublicKey("11111111111111111111111111111113");
+    const c = new PublicKey("So11111111111111111111111111111111111111112");
+    const sorted = sortSeatsAscending([c, a, b]);
+    for (let i = 1; i < sorted.length; i++) {
+      expect(Buffer.compare(sorted[i - 1].toBuffer(), sorted[i].toBuffer())).toBeLessThan(0);
+    }
+  });
+
+  it("does not mutate the input array", () => {
+    const a = new PublicKey("11111111111111111111111111111113");
+    const b = new PublicKey("11111111111111111111111111111112");
+    const input = [a, b];
+    const snapshot = [...input];
+    sortSeatsAscending(input);
+    expect(input.map((p) => p.toBase58())).toEqual(snapshot.map((p) => p.toBase58()));
+  });
+});
+
+describe("gatherSeats (liveEntry.all memcmp offset 40)", () => {
+  it("filters by memcmp {offset:40, bytes: pool} and returns ascending player pubkeys", async () => {
+    const p1 = Keypair.generate().publicKey;
+    const p2 = Keypair.generate().publicKey;
+    const { base } = makeBaseSpy([p1, p2]);
+    const seats = await gatherSeats(base, POOL_PK);
+    // memcmp filter shape
+    const filters = base.account.liveEntry.all.mock.calls[0][0];
+    expect(filters).toEqual([{ memcmp: { offset: 40, bytes: POOL_PK.toBase58() } }]);
+    // returned players are ascending
+    for (let i = 1; i < seats.length; i++) {
+      expect(Buffer.compare(seats[i - 1].toBuffer(), seats[i].toBuffer())).toBeLessThan(0);
+    }
+    expect(seats.map((s) => s.toBase58()).sort()).toEqual([p1, p2].map((p) => p.toBase58()).sort());
+  });
+
+  it("returns [] for a pool with no entries", async () => {
+    const { base } = makeBaseSpy([]);
+    expect(await gatherSeats(base, POOL_PK)).toEqual([]);
+  });
+});
+
+describe("selectDelegationBranch — HARD GATE player_count<2", () => {
+  it("routes to 'void' when fewer than 2 seats (0 or 1)", () => {
+    expect(selectDelegationBranch(0)).toBe("void");
+    expect(selectDelegationBranch(1)).toBe("void");
+  });
+  it("routes to 'delegate' at exactly 2 and above", () => {
+    expect(selectDelegationBranch(2)).toBe("delegate");
+    expect(selectDelegationBranch(9)).toBe("delegate");
+  });
+});
+
+describe("delegateAll (BASE) — delegate_* with pda key + validator remaining[0]", () => {
+  function runnerWith(base: any) {
+    const { runner } = makeRunner();
+    (runner as any).base = base;
+    return runner;
+  }
+
+  it("seats<2 → ZERO delegate calls (gate stops before any tx)", async () => {
+    const { base, calls } = makeBaseSpy();
+    const runner = runnerWith(base);
+    const seat = Keypair.generate().publicKey;
+    const res = await delegateAll(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats: [seat], // only 1
+      numCalls: 3,
+    });
+    expect(calls).toHaveLength(0);
+    expect(res.branch).toBe("void");
+    expect(res.delegated).toBe(false);
+  });
+
+  it("seats>=2 → delegateCursor + delegateEntry×seats + delegateCall×numCalls", async () => {
+    const { base, calls } = makeBaseSpy();
+    const runner = runnerWith(base);
+    const s1 = Keypair.generate().publicKey;
+    const s2 = Keypair.generate().publicKey;
+    const numCalls = 4;
+    const res = await delegateAll(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats: [s1, s2],
+      numCalls,
+    });
+    expect(res.branch).toBe("delegate");
+    expect(res.delegated).toBe(true);
+    const byName = (n: string) => calls.filter((c) => c.name === n);
+    expect(byName("delegateCursor")).toHaveLength(1);
+    expect(byName("delegateEntry")).toHaveLength(2);
+    expect(byName("delegateCall")).toHaveLength(numCalls);
+  });
+
+  it("EVERY delegate_* pins remainingAccounts[0] === VALIDATOR (non-signer, non-writable)", async () => {
+    const { base, calls } = makeBaseSpy();
+    const runner = runnerWith(base);
+    await delegateAll(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats: [Keypair.generate().publicKey, Keypair.generate().publicKey],
+      numCalls: 2,
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) {
+      expect(c.remaining[0].pubkey.toBase58()).toBe(VALIDATOR.toBase58());
+      expect(c.remaining[0].isSigner).toBe(false);
+      expect(c.remaining[0].isWritable).toBe(false);
+    }
+  });
+
+  it("the delegated account is passed under the GENERIC key `pda` (not cursor/entry/call)", async () => {
+    const { base, calls } = makeBaseSpy();
+    const runner = runnerWith(base);
+    const s1 = Keypair.generate().publicKey;
+    const s2 = Keypair.generate().publicKey;
+    await delegateAll(runner, { pool: POOL_PK, cursor: CURSOR_PK, seats: [s1, s2], numCalls: 1 });
+    for (const c of calls) {
+      // account key literally `pda`, plus keeper+pool
+      expect(Object.prototype.hasOwnProperty.call(c.accounts, "pda")).toBe(true);
+      expect(c.accounts).not.toHaveProperty("cursor");
+      expect(c.accounts).not.toHaveProperty("entry");
+      expect(c.accounts).not.toHaveProperty("call");
+    }
+    // cursor delegation carries the cursor PDA under `pda`
+    const cur = calls.find((c) => c.name === "delegateCursor");
+    expect(cur.accounts.pda.toBase58()).toBe(CURSOR_PK.toBase58());
+    // call delegation carries the call PDA under `pda`
+    const callRec = calls.find((c) => c.name === "delegateCall");
+    expect(callRec.accounts.pda.toBase58()).toBe(callPda(POOL_PK, 0).toBase58());
+    // entry delegation carries the entry PDA under `pda` and player as the arg
+    const entryRec = calls.find((c) => c.name === "delegateEntry");
+    const seatArg = entryRec.args[0];
+    expect(entryRec.accounts.pda.toBase58()).toBe(liveEntryPda(POOL_PK, seatArg).toBase58());
+  });
+
+  it("delegateCall is issued for seq 0..numCalls-1", async () => {
+    const { base, calls } = makeBaseSpy();
+    const runner = runnerWith(base);
+    await delegateAll(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats: [Keypair.generate().publicKey, Keypair.generate().publicKey],
+      numCalls: 3,
+    });
+    const seqs = calls.filter((c) => c.name === "delegateCall").map((c) => c.args[0]);
+    expect(seqs).toEqual([0, 1, 2]);
+  });
+});
+
+describe("awaitErVisibility — poll erConn until owner === PROGRAM_ID", () => {
+  /** A scripted erConn.getAccountInfo: yields queued owners in order, last repeats. */
+  function makeErConn(ownerScript: (any | null)[]) {
+    let i = 0;
+    const getAccountInfo = vi.fn(async (_pk: any, _c?: any) => {
+      const owner = ownerScript[Math.min(i, ownerScript.length - 1)];
+      i++;
+      return owner === null ? null : { owner };
+    });
+    return { getAccountInfo };
+  }
+
+  function runnerWithEr(erConn: any) {
+    const { runner } = makeRunner();
+    (runner as any).erConn = erConn;
+    return runner;
+  }
+
+  it("keeps polling while the account is owned by DELEGATION_PROGRAM, resolves once PROGRAM_ID", async () => {
+    vi.useFakeTimers();
+    try {
+      const erConn = makeErConn([
+        null, // not yet surfaced
+        DELEGATION_PROGRAM, // still delegated
+        LIVE_PROGRAM_ID, // ready
+      ]);
+      const runner = runnerWithEr(erConn);
+      const promise = awaitErVisibility(runner, CURSOR_PK, { intervalMs: 2500, timeoutMs: 60000 });
+      // advance through the poll loop
+      await vi.advanceTimersByTimeAsync(2500);
+      await vi.advanceTimersByTimeAsync(2500);
+      await vi.advanceTimersByTimeAsync(2500);
+      const ok = await promise;
+      expect(ok).toBe(true);
+      // it did NOT resolve on the DELEGATION_PROGRAM tick — it waited for PROGRAM_ID
+      expect(erConn.getAccountInfo.mock.calls.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws on timeout if the account never flips to PROGRAM_ID", async () => {
+    vi.useFakeTimers();
+    try {
+      const erConn = makeErConn([DELEGATION_PROGRAM]); // stuck delegated forever
+      const runner = runnerWithEr(erConn);
+      const promise = awaitErVisibility(runner, CURSOR_PK, { intervalMs: 2500, timeoutMs: 5000 });
+      const caught = promise.catch((e: Error) => e);
+      await vi.advanceTimersByTimeAsync(2500);
+      await vi.advanceTimersByTimeAsync(2500);
+      await vi.advanceTimersByTimeAsync(2500);
+      const err = await caught;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/ER|visib|cursor|timeout/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
