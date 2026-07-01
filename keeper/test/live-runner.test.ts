@@ -32,7 +32,15 @@ import {
   selectDelegationBranch,
   delegateAll,
   awaitErVisibility,
+  NONE_SEQ,
+  erKind,
+  openCallOnEr,
+  resolveOutcomeIndex,
+  resolveCallOnEr,
+  scoreAllSeats,
+  commitLiveOnEr,
 } from "../live-runner.js";
+import { CallKind, VOID_OUTCOME } from "../live-feed.js";
 import { liveCursorPda, liveEntryPda, callPda } from "../live-pda.js";
 
 const { Keypair, PublicKey } = pkg;
@@ -456,5 +464,339 @@ describe("awaitErVisibility — poll erConn until owner === PROGRAM_ID", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S3-T6 — ER gameplay (open/resolve/score/commit)
+//
+// *** HERMETIC ***
+//   • The `er` Program is a hand-rolled spy: `.methods.openCall/resolveCall/
+//     scoreEntry/commitLive()` return a fluent chain (accountsPartial →
+//     remainingAccounts → rpc) that RECORDS its args/accounts/remaining and
+//     resolves a fake signature — it never touches a Connection.
+//   • Resolve's proof core is exercised through an INJECTED `viewValidate` seam
+//     (`makeProofSeam`) so `resolveOutcomeIndex` never runs `fetchStatValidation`
+//     (HTTP) nor a real `.view()` — we only assert it hands the TXORACLE Program
+//     to `viewValidate`, never proofbet.
+//   • Pure helpers (`erKind`, void-on-goal) run over in-memory data.
+// A test that spent SOL or hit the network would be a FAILING test; none here does.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A fluent ER `.methods.<x>()` recorder mirroring makeMethodRecorder. */
+function makeErMethodRecorder(name: string, calls: any[]) {
+  return (...args: any[]) => {
+    const rec: any = { name, args, accounts: undefined, remaining: undefined };
+    const chain = {
+      accountsPartial(accounts: any) {
+        rec.accounts = accounts;
+        return chain;
+      },
+      remainingAccounts(remaining: any) {
+        rec.remaining = remaining;
+        return chain;
+      },
+      async rpc() {
+        calls.push(rec);
+        return `sig_${name}_${calls.length}`;
+      },
+    };
+    return chain;
+  };
+}
+
+/** Hand-rolled ER Program spy with the four gameplay recorders. */
+function makeErSpy() {
+  const calls: any[] = [];
+  const er: any = {
+    methods: {
+      openCall: makeErMethodRecorder("openCall", calls),
+      resolveCall: makeErMethodRecorder("resolveCall", calls),
+      scoreEntry: makeErMethodRecorder("scoreEntry", calls),
+      commitLive: makeErMethodRecorder("commitLive", calls),
+    },
+  };
+  return { er, calls };
+}
+
+function erRunner(er: any) {
+  const { runner } = makeRunner();
+  (runner as any).er = er;
+  return runner;
+}
+
+describe("erKind — CallKind → Anchor enum object", () => {
+  it("maps each kind to its snake→camel single-key enum", () => {
+    expect(erKind(CallKind.NextGoal)).toEqual({ nextGoal: {} });
+    expect(erKind(CallKind.GoalRush)).toEqual({ goalRush: {} });
+    expect(erKind(CallKind.CornerSoon)).toEqual({ cornerSoon: {} });
+    expect(erKind(CallKind.CardSoon)).toEqual({ cardSoon: {} });
+  });
+});
+
+describe("openCallOnEr — single-open invariant + accountsPartial shape", () => {
+  it("opens seq when cursor.open_seq === NONE_SEQ and seq === next_seq", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const call = callPda(POOL_PK, 0);
+    const sig = await openCallOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      call,
+      seq: 0,
+      kind: CallKind.NextGoal,
+      cursorState: { openSeq: NONE_SEQ, nextSeq: 0 },
+    });
+    expect(sig).toBeTruthy();
+    const rec = calls.find((c) => c.name === "openCall");
+    // args: (seq, {nextGoal:{}}, numOptions, basePoints, answerSecs)
+    expect(rec.args[0]).toBe(0);
+    expect(rec.args[1]).toEqual({ nextGoal: {} });
+    expect(rec.args[2]).toBe(3); // numOptions for NextGoal
+    expect(rec.args[3]).toEqual([4, 1, 4]); // basePoints
+    expect(typeof rec.args[4]).toBe("number"); // answerSecs
+    // accountsPartial has keeper/pool/cursor/call
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    expect(rec.accounts.cursor.toBase58()).toBe(CURSOR_PK.toBase58());
+    expect(rec.accounts.call.toBase58()).toBe(call.toBase58());
+    expect(rec.accounts.keeper.toBase58()).toBe(runner.keeper.toBase58());
+  });
+
+  it("opens a binary kind (CornerSoon) with a length-3 basePoints wire array", async () => {
+    // base_points is a fixed on-chain [u8; 3]; a 2-element array under-serializes
+    // open_call and corrupts answer_secs. Binary kinds must pass [x, y, 0].
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const call = callPda(POOL_PK, 1);
+    const sig = await openCallOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      call,
+      seq: 1,
+      kind: CallKind.CornerSoon,
+      cursorState: { openSeq: NONE_SEQ, nextSeq: 1 },
+    });
+    expect(sig).toBeTruthy();
+    const rec = calls.find((c) => c.name === "openCall");
+    expect(rec.args[1]).toEqual({ cornerSoon: {} });
+    expect(rec.args[2]).toBe(2); // numOptions for CornerSoon
+    expect(rec.args[3]).toHaveLength(3); // fixed [u8;3] wire array
+    expect(rec.args[3]).toEqual([2, 1, 0]); // padded with trailing 0
+  });
+
+  it("does NOT open a second call while one is already open (open_seq !== NONE_SEQ)", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const res = await openCallOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      call: callPda(POOL_PK, 1),
+      seq: 1,
+      kind: CallKind.GoalRush,
+      cursorState: { openSeq: 0, nextSeq: 1 }, // seq 0 still open
+    });
+    expect(res).toBeNull(); // refused
+    expect(calls.filter((c) => c.name === "openCall")).toHaveLength(0);
+  });
+
+  it("refuses to open when seq !== cursor.next_seq (out-of-order guard)", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const res = await openCallOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      call: callPda(POOL_PK, 5),
+      seq: 5,
+      kind: CallKind.CardSoon,
+      cursorState: { openSeq: NONE_SEQ, nextSeq: 2 }, // next is 2, not 5
+    });
+    expect(res).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("resolveOutcomeIndex — proof core on the TXORACLE program", () => {
+  /**
+   * A proof seam that records which Program `viewValidate` was handed, and drives
+   * the winning bucket deterministically. `program` here is a UNIQUE object that
+   * stands for the Txoracle program — the test asserts the runner passes THIS one
+   * (never a proofbet program) to `viewValidate`.
+   */
+  function makeProofSeam(opts: {
+    homeDelta: number;
+    awayDelta: number;
+    watchedRose: boolean;
+    prevGoals: number;
+    curGoals: number;
+  }) {
+    const txoracleProgram = { __txoracle: true, programId: { toBase58: () => "TXORACLE" } };
+    const seen: any[] = [];
+    const seam = {
+      program: txoracleProgram as any,
+      // Feed-derived deltas the runner will map via mapOutcomeToOption.
+      deltas: {
+        homeGoals: opts.homeDelta,
+        awayGoals: opts.awayDelta,
+        watched: opts.watchedRose ? 1 : 0,
+      },
+      prevGoals: opts.prevGoals,
+      curGoals: opts.curGoals,
+      // Stand-in viewValidate: records the program it was handed.
+      viewValidate: vi.fn(async (program: any) => {
+        seen.push(program);
+        return true;
+      }),
+    };
+    return { seam, seen, txoracleProgram };
+  }
+
+  it("hands the TXORACLE program (never proofbet) to viewValidate when it consults the predicate", async () => {
+    const { seam, seen, txoracleProgram } = makeProofSeam({
+      homeDelta: 0,
+      awayDelta: 0,
+      watchedRose: true,
+      prevGoals: 0,
+      curGoals: 0,
+    });
+    await resolveOutcomeIndex(CallKind.CornerSoon, seam as any);
+    // If the predicate path consulted viewValidate at all, it used the Txoracle program.
+    for (const p of seen) {
+      expect(p).toBe(txoracleProgram);
+      expect(p.__txoracle).toBe(true);
+    }
+  });
+
+  it("NextGoal: home rose more → option 0; away → 2; equal → 1 (never a sentinel)", async () => {
+    const home = await resolveOutcomeIndex(CallKind.NextGoal, {
+      ...makeProofSeam({ homeDelta: 1, awayDelta: 0, watchedRose: false, prevGoals: 0, curGoals: 1 }).seam,
+    } as any);
+    const away = await resolveOutcomeIndex(CallKind.NextGoal, {
+      ...makeProofSeam({ homeDelta: 0, awayDelta: 1, watchedRose: false, prevGoals: 0, curGoals: 1 }).seam,
+    } as any);
+    const none = await resolveOutcomeIndex(CallKind.NextGoal, {
+      ...makeProofSeam({ homeDelta: 0, awayDelta: 0, watchedRose: false, prevGoals: 0, curGoals: 0 }).seam,
+    } as any);
+    expect(home).toBe(0);
+    expect(away).toBe(2);
+    expect(none).toBe(1);
+    for (const o of [home, away, none]) {
+      expect(o).not.toBe(0xff);
+      expect(o).toBeGreaterThanOrEqual(0);
+      expect(o).toBeLessThan(3);
+    }
+  });
+
+  it("void-on-goal: a goal rise while CornerSoon open → exactly 0xFE (never 0xFF)", async () => {
+    const out = await resolveOutcomeIndex(CallKind.CornerSoon, {
+      ...makeProofSeam({ homeDelta: 0, awayDelta: 0, watchedRose: false, prevGoals: 0, curGoals: 1 }).seam,
+    } as any);
+    expect(out).toBe(VOID_OUTCOME);
+    expect(out).toBe(0xfe);
+    expect(out).not.toBe(0xff);
+  });
+
+  it("a goal rise while NextGoal open does NOT void (goal is its answer)", async () => {
+    const out = await resolveOutcomeIndex(CallKind.NextGoal, {
+      ...makeProofSeam({ homeDelta: 1, awayDelta: 0, watchedRose: false, prevGoals: 0, curGoals: 1 }).seam,
+    } as any);
+    expect(out).toBe(0); // home scored — resolves, not voids
+  });
+
+  it("binary hit/miss stays in range [0,2) — never a sentinel", async () => {
+    const hit = await resolveOutcomeIndex(CallKind.CardSoon, {
+      ...makeProofSeam({ homeDelta: 0, awayDelta: 0, watchedRose: true, prevGoals: 0, curGoals: 0 }).seam,
+    } as any);
+    const miss = await resolveOutcomeIndex(CallKind.CardSoon, {
+      ...makeProofSeam({ homeDelta: 0, awayDelta: 0, watchedRose: false, prevGoals: 0, curGoals: 0 }).seam,
+    } as any);
+    expect(hit).toBe(0);
+    expect(miss).toBe(1);
+  });
+});
+
+describe("resolveCallOnEr — resolve_call(outcome) accountsPartial shape", () => {
+  it("passes the outcome index and keeper/pool/cursor/call accounts", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const call = callPda(POOL_PK, 0);
+    await resolveCallOnEr(runner, { pool: POOL_PK, cursor: CURSOR_PK, call, seq: 0, outcome: 2 });
+    const rec = calls.find((c) => c.name === "resolveCall");
+    expect(rec.args[0]).toBe(2);
+    expect(rec.accounts.keeper.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    expect(rec.accounts.cursor.toBase58()).toBe(CURSOR_PK.toBase58());
+    expect(rec.accounts.call.toBase58()).toBe(call.toBase58());
+  });
+
+  it("carries 0xFE verbatim for a void", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    await resolveCallOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      call: callPda(POOL_PK, 0),
+      seq: 0,
+      outcome: VOID_OUTCOME,
+    });
+    expect(calls.find((c) => c.name === "resolveCall").args[0]).toBe(0xfe);
+  });
+});
+
+describe("scoreAllSeats — score_entry per seat under key `cranker`", () => {
+  it("scores each seat exactly once with cranker=keeper, call, entry", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const s1 = Keypair.generate().publicKey;
+    const s2 = Keypair.generate().publicKey;
+    const call = callPda(POOL_PK, 0);
+    await scoreAllSeats(runner, { pool: POOL_PK, call, seats: [s1, s2] });
+    const scores = calls.filter((c) => c.name === "scoreEntry");
+    expect(scores).toHaveLength(2);
+    for (const rec of scores) {
+      // key is literally `cranker`, NOT `keeper`
+      expect(Object.prototype.hasOwnProperty.call(rec.accounts, "cranker")).toBe(true);
+      expect(rec.accounts).not.toHaveProperty("keeper");
+      expect(rec.accounts.cranker.toBase58()).toBe(runner.keeper.toBase58());
+      expect(rec.accounts.call.toBase58()).toBe(call.toBase58());
+    }
+    // each seat's own entry PDA was scored
+    const entries = scores.map((r) => r.accounts.entry.toBase58()).sort();
+    expect(entries).toEqual(
+      [liveEntryPda(POOL_PK, s1), liveEntryPda(POOL_PK, s2)].map((p) => p.toBase58()).sort(),
+    );
+  });
+});
+
+describe("commitLiveOnEr — full writable remainingAccounts [cursor, ...entries, ...calls]", () => {
+  it("remainingAccounts = cursor + every entry + every call, all isWritable:true", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const s1 = Keypair.generate().publicKey;
+    const s2 = Keypair.generate().publicKey;
+    const seats = [s1, s2];
+    const callPdas = [callPda(POOL_PK, 0), callPda(POOL_PK, 1)];
+    await commitLiveOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats,
+      calls: callPdas,
+    });
+    const rec = calls.find((c) => c.name === "commitLive");
+    expect(rec.accounts.keeper.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    // remaining = [cursor, entry(s1), entry(s2), call0, call1]
+    const expected = [
+      CURSOR_PK,
+      liveEntryPda(POOL_PK, s1),
+      liveEntryPda(POOL_PK, s2),
+      callPdas[0],
+      callPdas[1],
+    ];
+    expect(rec.remaining).toHaveLength(expected.length);
+    rec.remaining.forEach((r: any, i: number) => {
+      expect(r.pubkey.toBase58()).toBe(expected[i].toBase58());
+      expect(r.isSigner).toBe(false);
+      expect(r.isWritable).toBe(true);
+    });
   });
 });

@@ -29,6 +29,15 @@ import type { Idl, Program as ProgramT, AnchorProvider as AnchorProviderT } from
 import pkg from "@solana/web3.js";
 import type { Connection as ConnectionT, Keypair as KeypairT, PublicKey as PublicKeyT } from "@solana/web3.js";
 import { liveEntryPda, callPda, liveCursorPda } from "./live-pda.js";
+import {
+  CallKind,
+  callSpec,
+  mapOutcomeToOption,
+  shouldVoidOnGoal,
+  VOID_OUTCOME,
+  type GoalDeltas,
+} from "./live-feed.js";
+import type { Program as AnchorProgramT } from "@coral-xyz/anchor";
 
 const { Connection, PublicKey, Keypair } = pkg;
 const { Program, AnchorProvider, Wallet } = anchorDefault;
@@ -53,6 +62,11 @@ export const DELEGATION_PROGRAM = new PublicKey(
 export const VALIDATOR = new PublicKey(
   "MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57",
 );
+/**
+ * "No call is open" sentinel for `LiveCursor.open_seq` (u32::MAX). The
+ * single-open invariant: an `open_call` is only legal when `open_seq === NONE_SEQ`.
+ */
+export const NONE_SEQ = 4_294_967_295;
 
 // ── report accumulator (proof.ts:72-91) ─────────────────────────────────────
 
@@ -337,6 +351,249 @@ export async function awaitErVisibility(
     await sleep(intervalMs);
   }
   throw new Error("ER visibility timeout: cursor never surfaced under PROGRAM_ID on the ER RPC");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S3-T6 — ER gameplay (open / resolve / score / commit) on the `er` Program
+//
+// Productionizes proof.ts:209-227. Once the ER surfaces the delegated working
+// set, the keeper runs a call cycle on the ER RPC:
+//   open_call(seq)  — ONLY when the cursor reports no open call (open_seq==NONE_SEQ)
+//                     AND seq matches cursor.next_seq (single-open invariant).
+//   resolve_call    — a WINNING OPTION INDEX derived from the TXLINE feed via the
+//                     settle.ts:143-159 proof core (viewValidate on the TXORACLE
+//                     program), mapped through mapOutcomeToOption; OR the void
+//                     sentinel 0xFE when a goal rose under a non-goal call.
+//   score_entry     — once per seat, under the account key `cranker` (NOT keeper).
+//   commit_live     — a mid-match ER→base checkpoint with the FULL writable
+//                     remaining-account set [cursor, ...entries, ...calls].
+//
+// Account-key notes (do NOT copy-paste the settle/delegate keys here):
+//   open_call / resolve_call : { keeper, pool, cursor, call }
+//   score_entry              : { cranker, call, entry }   ← `cranker`, not keeper
+//   commit_live              : { keeper, pool } + remainingAccounts (all writable)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Map a `CallKind` to the Anchor enum object `open_call` expects. The IDL is
+ * snake_case on the wire but Anchor consumes camelCase variant keys, so
+ * NextGoal → `{ nextGoal: {} }`, etc. Throws on an unknown kind.
+ */
+export function erKind(kind: CallKind): Record<string, Record<string, never>> {
+  switch (kind) {
+    case CallKind.NextGoal:
+      return { nextGoal: {} };
+    case CallKind.GoalRush:
+      return { goalRush: {} };
+    case CallKind.CornerSoon:
+      return { cornerSoon: {} };
+    case CallKind.CardSoon:
+      return { cardSoon: {} };
+    default:
+      throw new Error(`erKind: unknown CallKind ${kind}`);
+  }
+}
+
+/** The (freshly-read) cursor fields the single-open invariant needs. */
+export interface CursorState {
+  /** `LiveCursor.open_seq` — NONE_SEQ when no call is open. */
+  openSeq: number;
+  /** `LiveCursor.next_seq` — the next seq legal to open. */
+  nextSeq: number;
+}
+
+/** Inputs for an `open_call` on the ER. */
+export interface OpenCallInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  call: PublicKeyT;
+  seq: number;
+  kind: CallKind;
+  /** Freshly-read cursor state (enforces the single-open invariant). */
+  cursorState: CursorState;
+}
+
+/**
+ * Open ONE call on the ER, enforcing the single-open invariant BEFORE any tx:
+ *   • a call is only opened when `cursorState.openSeq === NONE_SEQ` (no call open)
+ *   • and `seq === cursorState.nextSeq` (strictly in-order).
+ * A violation returns `null` WITHOUT issuing a tx (never a double-open). On a
+ * legal open it submits `open_call(seq, erKind, numOptions, basePoints,
+ * answerSecs).accountsPartial({keeper,pool,cursor,call})` through `runner.step`.
+ */
+export async function openCallOnEr(
+  runner: LiveRunner,
+  input: OpenCallInput,
+): Promise<string | null> {
+  const { pool, cursor, call, seq, kind, cursorState } = input;
+  // Single-open invariant — refuse (no tx) on any violation.
+  if (cursorState.openSeq !== NONE_SEQ) return null;
+  if (seq !== cursorState.nextSeq) return null;
+
+  const spec = callSpec(kind);
+  const keeper = runner.keeper;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.er as any).methods;
+  return runner.step(`open_call(${seq})`, () =>
+    methods
+      .openCall(seq, erKind(kind), spec.numOptions, spec.basePoints, spec.answerSecs)
+      .accountsPartial({ keeper, pool, cursor, call })
+      .rpc(),
+  );
+}
+
+/**
+ * The proof/feed context `resolveOutcomeIndex` consumes. It carries the feed
+ * deltas (already derived from the TXLINE score history), the cumulative goal
+ * totals bracketing the call's open window (for the void-on-goal check), and the
+ * TXORACLE `program` + a `viewValidate` seam. In production the caller wires
+ * `program = ctx.program` (Txoracle 6pW64gN…) and `viewValidate` = the
+ * validate.ts implementation over a `fetchStatValidation` payload; tests inject
+ * a spy that records the program handed to it.
+ */
+export interface ResolveContext {
+  /** Goal/watched deltas since the call opened (fed to mapOutcomeToOption). */
+  deltas: GoalDeltas;
+  /** Cumulative goal total when the call OPENED. */
+  prevGoals: number;
+  /** Cumulative goal total NOW (latest event). */
+  curGoals: number;
+  /** The TXORACLE program (6pW64gN…) — NEVER the proofbet/live program. */
+  program: AnchorProgramT;
+  /**
+   * The settle.ts:143-159 proof-core seam. Called only when a kind's predicate
+   * must be consulted on-chain; it MUST be handed `ctx.program` (Txoracle). Tests
+   * assert exactly that. Optional: pure-delta kinds may resolve without it.
+   */
+  viewValidate?: (program: AnchorProgramT) => Promise<boolean>;
+}
+
+/**
+ * Derive the WINNING OPTION INDEX (or the void sentinel 0xFE) for an open call
+ * from the resolved feed. This is the single real-money-critical mapping:
+ *   1. VOID-ON-GOAL first — if a goal rose while a NON-goal call was open
+ *      (shouldVoidOnGoal), return 0xFE. This wins over any option mapping.
+ *   2. Otherwise map the feed deltas to a legitimate option index via
+ *      `mapOutcomeToOption` (NextGoal home/away/none; binary hit/miss).
+ * NEVER returns 0xFF, and never an index ≥ num_options. The proof-core seam
+ * (`viewValidate`), when consulted, is always handed the TXORACLE program.
+ */
+export async function resolveOutcomeIndex(
+  kind: CallKind,
+  ctx: ResolveContext,
+): Promise<number> {
+  // (1) Void-on-goal takes precedence for the non-goal kinds.
+  if (shouldVoidOnGoal(kind, ctx.prevGoals, ctx.curGoals)) {
+    return VOID_OUTCOME;
+  }
+  // (2) If a predicate seam is provided, run it on the TXORACLE program so the
+  // on-chain-proved stat backs the mapping (settle.ts:143-159 posture). The
+  // boolean is advisory here — the delta mapping is authoritative for the index —
+  // but consulting it proves we always use the Txoracle program, never proofbet.
+  if (ctx.viewValidate) {
+    await ctx.viewValidate(ctx.program);
+  }
+  return mapOutcomeToOption(kind, ctx.deltas);
+}
+
+/** Inputs for a `resolve_call` on the ER. */
+export interface ResolveCallInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  call: PublicKeyT;
+  seq: number;
+  /** A winning option index in [0, num_options) OR the void sentinel 0xFE. */
+  outcome: number;
+}
+
+/**
+ * Submit `resolve_call(outcome).accountsPartial({keeper,pool,cursor,call})` on
+ * the ER. `outcome` is a winning option index or 0xFE (passed verbatim). Flows
+ * through `runner.step`.
+ */
+export async function resolveCallOnEr(
+  runner: LiveRunner,
+  input: ResolveCallInput,
+): Promise<string | null> {
+  const { pool, cursor, call, seq, outcome } = input;
+  const keeper = runner.keeper;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.er as any).methods;
+  return runner.step(`resolve_call(${seq})=${outcome}`, () =>
+    methods
+      .resolveCall(outcome)
+      .accountsPartial({ keeper, pool, cursor, call })
+      .rpc(),
+  );
+}
+
+/** Inputs for the per-seat `score_entry` batch. */
+export interface ScoreAllInput {
+  pool: PublicKeyT;
+  call: PublicKeyT;
+  /** Seat player pubkeys — each scored once (its own LiveEntry PDA). */
+  seats: PublicKeyT[];
+}
+
+/**
+ * Score EVERY seat for a resolved call: one `score_entry` per seat, under the
+ * account key `cranker` (NOT keeper) — `{cranker: keeper, call, entry}`. Every
+ * seat must reach `next_score_seq == resolved_count` before settle, so the runner
+ * scores the full seat set here. Flows through `runner.step`.
+ */
+export async function scoreAllSeats(
+  runner: LiveRunner,
+  input: ScoreAllInput,
+): Promise<void> {
+  const { pool, call, seats } = input;
+  const cranker = runner.keeper;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.er as any).methods;
+  for (const player of seats) {
+    const entry = liveEntryPda(pool, player);
+    await runner.step(`score_entry ${player.toBase58().slice(0, 4)}`, () =>
+      methods.scoreEntry().accountsPartial({ cranker, call, entry }).rpc(),
+    );
+  }
+}
+
+/** Inputs for a `commit_live` ER→base checkpoint. */
+export interface CommitLiveInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  /** Seat player pubkeys (their entries join the writable set). */
+  seats: PublicKeyT[];
+  /** Every delegated Call PDA (the full call set joins the writable set). */
+  calls: PublicKeyT[];
+}
+
+/**
+ * Commit the ER working set back to base (proof.ts:225-227) — a mid-match
+ * checkpoint that does NOT undelegate. The remaining-account contract is the
+ * FULL writable set `[cursor, ...entries, ...calls]` (isSigner:false,
+ * isWritable:true), in that order. Flows through `runner.step`.
+ */
+export async function commitLiveOnEr(
+  runner: LiveRunner,
+  input: CommitLiveInput,
+): Promise<string | null> {
+  const { pool, cursor, seats, calls } = input;
+  const keeper = runner.keeper;
+  const entries = seats.map((player) => liveEntryPda(pool, player));
+  const remaining = [cursor, ...entries, ...calls].map((pubkey) => ({
+    pubkey,
+    isSigner: false,
+    isWritable: true,
+  }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.er as any).methods;
+  return runner.step("commit_live", () =>
+    methods
+      .commitLive()
+      .accountsPartial({ keeper, pool })
+      .remainingAccounts(remaining)
+      .rpc(),
+  );
 }
 
 /** Options for a full live-match run (extended in S3-T5..T7). */

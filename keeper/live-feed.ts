@@ -40,10 +40,21 @@ export enum CallKind {
   CardSoon = 3,
 }
 
-/** Per-kind resolvable spec. `basePoints.length === numOptions`, always. */
+/**
+ * Per-kind resolvable spec.
+ *
+ * `basePoints` is the on-chain `open_call` wire array, which is a FIXED
+ * `[u8; 3]` (see programs/proofbet/src/live_state.rs:117 and the IDL). It is
+ * ALWAYS length 3 — binary kinds (numOptions === 2) carry a trailing 0 in the
+ * third slot ([3,1,0] / [2,1,0]). Passing a 2-element array to Anchor borsh
+ * under-serializes the instruction (only 2 of 3 bytes emitted), corrupting
+ * `answer_secs` and failing on-chain deserialization, so the length is never
+ * trimmed to `numOptions`.
+ */
 export interface CallSpec {
   numOptions: number;
-  basePoints: number[];
+  /** On-chain [u8; 3] wire array — always length 3 (trailing 0 for binary kinds). */
+  basePoints: [number, number, number];
   answerSecs: number;
 }
 
@@ -62,16 +73,18 @@ export interface GoalDeltas {
  * Static per-kind specs, mirrored from the web live game's call generators
  * (web/src/lib/liveGame.ts: nextGoal/goalRush/cornerSoon/cardSoon — the
  * base-point weights) with a fixed 9s answer window.
+ * `basePoints` is the on-chain [u8; 3] wire array, so the binary (2-option)
+ * kinds pad the unused third option with a trailing 0:
  *   NextGoal  : 3 opts, [home 4, no-goal 1, away 4]
- *   GoalRush  : 2 opts, [yes 3, no 1]
- *   CornerSoon: 2 opts, [yes 2, no 1]
- *   CardSoon  : 2 opts, [yes 3, no 1]
+ *   GoalRush  : 2 opts, [yes 3, no 1, —0]
+ *   CornerSoon: 2 opts, [yes 2, no 1, —0]
+ *   CardSoon  : 2 opts, [yes 3, no 1, —0]
  */
 const CALL_SPECS: Record<CallKind, CallSpec> = {
   [CallKind.NextGoal]: { numOptions: 3, basePoints: [4, 1, 4], answerSecs: 9 },
-  [CallKind.GoalRush]: { numOptions: 2, basePoints: [3, 1], answerSecs: 9 },
-  [CallKind.CornerSoon]: { numOptions: 2, basePoints: [2, 1], answerSecs: 9 },
-  [CallKind.CardSoon]: { numOptions: 2, basePoints: [3, 1], answerSecs: 9 },
+  [CallKind.GoalRush]: { numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 },
+  [CallKind.CornerSoon]: { numOptions: 2, basePoints: [2, 1, 0], answerSecs: 9 },
+  [CallKind.CardSoon]: { numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 },
 };
 
 /** Kinds whose ANSWER is a goal — a goal rise is expected, so it must NOT void them. */
@@ -107,7 +120,8 @@ export function callSpec(kind: CallKind): CallSpec {
   const spec = CALL_SPECS[kind];
   if (!spec) throw new Error(`callSpec: unknown CallKind ${kind}`);
   // Return a shallow copy so callers cannot mutate the shared spec.
-  return { numOptions: spec.numOptions, basePoints: [...spec.basePoints], answerSecs: spec.answerSecs };
+  const [b0, b1, b2] = spec.basePoints;
+  return { numOptions: spec.numOptions, basePoints: [b0, b1, b2], answerSecs: spec.answerSecs };
 }
 
 /**

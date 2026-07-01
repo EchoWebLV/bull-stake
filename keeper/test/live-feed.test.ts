@@ -182,22 +182,24 @@ describe("callSpec", () => {
     });
   });
 
-  it("GoalRush → 2 options, [3,1]", () => {
-    expect(callSpec(CallKind.GoalRush)).toEqual({ numOptions: 2, basePoints: [3, 1], answerSecs: 9 });
+  it("GoalRush → 2 options, [3,1,0]", () => {
+    expect(callSpec(CallKind.GoalRush)).toEqual({ numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 });
   });
 
-  it("CornerSoon → 2 options, [2,1]", () => {
-    expect(callSpec(CallKind.CornerSoon)).toEqual({ numOptions: 2, basePoints: [2, 1], answerSecs: 9 });
+  it("CornerSoon → 2 options, [2,1,0]", () => {
+    expect(callSpec(CallKind.CornerSoon)).toEqual({ numOptions: 2, basePoints: [2, 1, 0], answerSecs: 9 });
   });
 
-  it("CardSoon → 2 options, [3,1]", () => {
-    expect(callSpec(CallKind.CardSoon)).toEqual({ numOptions: 2, basePoints: [3, 1], answerSecs: 9 });
+  it("CardSoon → 2 options, [3,1,0]", () => {
+    expect(callSpec(CallKind.CardSoon)).toEqual({ numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 });
   });
 
-  it("every basePoints array length matches numOptions", () => {
+  it("every basePoints array is exactly length 3 (on-chain [u8;3] wire array)", () => {
+    // base_points is a FIXED [u8; 3] on-chain; a short array under-serializes the
+    // open_call ix and corrupts answer_secs. Binary kinds pad the third slot with 0.
     for (const kind of [CallKind.NextGoal, CallKind.GoalRush, CallKind.CornerSoon, CallKind.CardSoon]) {
       const s = callSpec(kind);
-      expect(s.basePoints.length).toBe(s.numOptions);
+      expect(s.basePoints.length).toBe(3);
     }
   });
 });
