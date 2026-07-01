@@ -21,7 +21,13 @@
  *     a NON-goal call (CornerSoon/CardSoon) was open → resolve_call(seq, 0xFE).
  */
 
-import { FINISHED_PHASES, PHASE, VOID_PHASES, PHASE_NAME } from "../spike/src/config.js";
+import {
+  FINISHED_PHASES,
+  PHASE,
+  VOID_PHASES,
+  PHASE_NAME,
+  SOCCER_STAT,
+} from "../spike/src/config.js";
 import type { ScoreEvent } from "../spike/src/discover.js";
 
 /** On-chain void sentinel that `resolve_call` accepts (voids a call, refunds its points). */
@@ -113,6 +119,105 @@ export function goalTotal(stats: Record<string, number> | undefined | null): num
 export function latestEvent(events: ScoreEvent[]): ScoreEvent | null {
   if (!events.length) return null;
   return events.reduce((best, e) => (e.Seq > best.Seq ? e : best), events[0]);
+}
+
+/**
+ * The cumulative total of the stat a call kind WATCHES, from a `Stats` map:
+ *   • NextGoal / GoalRush → goals  (P1_GOALS '1' + P2_GOALS '2')
+ *   • CornerSoon          → corners (P1_CORNERS '7' + P2_CORNERS '8')
+ *   • CardSoon            → yellows (P1_YELLOW '3' + P2_YELLOW '4')
+ * Same string-key/missing-is-0 semantics as `goalTotal`.
+ */
+export function watchedTotal(
+  kind: CallKind,
+  stats: Record<string, number> | undefined | null,
+): number {
+  if (!stats) return 0;
+  switch (kind) {
+    case CallKind.NextGoal:
+    case CallKind.GoalRush:
+      return num(stats[String(SOCCER_STAT.P1_GOALS)]) + num(stats[String(SOCCER_STAT.P2_GOALS)]);
+    case CallKind.CornerSoon:
+      return (
+        num(stats[String(SOCCER_STAT.P1_CORNERS)]) + num(stats[String(SOCCER_STAT.P2_CORNERS)])
+      );
+    case CallKind.CardSoon:
+      return num(stats[String(SOCCER_STAT.P1_YELLOW)]) + num(stats[String(SOCCER_STAT.P2_YELLOW)]);
+    default:
+      throw new Error(`watchedTotal: unknown CallKind ${kind}`);
+  }
+}
+
+/** Per-side cumulative goal counts from a `Stats` map (missing keys → 0). */
+export function goalSides(
+  stats: Record<string, number> | undefined | null,
+): { home: number; away: number } {
+  if (!stats) return { home: 0, away: 0 };
+  return {
+    home: num(stats[String(SOCCER_STAT.P1_GOALS)]),
+    away: num(stats[String(SOCCER_STAT.P2_GOALS)]),
+  };
+}
+
+/** Which side scored first inside a call window (or 'both' when unorderable). */
+export type FirstGoalSide = "home" | "away" | "both" | null;
+
+/**
+ * Determine which side scored the FIRST goal after a baseline, by walking the
+ * score events in ascending `Seq` order and finding the earliest event whose
+ * cumulative home ('1') or away ('2') goal count exceeds the running baseline.
+ *
+ * This is the money-correct NextGoal resolver: comparing cumulative DELTAS at
+ * the window's end mis-pays when BOTH teams score in one window (delta 1–1
+ * looks like "no goal"). Walking event order recovers who scored first.
+ *
+ *   • the first event where ONLY home rose → 'home'
+ *   • the first event where ONLY away rose → 'away'
+ *   • the first rise shows BOTH sides up in the SAME event (a feed batch —
+ *     the true order is unprovable) → 'both'  (caller voids: fair, no guess)
+ *   • no rise across the window → null ("no goal")
+ *
+ * Events missing a `Stats` map are skipped. Baselines are the cumulative goal
+ * counts when the call OPENED.
+ */
+export function firstGoalSide(
+  events: ScoreEvent[],
+  baseline: { home: number; away: number },
+): FirstGoalSide {
+  const HOME_KEY = String(SOCCER_STAT.P1_GOALS);
+  const AWAY_KEY = String(SOCCER_STAT.P2_GOALS);
+  const ordered = [...events].sort((a, b) => a.Seq - b.Seq);
+  let prevHome = baseline.home;
+  let prevAway = baseline.away;
+  for (const ev of ordered) {
+    const stats = ev.Stats as Record<string, unknown> | undefined;
+    if (!stats) continue;
+    // Read a side ONLY when its key is present — earlier feed events can carry
+    // PARTIAL Stats maps, and coercing a missing key to 0 would slam the
+    // baseline down and misread the next complete event as a fresh goal.
+    const h = HOME_KEY in stats ? num(stats[HOME_KEY]) : null;
+    const a = AWAY_KEY in stats ? num(stats[AWAY_KEY]) : null;
+    const homeRose = h !== null && h > prevHome;
+    const awayRose = a !== null && a > prevAway;
+    if (homeRose && awayRose) return "both";
+    if (homeRose) return "home";
+    if (awayRose) return "away";
+    // A present-but-LOWER value is a feed correction (goal disallowed) — follow
+    // it down so a later re-score is detected as a fresh rise.
+    if (h !== null && h < prevHome) prevHome = h;
+    if (a !== null && a < prevAway) prevAway = a;
+  }
+  return null;
+}
+
+/**
+ * Deterministic call-kind rotation for the pacing driver: seq 0 → NextGoal,
+ * then CornerSoon, GoalRush, CardSoon, repeating. Deterministic (testable,
+ * resumable after a keeper restart) and spreads the four kinds evenly.
+ */
+export function pickCallKind(seq: number): CallKind {
+  const rotation = [CallKind.NextGoal, CallKind.CornerSoon, CallKind.GoalRush, CallKind.CardSoon];
+  return rotation[((seq % rotation.length) + rotation.length) % rotation.length];
 }
 
 /** The per-kind resolvable spec (numOptions, basePoints, answerSecs). */

@@ -285,24 +285,97 @@ describe("sortSeatsAscending (pure)", () => {
   });
 });
 
-describe("gatherSeats (liveEntry.all memcmp offset 40)", () => {
-  it("filters by memcmp {offset:40, bytes: pool} and returns ascending player pubkeys", async () => {
+// ── gatherSeats — OWNER-AGNOSTIC dual scan (stress fix: delegated ≠ 0 seats) ──
+//
+// While a pool is delegated, every LiveEntry's base `.owner` is the Delegation
+// Program; an owner-scoped `.all()` under OUR program id returns NOTHING and a
+// live match would read as under-filled → VOIDED MID-PLAY. gatherSeats therefore
+// scans BOTH owners with identical filters and merges.
+
+/** A 159-byte LiveEntry account buffer: player@8, pool@40 (rest zero). */
+function entryData(player: any, pool: any): Buffer {
+  const data = Buffer.alloc(159);
+  player.toBuffer().copy(data, 8);
+  pool.toBuffer().copy(data, 40);
+  return data;
+}
+
+/** A base Program spy for the dual-owner gatherSeats scan. */
+function makeScanSpy(byOwner: Record<string, { player: any; len?: number }[]>) {
+  const gpa = vi.fn(async (owner: any, _cfg: any) =>
+    (byOwner[owner.toBase58()] ?? []).map(({ player, len }) => ({
+      pubkey: liveEntryPda(POOL_PK, player),
+      account: {
+        data:
+          len === undefined
+            ? entryData(player, POOL_PK)
+            : Buffer.alloc(len),
+        owner,
+      },
+    })),
+  );
+  const base: any = {
+    programId: LIVE_PROGRAM_ID,
+    provider: { connection: { getProgramAccounts: gpa } },
+    account: { liveEntry: { size: 159 } },
+    coder: { accounts: { memcmp: vi.fn(() => ({ offset: 0, bytes: "DISCB58" })) } },
+  };
+  return { base, gpa };
+}
+
+describe("gatherSeats — dual-owner scan (program + Delegation Program)", () => {
+  it("scans BOTH owners with disc+dataSize+pool@40 filters and merges ascending", async () => {
     const p1 = Keypair.generate().publicKey;
     const p2 = Keypair.generate().publicKey;
-    const { base } = makeBaseSpy([p1, p2]);
+    const { base, gpa } = makeScanSpy({
+      [LIVE_PROGRAM_ID.toBase58()]: [{ player: p1 }],
+      [DELEGATION_PROGRAM.toBase58()]: [{ player: p2 }],
+    });
     const seats = await gatherSeats(base, POOL_PK);
-    // memcmp filter shape
-    const filters = base.account.liveEntry.all.mock.calls[0][0];
-    expect(filters).toEqual([{ memcmp: { offset: 40, bytes: POOL_PK.toBase58() } }]);
-    // returned players are ascending
+    // Both owners scanned.
+    const owners = gpa.mock.calls.map((c: any) => c[0].toBase58());
+    expect(owners).toContain(LIVE_PROGRAM_ID.toBase58());
+    expect(owners).toContain(DELEGATION_PROGRAM.toBase58());
+    // Filter shape: discriminator memcmp + dataSize + pool@40 — on EVERY scan.
+    for (const call of gpa.mock.calls) {
+      expect(call[1].filters).toEqual([
+        { memcmp: { offset: 0, bytes: "DISCB58" } },
+        { dataSize: 159 },
+        { memcmp: { offset: 40, bytes: POOL_PK.toBase58() } },
+      ]);
+    }
+    // Both seats found (one per owner), ascending.
+    expect(seats.map((s) => s.toBase58()).sort()).toEqual(
+      [p1, p2].map((p) => p.toBase58()).sort(),
+    );
     for (let i = 1; i < seats.length; i++) {
       expect(Buffer.compare(seats[i - 1].toBuffer(), seats[i].toBuffer())).toBeLessThan(0);
     }
-    expect(seats.map((s) => s.toBase58()).sort()).toEqual([p1, p2].map((p) => p.toBase58()).sort());
   });
 
-  it("returns [] for a pool with no entries", async () => {
-    const { base } = makeBaseSpy([]);
+  it("REGRESSION: a fully-delegated pool (all entries owned by DELeGG…) still reports its seats", async () => {
+    const p1 = Keypair.generate().publicKey;
+    const p2 = Keypair.generate().publicKey;
+    const { base } = makeScanSpy({
+      [DELEGATION_PROGRAM.toBase58()]: [{ player: p1 }, { player: p2 }],
+    });
+    const seats = await gatherSeats(base, POOL_PK);
+    expect(seats).toHaveLength(2); // NOT [] — [] would void a live match mid-play
+  });
+
+  it("de-duplicates a seat visible under both owners and skips wrong-size buffers", async () => {
+    const p1 = Keypair.generate().publicKey;
+    const { base } = makeScanSpy({
+      [LIVE_PROGRAM_ID.toBase58()]: [{ player: p1 }, { player: p1, len: 200 }],
+      [DELEGATION_PROGRAM.toBase58()]: [{ player: p1 }],
+    });
+    const seats = await gatherSeats(base, POOL_PK);
+    expect(seats).toHaveLength(1);
+    expect(seats[0].toBase58()).toBe(p1.toBase58());
+  });
+
+  it("returns [] for a pool with no entries under either owner", async () => {
+    const { base } = makeScanSpy({});
     expect(await gatherSeats(base, POOL_PK)).toEqual([]);
   });
 });
@@ -1256,5 +1329,361 @@ describe("finalizeVoid — voidLivePool then refundVoided (interleaved pairs)", 
     await finalizeVoid(runner, { pool: POOL_PK, seats: [] });
     expect(calls.some((c) => c.name === "voidLivePool")).toBe(true);
     expect(calls.some((c) => c.name === "refundVoided")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runLiveMatch — the RE-ENTRANT state machine (stress-test fixes F1/F2/F3).
+//
+// These are the tests whose ABSENCE let two critical integration bugs pass 54
+// function-level tests: nothing ever drove runLiveMatch end-to-end. Every case
+// below hand-rolls a full LiveRunner (spy base+er Programs, scripted
+// connections) and asserts WHICH on-chain txs a single bounded tick issues.
+// Fully hermetic: no Connection is real, no rpc leaves the process.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  runLiveMatch,
+  runCallCycle,
+  poolStatusOf,
+  baseOwnerOf,
+  type RunLiveMatchOpts,
+} from "../live-runner.js";
+import type { ScoreEvent } from "../../spike/src/discover.js";
+
+interface HarnessOpts {
+  status?: Record<string, object>;
+  lockTs?: number;
+  settleAfterTs?: number;
+  numCalls?: number;
+  fixtureId?: number;
+  seats?: any[];
+  /** Base-layer owner of the cursor PDA ('program' | 'delegated'). */
+  cursorOwner?: "program" | "delegated";
+  /** ER cursor state. */
+  openSeq?: number;
+  nextSeq?: number;
+  /** The on-chain clock the `now` seam reports. */
+  chainTime?: number;
+  /** Scripted per-call feed responses (each fetchEvents() shifts one). */
+  feed?: ScoreEvent[][];
+}
+
+function makeMatchHarness(o: HarnessOpts = {}) {
+  const lockTs = o.lockTs ?? 1_000;
+  const settleAfterTs = o.settleAfterTs ?? 2_000;
+  const seats = o.seats ?? [];
+  const calls: any[] = []; // every recorded .methods tx across base+er
+  const rec = (name: string) => makeMethodRecorder(name, calls);
+
+  const poolRow = {
+    status: o.status ?? { open: {} },
+    numCalls: o.numCalls ?? 4,
+    lockTs,
+    settleAfterTs,
+    fixtureId: o.fixtureId ?? 777,
+    playerCount: seats.length,
+  };
+
+  const ownerPk = (o.cursorOwner ?? "program") === "program" ? LIVE_PROGRAM_ID : DELEGATION_PROGRAM;
+
+  // Report every seat under exactly ONE owner (the cursor's) — dedup hides doubles anyway.
+  const gpaOnce = vi.fn(async (owner: any, _cfg?: any) =>
+    owner.equals(ownerPk)
+      ? seats.map((player: any) => ({
+          pubkey: liveEntryPda(POOL_PK, player),
+          account: { data: entryData(player, POOL_PK), owner },
+        }))
+      : [],
+  );
+
+  const base: any = {
+    programId: LIVE_PROGRAM_ID,
+    provider: { connection: { getProgramAccounts: gpaOnce } },
+    account: {
+      livePool: { fetch: vi.fn(async () => poolRow) },
+      liveEntry: { size: 159 },
+    },
+    coder: { accounts: { memcmp: vi.fn(() => ({ offset: 0, bytes: "DISCB58" })) } },
+    methods: {
+      delegateCursor: rec("delegateCursor"),
+      delegateEntry: rec("delegateEntry"),
+      delegateCall: rec("delegateCall"),
+      endLivePool: rec("endLivePool"),
+      settleLivePool: rec("settleLivePool"),
+      voidLivePool: rec("voidLivePool"),
+      refundVoided: rec("refundVoided"),
+    },
+  };
+
+  const er: any = {
+    account: {
+      liveCursor: {
+        fetch: vi.fn(async () => ({
+          openSeq: o.openSeq ?? NONE_SEQ,
+          nextSeq: o.nextSeq ?? 0,
+        })),
+      },
+    },
+    methods: {
+      openCall: rec("openCall"),
+      resolveCall: rec("resolveCall"),
+      scoreEntry: rec("scoreEntry"),
+      commitLive: rec("commitLive"),
+      endAndUndelegate: rec("endAndUndelegate"),
+    },
+  };
+
+  const baseConn: any = {
+    // cursor-owner read + pollBaseUndelegated: everything reports program-owned
+    // unless the harness says the cursor is delegated.
+    getAccountInfo: vi.fn(async (pk: any) => ({
+      owner: pk.equals(liveCursorPda(POOL_PK)) ? ownerPk : LIVE_PROGRAM_ID,
+    })),
+    getSlot: vi.fn(async () => 123),
+    getBlockTime: vi.fn(async () => (o.chainTime ?? settleAfterTs + 10)),
+  };
+  const erConn: any = {
+    getAccountInfo: vi.fn(async () => ({ owner: LIVE_PROGRAM_ID })),
+  };
+
+  const report = { steps: [] as any[], errors: [] as any[] };
+  async function step<T>(name: string, fn: () => Promise<T>): Promise<T | null> {
+    try {
+      const r = await fn();
+      report.steps.push({ name, ms: 0, ok: true });
+      return r;
+    } catch (e: any) {
+      report.steps.push({ name, ms: 0, ok: false, err: e?.message });
+      report.errors.push({ name, err: e?.message ?? String(e) });
+      return null;
+    }
+  }
+  const runner: any = {
+    base,
+    er,
+    baseConn,
+    erConn,
+    programId: LIVE_PROGRAM_ID,
+    keeper: keeper.publicKey,
+    report,
+    step,
+  };
+
+  const feedQueue = [...(o.feed ?? [[]])];
+  const fetchEvents = vi.fn(async () => feedQueue.length > 1 ? feedQueue.shift()! : feedQueue[0]);
+  const sleepFn = vi.fn(async () => undefined);
+  const opts: RunLiveMatchOpts = {
+    runner,
+    fetchEvents,
+    sleepFn,
+    now: async () => o.chainTime ?? lockTs + 100,
+    erVisibility: { intervalMs: 1, timeoutMs: 50 },
+    pollBase: { intervalMs: 1, timeoutMs: 50 },
+    settleWindow: { intervalMs: 1, timeoutMs: 50 },
+  };
+  const names = () => calls.map((c) => c.name);
+  return { runner, opts, calls, names, fetchEvents, sleepFn, poolRow };
+}
+
+const liveEv = (seq: number, stats: Record<string, number> = {}, statusId = 99): ScoreEvent =>
+  ({ FixtureId: 777, Seq: seq, StatusId: statusId, Stats: stats }) as ScoreEvent;
+
+describe("runLiveMatch — F1: the join-window gate (premature-void regression)", () => {
+  it("an Open pool BEFORE lock_ts with 0 seats issues ZERO txs (no void, no delegate)", async () => {
+    const h = makeMatchHarness({ seats: [], lockTs: 1_000, chainTime: 900 });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.calls).toHaveLength(0); // the bug voided here ~30s after creation
+  });
+
+  it("an Open pool BEFORE lock_ts with 1 seat likewise waits (no forced refund)", async () => {
+    const h = makeMatchHarness({ seats: [Keypair.generate().publicKey], lockTs: 1_000, chainTime: 999 });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("an unreadable on-chain clock also waits — never act blind on the money path", async () => {
+    const h = makeMatchHarness({ seats: [], lockTs: 1_000 });
+    h.opts.now = async () => null;
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("POST-lock with <2 seats → void + refund (the legitimate under-filled branch)", async () => {
+    const lone = Keypair.generate().publicKey;
+    const h = makeMatchHarness({ seats: [lone], lockTs: 1_000, chainTime: 1_001 });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.names()).toEqual(["voidLivePool", "refundVoided"]);
+  });
+});
+
+describe("runLiveMatch — F2: delegate exactly once, then ACTUALLY play", () => {
+  const twoSeats = () => [Keypair.generate().publicKey, Keypair.generate().publicKey];
+
+  it("first post-lock tick (cursor program-owned): delegates cursor+entries+calls, then opens a call", async () => {
+    const seats = twoSeats();
+    const h = makeMatchHarness({
+      seats,
+      chainTime: 1_500,
+      numCalls: 4,
+      feed: [[liveEv(10, { "1": 0, "2": 0 })]],
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    const n = h.names();
+    expect(n.filter((x) => x === "delegateCursor")).toHaveLength(1);
+    expect(n.filter((x) => x === "delegateEntry")).toHaveLength(2);
+    expect(n.filter((x) => x === "delegateCall")).toHaveLength(4);
+    // …and the SAME tick advances into gameplay (the missing wiring): a call opens.
+    expect(n).toContain("openCall");
+  });
+
+  it("a later tick (cursor already delegated) issues ZERO delegate txs and still plays", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),
+      chainTime: 1_500,
+      cursorOwner: "delegated",
+      feed: [[liveEv(10, { "1": 0, "2": 0 })]],
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    const n = h.names();
+    expect(n).not.toContain("delegateCursor");
+    expect(n).not.toContain("delegateEntry");
+    expect(n).not.toContain("delegateCall");
+    expect(n).toContain("openCall"); // progress, not the re-delegate treadmill
+  });
+
+  it("one full in-tick call cycle: open → (window) → resolve → score×seats → commit", async () => {
+    const seats = twoSeats();
+    const h = makeMatchHarness({
+      seats,
+      chainTime: 1_500,
+      cursorOwner: "delegated",
+      // Baseline 0-0; after the window, AWAY scored first (Seq 11).
+      feed: [
+        [liveEv(10, { "1": 0, "2": 0 })],
+        [liveEv(10, { "1": 0, "2": 0 }), liveEv(11, { "1": 0, "2": 1 })],
+      ],
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    const n = h.names();
+    expect(n).toEqual([
+      "openCall",
+      "resolveCall",
+      "scoreEntry",
+      "scoreEntry",
+      "commitLive",
+    ]);
+    // seq 0 → pickCallKind(0) = NextGoal; away scored FIRST → option 2.
+    const resolve = h.calls.find((c) => c.name === "resolveCall")!;
+    expect(resolve.args[0]).toBe(2);
+    // The answer window was actually waited out: answerSecs(9)+buffer(3) seconds.
+    expect(h.sleepFn).toHaveBeenCalledWith(12_000);
+  });
+
+  it("F6 REGRESSION: both teams scoring in one window resolves to the FIRST scorer, never 'no goal'", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),
+      chainTime: 1_500,
+      cursorOwner: "delegated",
+      feed: [
+        [liveEv(10, { "1": 0, "2": 0 })],
+        [
+          liveEv(10, { "1": 0, "2": 0 }),
+          liveEv(11, { "1": 1, "2": 0 }), // home scores first…
+          liveEv(12, { "1": 1, "2": 1 }), // …away equalizes in the SAME window
+        ],
+      ],
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    const resolve = h.calls.find((c) => c.name === "resolveCall")!;
+    expect(resolve.args[0]).toBe(0); // home (first scorer) — the delta-tie bug said 1
+  });
+
+  it("an ORPHANED open call (from a dead keeper) is VOIDED (0xFE), scored, committed — never guessed", async () => {
+    const seats = twoSeats();
+    const h = makeMatchHarness({
+      seats,
+      chainTime: 1_500,
+      cursorOwner: "delegated",
+      openSeq: 2,
+      nextSeq: 3,
+      feed: [[liveEv(10, { "1": 0, "2": 0 })]],
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    const n = h.names();
+    expect(n).toEqual(["resolveCall", "scoreEntry", "scoreEntry", "commitLive"]);
+    const resolve = h.calls.find((c) => c.name === "resolveCall")!;
+    expect(resolve.args[0]).toBe(VOID_OUTCOME);
+    expect(n).not.toContain("openCall"); // bounded: no new call on an orphan tick
+  });
+
+  it("throws LOUD when fetchEvents is missing for a delegated pool (silence would strand the pot)", async () => {
+    const h = makeMatchHarness({ seats: twoSeats(), chainTime: 1_500, cursorOwner: "delegated" });
+    h.opts.fetchEvents = undefined;
+    await expect(runLiveMatch(POOL_PK, h.opts)).rejects.toThrow(/fetchEvents is required/);
+  });
+
+  it("feed phase 'void' (abandoned match) → void + refund even while delegated", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),
+      chainTime: 1_500,
+      cursorOwner: "delegated",
+      feed: [[liveEv(10, { "1": 0 }, 14)]], // StatusId 14 = VOID phase
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.names()).toEqual(["voidLivePool", "refundVoided"]);
+  });
+
+  it("feed phase 'ft' with no open call → endAndUndelegate → endLivePool → settleLivePool in order", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),
+      chainTime: 2_500, // past settleAfterTs (2_000) so the settle window opens
+      cursorOwner: "delegated",
+      feed: [[liveEv(90, { "1": 1, "2": 0 }, 5)]], // StatusId 5 = FINISHED
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    const n = h.names();
+    expect(n).toEqual(["endAndUndelegate", "endLivePool", "settleLivePool"]);
+  });
+});
+
+describe("runLiveMatch — F3: an Ended pool resumes at settle, never re-delegates", () => {
+  it("status Ended → settleLivePool only (zero delegate txs, zero gameplay)", async () => {
+    const seats = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+    const h = makeMatchHarness({
+      seats,
+      status: { ended: {} },
+      chainTime: 5_000,
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.names()).toEqual(["settleLivePool"]);
+  });
+
+  it("terminal statuses (settled / voided / rolledOver) are a no-op", async () => {
+    const terminals: Record<string, object>[] = [{ settled: {} }, { voided: {} }, { rolledOver: {} }];
+    for (const status of terminals) {
+      const h = makeMatchHarness({ status, seats: [] });
+      await runLiveMatch(POOL_PK, h.opts);
+      expect(h.calls).toHaveLength(0);
+    }
+  });
+});
+
+describe("state-machine helpers", () => {
+  it("poolStatusOf decodes the Anchor enum variant", () => {
+    expect(poolStatusOf({ status: { ended: {} } })).toBe("ended");
+    expect(poolStatusOf({ status: { rolledOver: {} } })).toBe("rolledOver");
+    expect(poolStatusOf({})).toBe("unknown");
+  });
+
+  it("baseOwnerOf classifies program / delegated / missing", async () => {
+    const mk = (owner: any) =>
+      ({
+        baseConn: { getAccountInfo: async () => (owner ? { owner } : null) },
+        programId: LIVE_PROGRAM_ID,
+      }) as any;
+    expect(await baseOwnerOf(mk(LIVE_PROGRAM_ID), POOL_PK)).toBe("program");
+    expect(await baseOwnerOf(mk(DELEGATION_PROGRAM), POOL_PK)).toBe("delegated");
+    expect(await baseOwnerOf(mk(null), POOL_PK)).toBe("missing");
   });
 });

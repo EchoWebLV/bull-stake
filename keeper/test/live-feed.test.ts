@@ -242,3 +242,95 @@ describe("VOID_OUTCOME", () => {
     expect(VOID_OUTCOME).toBe(0xfe);
   });
 });
+
+// ── watchedTotal (stress-fix: per-kind watched stat) ─────────────────────────
+
+import { watchedTotal, firstGoalSide, pickCallKind } from "../live-feed.js";
+
+describe("watchedTotal", () => {
+  it("NextGoal/GoalRush watch goals (keys '1'+'2')", () => {
+    const stats = { "1": 2, "2": 1, "7": 9, "3": 4 };
+    expect(watchedTotal(CallKind.NextGoal, stats)).toBe(3);
+    expect(watchedTotal(CallKind.GoalRush, stats)).toBe(3);
+  });
+
+  it("CornerSoon watches corners (keys '7'+'8'), CardSoon watches yellows ('3'+'4')", () => {
+    const stats = { "1": 2, "2": 1, "7": 4, "8": 3, "3": 1, "4": 2 };
+    expect(watchedTotal(CallKind.CornerSoon, stats)).toBe(7);
+    expect(watchedTotal(CallKind.CardSoon, stats)).toBe(3);
+  });
+
+  it("missing keys / null stats count as 0", () => {
+    expect(watchedTotal(CallKind.CornerSoon, {})).toBe(0);
+    expect(watchedTotal(CallKind.CardSoon, null)).toBe(0);
+  });
+});
+
+// ── firstGoalSide (stress-fix: NextGoal resolves on the FIRST goal) ──────────
+
+const ev = (seq: number, stats?: Record<string, number>): ScoreEvent =>
+  ({ FixtureId: 77, Seq: seq, Stats: stats }) as ScoreEvent;
+
+describe("firstGoalSide", () => {
+  it("both teams scoring in the window resolves to whoever scored FIRST (event order), not 'no goal'", () => {
+    // Baseline 0-0. Away scores at Seq 11, home equalizes at Seq 12.
+    const events = [ev(10, { "1": 0, "2": 0 }), ev(11, { "1": 0, "2": 1 }), ev(12, { "1": 1, "2": 1 })];
+    expect(firstGoalSide(events, { home: 0, away: 0 })).toBe("away");
+    // Same events out of order — Seq sorting still finds away first.
+    expect(firstGoalSide([events[2], events[0], events[1]], { home: 0, away: 0 })).toBe("away");
+  });
+
+  it("home first when home's count rises before away's", () => {
+    const events = [ev(11, { "1": 1, "2": 0 }), ev(12, { "1": 1, "2": 1 })];
+    expect(firstGoalSide(events, { home: 0, away: 0 })).toBe("home");
+  });
+
+  it("returns null when no goal rises across the window", () => {
+    const events = [ev(11, { "1": 1, "2": 1 }), ev(12, { "1": 1, "2": 1 })];
+    expect(firstGoalSide(events, { home: 1, away: 1 })).toBe(null);
+  });
+
+  it("returns 'both' when the first rise shows BOTH sides up in the same event (unorderable batch)", () => {
+    const events = [ev(11, { "1": 1, "2": 1 })];
+    expect(firstGoalSide(events, { home: 0, away: 0 })).toBe("both");
+  });
+
+  it("an event with a PARTIAL Stats map (missing side key) is not misread as a rise or a reset", () => {
+    // Seq 11 carries only corners; Seq 12 shows away's goal. Missing '1'/'2' at
+    // Seq 11 must not coerce to 0 (which would slam the baseline and misfire).
+    const events = [ev(11, { "7": 3 }), ev(12, { "1": 2, "2": 1 })];
+    expect(firstGoalSide(events, { home: 2, away: 0 })).toBe("away");
+  });
+
+  it("follows a feed correction DOWN so a later re-score is a fresh rise", () => {
+    // Baseline 1-0. Home's goal is disallowed (1→0 at Seq 11), then re-scored
+    // (0→1 at Seq 12): that re-score IS the first goal of the window.
+    const events = [ev(11, { "1": 0, "2": 0 }), ev(12, { "1": 1, "2": 0 })];
+    expect(firstGoalSide(events, { home: 1, away: 0 })).toBe("home");
+  });
+
+  it("events without Stats are skipped", () => {
+    const events = [ev(11), ev(12, { "1": 0, "2": 1 })];
+    expect(firstGoalSide(events, { home: 0, away: 0 })).toBe("away");
+  });
+});
+
+// ── pickCallKind (deterministic pacing rotation) ─────────────────────────────
+
+describe("pickCallKind", () => {
+  it("rotates NextGoal → CornerSoon → GoalRush → CardSoon and repeats", () => {
+    expect(pickCallKind(0)).toBe(CallKind.NextGoal);
+    expect(pickCallKind(1)).toBe(CallKind.CornerSoon);
+    expect(pickCallKind(2)).toBe(CallKind.GoalRush);
+    expect(pickCallKind(3)).toBe(CallKind.CardSoon);
+    expect(pickCallKind(4)).toBe(CallKind.NextGoal);
+  });
+
+  it("every seq maps to a valid kind with a length-3 basePoints spec (the [u8;3] wire contract)", () => {
+    for (let seq = 0; seq < 12; seq++) {
+      const spec = callSpec(pickCallKind(seq));
+      expect(spec.basePoints).toHaveLength(3);
+      expect(spec.numOptions === 2 || spec.numOptions === 3).toBe(true);
+    }
+  });
+});

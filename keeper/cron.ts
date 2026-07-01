@@ -364,14 +364,29 @@ async function main() {
   //     across ticks). Run once on boot, then on the interval.
   const inFlightLive = new Set<string>();
   const { createContext } = await import("../spike/src/auth.js");
+  const { authenticateCached } = await import("../spike/src/auth-cache.js");
+  const { getScoreHistory } = await import("../spike/src/discover.js");
   const { loadProofbetProgram } = await import("./settle.js");
   const { runLiveMatch } = await import("./live-runner.js");
   const liveCtx = createContext();
   const liveProgram = loadProofbetProgram(liveCtx.provider);
+  // The TxLINE score-history seam runLiveMatch REQUIRES for gameplay (it
+  // loud-fails without one — a delegated pool with no feed can never resolve).
+  // Auth is cached across calls (authenticateCached re-signs only on expiry).
+  const fetchEvents = async (fixtureId: number) => {
+    const auth = await authenticateCached(liveCtx);
+    return getScoreHistory(liveCtx, auth, fixtureId);
+  };
   const tickLive = makeTickLive({
     inFlight: inFlightLive,
     discover: () => discoverLivePools(liveProgram),
-    run: (pool) => runLiveMatch(new PublicKey(pool), { keypair: liveCtx.wallet }),
+    run: (pool) =>
+      runLiveMatch(new PublicKey(pool), {
+        keypair: liveCtx.wallet,
+        fetchEvents,
+        // The Txoracle program (ctx.program) — resolveOutcomeIndex's proof seam.
+        oracle: { program: liveCtx.program },
+      }),
   });
   await tickLive();
   setInterval(tickLive, liveMs);

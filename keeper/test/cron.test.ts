@@ -196,3 +196,61 @@ describe("makeTickLive — per-pool in-flight guard", () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+// ── discoverLivePools — status-byte drivable set (stress-test F7) ─────────────
+//
+// The status byte lives at offset 114 of a 176-byte LivePool account. This test
+// locks BOTH the offset read and the drivable set: Open(0)/Live(1)/Ended(2) are
+// driven; Settled(3)/RolledOver(4)/Voided(5) are terminal and must be dropped.
+// Hermetic: getProgramAccounts + coder + size are all in-memory spies.
+
+import { discoverLivePools } from "../cron.js";
+import pkg from "@solana/web3.js";
+const { Keypair: CronKeypair } = pkg;
+
+function livePoolData(status: number, size = 176): { data: Buffer } {
+  const data = Buffer.alloc(size);
+  data.writeUInt8(status, 114); // LivePool.status@114
+  return { data };
+}
+
+describe("discoverLivePools — drivable statuses only", () => {
+  function makeProgram(rows: { pk: any; status: number; size?: number }[]) {
+    return {
+      programId: CronKeypair.generate().publicKey,
+      provider: {
+        connection: {
+          getProgramAccounts: vi.fn(async () =>
+            rows.map((r) => ({ pubkey: r.pk, account: livePoolData(r.status, r.size) })),
+          ),
+        },
+      },
+      account: { livePool: { size: 176 } },
+      coder: { accounts: { memcmp: vi.fn(() => ({ offset: 0, bytes: "DISC" })) } },
+    } as any;
+  }
+
+  it("returns Open(0)/Live(1)/Ended(2) and drops Settled(3)/RolledOver(4)/Voided(5)", async () => {
+    const pks = Array.from({ length: 6 }, () => CronKeypair.generate().publicKey);
+    const program = makeProgram(pks.map((pk, status) => ({ pk, status })));
+    const pools = await discoverLivePools(program);
+    expect(pools.sort()).toEqual([pks[0], pks[1], pks[2]].map((p) => p.toBase58()).sort());
+  });
+
+  it("skips a wrong-size buffer even if the discriminator matched", async () => {
+    const pk = CronKeypair.generate().publicKey;
+    const program = makeProgram([{ pk, status: 0, size: 200 }]);
+    expect(await discoverLivePools(program)).toEqual([]);
+  });
+
+  it("filters with the runtime .size and the discriminator memcmp (never a hardcoded 176 literal)", async () => {
+    const program = makeProgram([]);
+    await discoverLivePools(program);
+    const cfg = program.provider.connection.getProgramAccounts.mock.calls[0][1];
+    expect(cfg.filters).toEqual([
+      { memcmp: { offset: 0, bytes: "DISC" } },
+      { dataSize: 176 },
+    ]);
+    expect(program.coder.accounts.memcmp).toHaveBeenCalledWith("livePool");
+  });
+});

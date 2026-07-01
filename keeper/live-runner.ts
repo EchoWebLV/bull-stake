@@ -34,9 +34,18 @@ import {
   callSpec,
   mapOutcomeToOption,
   shouldVoidOnGoal,
+  detectPhase,
+  latestEvent,
+  goalTotal,
+  goalSides,
+  watchedTotal,
+  firstGoalSide,
+  pickCallKind,
   VOID_OUTCOME,
   type GoalDeltas,
+  type FirstGoalSide,
 } from "./live-feed.js";
+import type { ScoreEvent } from "../spike/src/discover.js";
 import type { Program as AnchorProgramT } from "@coral-xyz/anchor";
 
 const { Connection, PublicKey, Keypair } = pkg;
@@ -222,21 +231,47 @@ export function sortSeatsAscending(pubkeys: PublicKeyT[]): PublicKeyT[] {
 }
 
 /**
- * Gather a pool's player seats from the BASE program via
- * `liveEntry.all([{memcmp:{offset:40, bytes: pool}}])` (pool@40 in LiveEntry).
- * Returns the seat PLAYER pubkeys, sorted ascending (settle-order canonical).
- * The only I/O is the `getProgramAccounts` behind `.all` — tests inject a spy.
+ * Gather a pool's player seats on the BASE layer, OWNER-AGNOSTICALLY.
+ *
+ * *** WHY NOT `liveEntry.all(...)` *** — Anchor's `.all()` is a
+ * `getProgramAccounts` under OUR program id, i.e. owner-scoped. While a pool is
+ * delegated to the MagicBlock ER, every LiveEntry's base-layer `.owner` flips to
+ * the Delegation Program (`DELeGG…`) — the data stays fully readable (runtime
+ * probe, Finding [2] Fork A) but an owner-scoped scan returns NOTHING. Under
+ * `.all()` a delegated live pool reads as 0 seats, and the under-filled gate
+ * would VOID A LIVE MATCH MID-PLAY. So we scan BOTH owners (our program + the
+ * Delegation Program) with the same discriminator+size+pool filters and merge.
+ *
+ * Returns the seat PLAYER pubkeys (decoded from raw bytes at offset 8), sorted
+ * ascending (settle-order canonical), de-duplicated across the two scans.
  */
 export async function gatherSeats(
   baseProgram: ProgramT,
   pool: PublicKeyT,
 ): Promise<PublicKeyT[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows: any[] = await (baseProgram as any).account.liveEntry.all([
-    { memcmp: { offset: 40, bytes: pool.toBase58() } },
-  ]);
-  const players = rows.map((r) => r.account.player as PublicKeyT);
-  return sortSeatsAscending(players);
+  const prog: any = baseProgram as any;
+  const conn = prog.provider.connection;
+  const size: number = prog.account.liveEntry.size;
+  const disc = prog.coder.accounts.memcmp("liveEntry");
+  const filters = [
+    { memcmp: { offset: disc.offset ?? 0, bytes: disc.bytes } },
+    { dataSize: size },
+    { memcmp: { offset: 40, bytes: pool.toBase58() } }, // LiveEntry.pool@40
+  ];
+  const owners: PublicKeyT[] = [prog.programId, DELEGATION_PROGRAM];
+  const byPlayer = new Map<string, PublicKeyT>();
+  for (const owner of owners) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const accounts: any[] = await conn.getProgramAccounts(owner, { filters });
+    for (const { account } of accounts) {
+      const data: Buffer = account.data;
+      if (data.length !== size) continue;
+      const player = new PublicKey(data.subarray(8, 40)); // LiveEntry.player@8
+      byPlayer.set(player.toBase58(), player);
+    }
+  }
+  return sortSeatsAscending([...byPlayer.values()]);
 }
 
 /**
@@ -458,8 +493,17 @@ export interface ResolveContext {
   prevGoals: number;
   /** Cumulative goal total NOW (latest event). */
   curGoals: number;
+  /**
+   * NextGoal ONLY — which side scored FIRST inside the window, derived from
+   * event order via `firstGoalSide`. This outranks the cumulative deltas: when
+   * BOTH teams score in one window the deltas tie (1–1 reads as "no goal") and
+   * would mis-pay; the first scorer is the true outcome. 'both' (a feed batch
+   * where the order is unprovable) resolves to a VOID — fair, no guess.
+   * When absent (legacy callers), NextGoal falls back to the delta mapping.
+   */
+  firstSide?: FirstGoalSide;
   /** The TXORACLE program (6pW64gN…) — NEVER the proofbet/live program. */
-  program: AnchorProgramT;
+  program?: AnchorProgramT;
   /**
    * The settle.ts:143-159 proof-core seam. Called only when a kind's predicate
    * must be consulted on-chain; it MUST be handed `ctx.program` (Txoracle). Tests
@@ -490,8 +534,23 @@ export async function resolveOutcomeIndex(
   // on-chain-proved stat backs the mapping (settle.ts:143-159 posture). The
   // boolean is advisory here — the delta mapping is authoritative for the index —
   // but consulting it proves we always use the Txoracle program, never proofbet.
-  if (ctx.viewValidate) {
+  if (ctx.viewValidate && ctx.program) {
     await ctx.viewValidate(ctx.program);
+  }
+  // (3) NextGoal with event-order knowledge: the FIRST scorer wins the call.
+  // Both-teams-score no longer collapses to "no goal" (the delta-tie mis-pay);
+  // an unorderable same-event batch voids instead of guessing.
+  if (kind === CallKind.NextGoal && ctx.firstSide !== undefined) {
+    switch (ctx.firstSide) {
+      case "home":
+        return 0;
+      case "away":
+        return 2;
+      case "both":
+        return VOID_OUTCOME;
+      case null:
+        return 1; // no goal in the window
+    }
   }
   return mapOutcomeToOption(kind, ctx.deltas);
 }
@@ -948,7 +1007,39 @@ export async function finalizeVoid(
   return runner.report;
 }
 
-/** Options for a full live-match run (extended in S3-T5..T7). */
+// ─────────────────────────────────────────────────────────────────────────────
+// The RE-ENTRANT match state machine (stress-test fixes F1/F2/F3)
+//
+// cron drives `runLiveMatch` for every un-terminal pool on every tick, so ONE
+// invocation must be a bounded, idempotent STEP that inspects on-chain state and
+// advances the pool at most one stage — never assuming it is the first (or only)
+// invocation. The dispatch:
+//
+//   Settled/RolledOver/Voided → no-op (terminal).
+//   Ended                     → resume the settle tail (clock-gate → settle). F3
+//   Open/Live, now < lock_ts  → no-op: the JOIN WINDOW IS STILL OPEN. Acting
+//                               here voided brand-new pools ~30s after creation
+//                               (stress finding F1). The on-chain clock
+//                               (getBlockTime) gates this — never wall-clock.
+//   post-lock, seats < 2      → finalizeVoid (under-filled — safe ONLY post-lock).
+//   post-lock, ≥2 seats       → delegate ONCE (skipped when the cursor's base
+//                               owner is already the Delegation Program — F2's
+//                               re-delegation), then ONE feed-driven gameplay
+//                               step: void an orphaned open call / run one full
+//                               call cycle / finalize at FT or feed-void.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The TxLINE score-history seam (production: getScoreHistory; tests: fixtures). */
+export type FetchEvents = (fixtureId: number) => Promise<ScoreEvent[]>;
+
+/** The Txoracle proof seam forwarded into `resolveOutcomeIndex`. */
+export interface OracleSeam {
+  /** The TXORACLE program (6pW64gN…) — NEVER the proofbet/live program. */
+  program: AnchorProgramT;
+  viewValidate?: (program: AnchorProgramT) => Promise<boolean>;
+}
+
+/** Options for a full live-match run. */
 export interface RunLiveMatchOpts {
   /** The funded keeper keypair (shared wallet). Required unless a runner is injected. */
   keypair?: KeypairT;
@@ -958,14 +1049,147 @@ export interface RunLiveMatchOpts {
   programFactory?: ProgramFactory;
   /** The live-match IDL (forwarded to createLiveRunner). */
   idl?: Idl;
+  /** REQUIRED for gameplay: the TxLINE score-history seam. Loud-fails if absent. */
+  fetchEvents?: FetchEvents;
+  /** On-chain clock seam (default: base getSlot → getBlockTime). */
+  now?: (runner: LiveRunner) => Promise<number | null>;
+  /** Sleep seam for the in-tick answer window (default: real setTimeout). */
+  sleepFn?: (ms: number) => Promise<void>;
+  /** Extra seconds past answer_secs before resolving (default 3). */
+  resolveBufferSecs?: number;
+  /** Txoracle proof seam. */
+  oracle?: OracleSeam;
+  erVisibility?: ErVisibilityOpts;
+  pollBase?: PollBaseOpts;
+  settleWindow?: SettleWindowOpts;
 }
 
 /**
- * Drive ONE live match pool through its lifecycle. S3-T5 lands the delegation
- * phase: read the pool's `num_calls`, gather its seats, HARD GATE on
- * player_count<2 (→ void+refund branch, wired in S3-T7), otherwise delegate the
- * ER working set and wait for the ER to surface the delegated cursor. The
- * ER-gameplay (S3-T6) and end→settle/void (S3-T7) phases extend from here.
+ * The on-chain clock: `getBlockTime(getSlot())` on the BASE connection. All
+ * time-gating (lock_ts, settle windows) reads THIS, never wall-clock — the
+ * validator clock lags wall time under load (plan Reference data).
+ */
+export async function chainNow(runner: LiveRunner): Promise<number | null> {
+  const slot = await runner.baseConn.getSlot();
+  return runner.baseConn.getBlockTime(slot);
+}
+
+/** Decode an Anchor enum object ({open:{}} …) into its variant name. */
+export function poolStatusOf(pool: unknown): string {
+  const status = (pool as { status?: Record<string, unknown> })?.status;
+  if (!status || typeof status !== "object") return "unknown";
+  return Object.keys(status)[0] ?? "unknown";
+}
+
+/**
+ * The base-layer owner of a PDA: 'program' (ours — not delegated), 'delegated'
+ * (the Delegation Program owns it), or 'missing'. Drives delegate-once (F2).
+ */
+export async function baseOwnerOf(
+  runner: LiveRunner,
+  pda: PublicKeyT,
+): Promise<"program" | "delegated" | "missing"> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const info: any = await runner.baseConn.getAccountInfo(pda, "confirmed");
+  if (!info || !info.owner) return "missing";
+  if (info.owner.equals(runner.programId)) return "program";
+  if (info.owner.equals(DELEGATION_PROGRAM)) return "delegated";
+  return "missing";
+}
+
+/** The cursor fields the gameplay step needs, read off the ER. */
+export async function readErCursorState(
+  runner: LiveRunner,
+  cursor: PublicKeyT,
+): Promise<CursorState | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row: any = await runner.step("read_er_cursor", () =>
+    (runner.er as any).account.liveCursor.fetch(cursor),
+  );
+  if (!row) return null;
+  return { openSeq: Number(row.openSeq), nextSeq: Number(row.nextSeq) };
+}
+
+/** Inputs for one full in-tick call cycle (open → window → resolve → score → commit). */
+export interface RunCallCycleInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  seats: PublicKeyT[];
+  calls: PublicKeyT[];
+  fixtureId: number;
+  /** Freshly-read cursor state (the cycle opens cursorState.nextSeq). */
+  cursorState: CursorState;
+  /** The events already fetched THIS tick (the open-time baseline). */
+  baselineEvents: ScoreEvent[];
+  fetchEvents: FetchEvents;
+  sleepFn: (ms: number) => Promise<void>;
+  resolveBufferSecs: number;
+  oracle?: OracleSeam;
+}
+
+/**
+ * ONE full call cycle inside a single tick: open the next call, wait out its
+ * answer window (+ a resolve buffer), re-poll the feed, derive the outcome
+ * (first-goal order for NextGoal; watched-delta for binary kinds; void-on-goal
+ * where a goal invalidates the window), then resolve → score every seat →
+ * commit. Holding the open-time baseline IN MEMORY makes the outcome derivation
+ * exact; a call this process did NOT open is never resolved here (orphans are
+ * voided by the state machine instead, where no baseline can be reconstructed).
+ */
+export async function runCallCycle(
+  runner: LiveRunner,
+  input: RunCallCycleInput,
+): Promise<{ opened: boolean; outcome?: number }> {
+  const { pool, cursor, seats, calls, fixtureId, cursorState } = input;
+  const seq = cursorState.nextSeq;
+  const kind = pickCallKind(seq);
+  const call = callPda(pool, seq);
+
+  const baselineStats = latestEvent(input.baselineEvents)?.Stats ?? {};
+  const baseSides = goalSides(baselineStats);
+  const baseGoals = goalTotal(baselineStats);
+  const baseWatched = watchedTotal(kind, baselineStats);
+  const baseSeq = latestEvent(input.baselineEvents)?.Seq ?? Number.NEGATIVE_INFINITY;
+
+  const opened = await openCallOnEr(runner, { pool, cursor, call, seq, kind, cursorState });
+  if (opened === null) return { opened: false };
+
+  // Wait out the answer window + resolve buffer (players are tapping on the ER).
+  const spec = callSpec(kind);
+  await input.sleepFn((spec.answerSecs + input.resolveBufferSecs) * 1000);
+
+  // Re-poll the feed and derive the outcome against the open-time baseline.
+  const events = await input.fetchEvents(fixtureId);
+  const nowStats = latestEvent(events)?.Stats ?? {};
+  const windowEvents = events.filter((e) => e.Seq > baseSeq);
+
+  const ctx: ResolveContext = {
+    deltas:
+      kind === CallKind.NextGoal
+        ? {
+            homeGoals: goalSides(nowStats).home - baseSides.home,
+            awayGoals: goalSides(nowStats).away - baseSides.away,
+          }
+        : { watched: watchedTotal(kind, nowStats) - baseWatched },
+    prevGoals: baseGoals,
+    curGoals: goalTotal(nowStats),
+    firstSide: kind === CallKind.NextGoal ? firstGoalSide(windowEvents, baseSides) : undefined,
+    program: input.oracle?.program,
+    viewValidate: input.oracle?.viewValidate,
+  };
+  const outcome = await resolveOutcomeIndex(kind, ctx);
+
+  await resolveCallOnEr(runner, { pool, cursor, call, seq, outcome });
+  await scoreAllSeats(runner, { pool, call, seats });
+  await commitLiveOnEr(runner, { pool, cursor, seats, calls });
+  return { opened: true, outcome };
+}
+
+/**
+ * Drive ONE live match pool ONE bounded, idempotent step (see the state-machine
+ * dispatch above). cron invokes this per pool per tick under a per-pool
+ * in-flight guard; a keeper crash at any point resumes cleanly on the next tick
+ * because every branch re-derives its decision from on-chain + feed state.
  */
 export async function runLiveMatch(
   poolPda: PublicKeyT,
@@ -978,30 +1202,133 @@ export async function runLiveMatch(
       idl: opts.idl,
       programFactory: opts.programFactory,
     });
+  const sleepFn = opts.sleepFn ?? sleep;
+  const nowFn = opts.now ?? chainNow;
+  const resolveBufferSecs = opts.resolveBufferSecs ?? 3;
 
   const cursor = liveCursorPda(poolPda);
 
-  // Read num_calls off the pool (how many Call PDAs to delegate).
+  // Read the pool off BASE: status drives the dispatch; lock/settle gate action.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pool: any = await runner.step("read_pool", () =>
     (runner.base as any).account.livePool.fetch(poolPda),
   );
-  const numCalls = Number(pool?.numCalls ?? 0);
+  if (!pool) return runner.report; // unreadable pool → try again next tick
+  const status = poolStatusOf(pool);
+  const numCalls = Number(pool.numCalls ?? 0);
+  const lockTs = Number(pool.lockTs ?? 0);
+  const settleAfterTs = Number(pool.settleAfterTs ?? 0);
+  const fixtureId = Number(pool.fixtureId ?? 0);
+
+  // Terminal states — nothing to do.
+  if (status === "settled" || status === "rolledOver" || status === "voided") {
+    return runner.report;
+  }
 
   const seats = await gatherSeats(runner.base, poolPda);
+  const calls = Array.from({ length: numCalls }, (_, s) => callPda(poolPda, s));
 
-  const del = await delegateAll(runner, { pool: poolPda, cursor, seats, numCalls });
-  if (del.branch === "void") {
-    // Under-filled pool (player_count < 2) → void + refund on the base layer.
-    // The pool was never delegated, so no undelegation is needed first.
+  // F3 — Ended: the pool is past gameplay (undelegated by the end path). Resume
+  // the settle tail; NEVER re-delegate.
+  if (status === "ended") {
+    await runner.step("settle_window", () =>
+      awaitSettleWindow(runner, settleAfterTs, opts.settleWindow),
+    );
+    await settleLivePoolOnBase(runner, { pool: poolPda, cursor, seats });
+    return runner.report;
+  }
+
+  // F1 — the JOIN WINDOW gate: while the on-chain clock is before lock_ts the
+  // pool is still filling. Do NOTHING (especially not void). An unreadable
+  // clock also waits — never act blind on a money path.
+  const now = await runner.step("chain_now", () => nowFn(runner));
+  if (now === null || now < lockTs) return runner.report;
+
+  // Post-lock, under-filled → void + refund (works even if already delegated:
+  // LivePool is never delegated and refund_voided reads entries owner-agnostically).
+  if (seats.length < 2) {
     await finalizeVoid(runner, { pool: poolPda, seats });
     return runner.report;
   }
 
-  // ER-visibility gate: block until the ER sees the delegated cursor.
-  await runner.step("er_visibility", () => awaitErVisibility(runner, cursor));
+  // F2 — delegate exactly once: skip when the cursor's base owner already IS
+  // the Delegation Program (a delegate re-issue reverts and wastes the tick).
+  const owner = await runner.step("read_cursor_owner", () => baseOwnerOf(runner, cursor));
+  if (owner === "program") {
+    await delegateAll(runner, { pool: poolPda, cursor, seats, numCalls });
+    await runner.step("er_visibility", () =>
+      awaitErVisibility(runner, cursor, opts.erVisibility),
+    );
+  } else if (owner === "missing") {
+    return runner.report; // malformed pool (no cursor) — nothing safe to do
+  }
 
-  // ER gameplay (S3-T6) and end→settle/void (S3-T7) extend from here.
+  // ── ONE feed-driven gameplay step ──
+  if (!opts.fetchEvents) {
+    // Loud failure (caught by cron's tick try/catch): delegated pools MUST have
+    // a feed or the match can never resolve. Silence here would strand the pot.
+    throw new Error("runLiveMatch: opts.fetchEvents is required for gameplay");
+  }
+  const events = await runner.step("fetch_events", () => opts.fetchEvents!(fixtureId));
+  if (events === null) return runner.report; // feed hiccup — retry next tick
+  const latest = latestEvent(events);
+  const phase = latest ? detectPhase(latest) : "live";
+
+  // Feed says the MATCH is void/abandoned → void + refund.
+  if (phase === "void") {
+    await finalizeVoid(runner, { pool: poolPda, seats });
+    return runner.report;
+  }
+
+  const cursorState = await readErCursorState(runner, cursor);
+  if (!cursorState) return runner.report; // ER unreadable — retry next tick
+
+  // An open call on tick ENTRY is an ORPHAN (a healthy cycle closes its call
+  // within its own tick): the open-time baseline died with the previous keeper
+  // process, so the outcome is unprovable. Void it — fair, nobody penalized —
+  // then score + commit so coverage still advances.
+  if (cursorState.openSeq !== NONE_SEQ) {
+    const orphan = callPda(poolPda, cursorState.openSeq);
+    await resolveCallOnEr(runner, {
+      pool: poolPda,
+      cursor,
+      call: orphan,
+      seq: cursorState.openSeq,
+      outcome: VOID_OUTCOME,
+    });
+    await scoreAllSeats(runner, { pool: poolPda, call: orphan, seats });
+    await commitLiveOnEr(runner, { pool: poolPda, cursor, seats, calls });
+  } else if (phase === "live" && cursorState.nextSeq < numCalls) {
+    // No open call, match live, calls remaining → run ONE full call cycle.
+    await runCallCycle(runner, {
+      pool: poolPda,
+      cursor,
+      seats,
+      calls,
+      fixtureId,
+      cursorState,
+      baselineEvents: events,
+      fetchEvents: opts.fetchEvents,
+      sleepFn,
+      resolveBufferSecs,
+      oracle: opts.oracle,
+    });
+    return runner.report;
+  }
+
+  // Full-time (with no call left open) → the FT terminal path.
+  if (phase === "ft") {
+    await finalizeFt(runner, {
+      pool: poolPda,
+      cursor,
+      seats,
+      calls,
+      settleAfterTs,
+      pollBase: opts.pollBase,
+      settleWindow: opts.settleWindow,
+    });
+  }
+  // 'ht' (or paced out / all calls played) → wait for the next tick.
   return runner.report;
 }
 
