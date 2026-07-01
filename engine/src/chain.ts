@@ -375,8 +375,9 @@ export async function readLiveContests(): Promise<ContestView[]> {
  * offset 0 AND the exact account size) and decode each in its own try/catch.
  *
  * Size is read at RUNTIME (`program.account.livePool.size`) — never hardcoded.
- * Delegated accounts have a flipped `.owner`, but their data stays readable and
- * the dataSize filter still finds them, so we do NOT depend on program-ownership.
+ * LivePool is NEVER delegated (it escrows the pot on the base layer), so a
+ * single owner-scoped scan under our program id always finds every pool — the
+ * delegated-owner caveat below does not apply here.
  * A total RPC failure (or an IDL-name miss that makes coder.memcmp throw) → []
  * so the route degrades gracefully rather than throwing.
  */
@@ -417,10 +418,47 @@ export async function readLivePools(): Promise<unknown[]> {
 }
 
 /**
- * Scan Call accounts (size-filtered), optionally scoped to a single pool. Clones
- * readLivePools; adds a `{offset:8, bytes:pool}` memcmp when `pool` is given
- * (Call.pool lives at offset 8, verified against live_state.rs). camelCase 'call'
- * account name; runtime size (`program.account.call.size`, 62). Same per-account
+ * The MagicBlock Delegation Program. While a pool is live its Call / LiveCursor /
+ * LiveEntry PDAs are delegated to the Ephemeral Rollup: their base-layer `.owner`
+ * flips to THIS program (data stays fully readable — runtime probe, Fork A).
+ * `getProgramAccounts` scans by OWNER, so an our-program-only scan goes blind for
+ * exactly the duration of the match — the game's centerpiece. Delegation-aware
+ * readers scan BOTH owners and merge.
+ */
+export const DELEGATION_PROGRAM = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
+
+/**
+ * getProgramAccounts under BOTH possible owners (our program + the Delegation
+ * Program) with identical filters, merged and de-duplicated by pubkey. Used for
+ * every delegated-account scan (Call, LiveEntry); LivePool never needs it.
+ * Throws on RPC failure — each caller decides whether to []-degrade or 502.
+ */
+async function scanBothOwners(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  conn: any,
+  programId: PublicKey,
+  filters: unknown[],
+): Promise<{ pubkey: PublicKey; account: { data: Buffer } }[]> {
+  const byKey = new Map<string, { pubkey: PublicKey; account: { data: Buffer } }>();
+  for (const owner of [programId, DELEGATION_PROGRAM]) {
+    const raw = (await conn.getProgramAccounts(owner, { filters })) as {
+      pubkey: PublicKey;
+      account: { data: Buffer };
+    }[];
+    for (const item of raw) byKey.set(item.pubkey.toBase58(), item);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Scan Call accounts (size-filtered), optionally scoped to a single pool. Adds a
+ * `{offset:8, bytes:pool}` memcmp when `pool` is given (Call.pool at offset 8,
+ * verified against live_state.rs). camelCase 'call' account name; runtime size
+ * (`program.account.call.size`, 62).
+ *
+ * DELEGATION-AWARE (stress-test F5): during a live match every Call's base-layer
+ * owner is the Delegation Program, so this scans BOTH owners and merges —
+ * otherwise the open call vanishes from the API mid-match. Same per-account
  * decode tolerance and graceful-[] on total RPC/IDL failure as readLivePools.
  */
 export async function readCall(pool?: string): Promise<unknown[]> {
@@ -440,11 +478,7 @@ export async function readCall(pool?: string): Promise<unknown[]> {
     ];
     // Scope to one pool: Call.pool is at offset 8.
     if (pool !== undefined) filters.push({ memcmp: { offset: 8, bytes: pool } });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    raw = (await (conn as any).getProgramAccounts(program.programId, { filters })) as {
-      pubkey: PublicKey;
-      account: { data: Buffer };
-    }[];
+    raw = await scanBothOwners(conn, program.programId, filters);
   } catch {
     return []; // total RPC failure / discriminator miss → no calls
   }
@@ -644,17 +678,22 @@ export function toLiveCursorView(pubkey: PublicKey, c: any): LiveCursorView {
 // ── Live-match scoped reads (Slice 4 S4-T2) ──────────────────────────────────
 
 /**
- * Fetch a pool's LiveCursor (delegated, size 53). Derives the livecursor PDA from
- * the pool key and fetches it; returns null on any miss/RPC error (the cursor
- * doesn't exist until delegation, and reads must degrade gracefully — never throw).
- * camelCase `liveCursor` account key (PascalCase would throw).
+ * Fetch a pool's LiveCursor (size 53) OWNER-AGNOSTICALLY: derive the livecursor
+ * PDA, `getAccountInfo` it directly, and decode the raw bytes. While the pool is
+ * live the cursor's base-layer owner is the Delegation Program — an owner-checked
+ * fetch path would blank the cursor for the whole match (stress-test F5); a
+ * direct read + decode works in every phase. Returns null on any miss/RPC/decode
+ * error (reads degrade gracefully — never throw). camelCase `liveCursor` key.
  */
 export async function readLiveCursor(pool: string): Promise<LiveCursorView | null> {
   const program = loadProgram();
   const cursorPda = deriveLiveCursorPda(program.programId, new PublicKey(pool));
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const c = await (program.account as any).liveCursor.fetch(cursorPda);
+    const info: any = await (program.provider.connection as any).getAccountInfo(cursorPda);
+    if (!info?.data) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (program as any).coder.accounts.decode("liveCursor", info.data);
     return toLiveCursorView(cursorPda, c);
   } catch {
     return null;
@@ -662,22 +701,32 @@ export async function readLiveCursor(pool: string): Promise<LiveCursorView | nul
 }
 
 /**
- * Read one wallet's LiveEntry for a given pool (there is at most one per player per
- * pool). Scans `liveEntry.all` with two memcmp filters — player at offset 8, pool at
- * offset 40 (verified against live_state.rs) — and maps the single match, or null.
- * The pool key is derived from poolId (livepool PDA). camelCase `liveEntry` key.
+ * Read one wallet's LiveEntry for a given pool (at most one per player per pool).
+ * The entry PDA is FULLY derivable from (pool, player) — [b"liveentry", pool,
+ * player] — so this reads it directly via `getAccountInfo` + decode: one RPC
+ * call, and OWNER-AGNOSTIC (a delegated entry — owner flipped to the Delegation
+ * Program mid-match — still reads; an owner-scoped `.all()` scan returned null
+ * for a playing, scoring seat — stress-test F5). Returns null on miss/decode
+ * failure. camelCase `liveEntry` key.
  */
 export async function readLiveEntry(wallet: string, poolId: number | bigint): Promise<LiveEntryView | null> {
   const program = loadProgram();
   const player = new PublicKey(wallet);
   const pool = deriveLivePoolPda(program.programId, poolId);
+  const entryPda = deriveLiveEntryPda(program.programId, pool, player);
+  // An RPC failure PROPAGATES (the route 502s) — swallowing it would tell a
+  // joined, playing seat "no ticket". Only a missing account or garbage data
+  // reads as null.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const accts: any[] = await (program.account as any).liveEntry.all([
-    { memcmp: { offset: 8, bytes: player.toBase58() } },   // player at offset 8
-    { memcmp: { offset: 40, bytes: pool.toBase58() } },    // pool at offset 40
-  ]);
-  if (accts.length === 0) return null;
-  return toLiveEntryView(accts[0].publicKey, accts[0].account);
+  const info: any = await (program.provider.connection as any).getAccountInfo(entryPda);
+  if (!info?.data) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e = (program as any).coder.accounts.decode("liveEntry", info.data);
+    return toLiveEntryView(entryPda, e);
+  } catch {
+    return null; // wrong-layout / foreign account at the PDA → no entry
+  }
 }
 
 /**
@@ -716,21 +765,39 @@ export async function readOpenCall(pool: string): Promise<CallView | null> {
 
 /**
  * Every LiveEntry for a pool, mapped + sorted by `total` (base_pts + bonus_pts)
- * descending — the standings leaderboard. Scans `liveEntry.all` filtered by pool
- * at offset 40 (verified against live_state.rs). The pool key is derived from
- * poolId (livepool PDA). Returns [] on no entries; a total RPC failure propagates
- * so the route can 502.
+ * descending — the standings leaderboard.
+ *
+ * DELEGATION-AWARE (stress-test F5): mid-match every entry's base-layer owner is
+ * the Delegation Program, so an owner-scoped `.all()` returned [] EXACTLY while
+ * players were live and scoring — blanking the leaderboard, the game's
+ * centerpiece. This scans BOTH owners (disc + runtime size + pool@40, verified
+ * against live_state.rs), merges, and decodes each survivor tolerantly. Returns
+ * [] on no entries; a total RPC failure propagates so the route can 502.
  */
 export async function readPoolStandings(poolId: number | bigint): Promise<LiveEntryView[]> {
   const program = loadProgram();
   const pool = deriveLivePoolPda(program.programId, poolId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const accts: any[] = await (program.account as any).liveEntry.all([
-    { memcmp: { offset: 40, bytes: pool.toBase58() } }, // pool at offset 40
-  ]);
-  return accts
-    .map((a) => toLiveEntryView(a.publicKey, a.account))
-    .sort((x, y) => y.total - x.total); // leaderboard: highest total first
+  const coder = (program as any).coder.accounts;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const size: number = (program.account as any).liveEntry.size;
+  const disc = coder.memcmp("liveEntry");
+  const filters = [
+    { memcmp: { offset: disc.offset, bytes: disc.bytes } },
+    { dataSize: size },
+    { memcmp: { offset: 40, bytes: pool.toBase58() } }, // LiveEntry.pool@40
+  ];
+  const raw = await scanBothOwners(program.provider.connection, program.programId, filters);
+  const views: LiveEntryView[] = [];
+  for (const item of raw) {
+    if (item.account.data.length !== size) continue;
+    try {
+      views.push(toLiveEntryView(item.pubkey, coder.decode("liveEntry", item.account.data)));
+    } catch {
+      continue; // skip an undecodable entry, keep the leaderboard
+    }
+  }
+  return views.sort((x, y) => y.total - x.total); // leaderboard: highest total first
 }
 
 /** Fetch + map a single contest by id (scoped path). Returns null if it can't be read/decoded. */

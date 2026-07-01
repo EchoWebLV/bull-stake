@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   getBalance: vi.fn(async () => 0),
   getMin: vi.fn(async () => 0),
   getProgramAccounts: vi.fn(async (_programId: unknown, _opts?: unknown) => [] as unknown[]),
+  getAccountInfo: vi.fn(async (_pda: unknown): Promise<unknown> => null),
   decode: vi.fn((_name: string, _data: unknown): unknown => undefined),
   memcmp: vi.fn((_name?: string) => ({ offset: 0, bytes: "d9UCMmqzRPV" })),
   cursorFetch: vi.fn(async (_pda: unknown): Promise<unknown> => ({})),
@@ -45,6 +46,7 @@ vi.mock("@coral-xyz/anchor", async () => {
           getBalance: h.getBalance,
           getMinimumBalanceForRentExemption: h.getMin,
           getProgramAccounts: h.getProgramAccounts,
+          getAccountInfo: h.getAccountInfo,
         },
       };
       coder = { accounts: { decode: h.decode, memcmp: h.memcmp } };
@@ -218,11 +220,16 @@ describe("readCall — size-filtered Call scan (optionally scoped to a pool)", (
 
 // ── S4-T2: scoped reads (readLiveCursor / readLiveEntry) + View mappers ──────
 
-describe("readLiveCursor — scoped LiveCursor fetch", () => {
-  it("returns the mapped cursor view for a pool", async () => {
-    h.cursorFetch.mockResolvedValue({
-      pool: pk("POOL"), nextSeq: 3, openSeq: 4294967295, resolvedCount: 2, bump: 7,
-    });
+describe("readLiveCursor — OWNER-AGNOSTIC direct PDA read (stress-test F5)", () => {
+  it("reads the derived PDA via getAccountInfo + coder.decode('liveCursor') — never an owner-checked fetch", async () => {
+    // The account is DELEGATED (owner = Delegation Program) — mid-match state.
+    // A direct read + decode must still surface it.
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(53), owner: pk("DELeGG") });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveCursor"
+        ? { pool: pk("POOL"), nextSeq: 3, openSeq: 4294967295, resolvedCount: 2, bump: 7 }
+        : undefined,
+    );
 
     const c = await readLiveCursor(REAL_WALLET);
 
@@ -231,62 +238,74 @@ describe("readLiveCursor — scoped LiveCursor fetch", () => {
     expect(c!.nextSeq).toBe(3);
     expect(c!.openSeq).toBe(4294967295);
     expect(c!.resolvedCount).toBe(2);
+    // The read went through getAccountInfo (owner-agnostic), not an .all()/fetch scan.
+    expect(h.getAccountInfo).toHaveBeenCalledTimes(1);
+    expect(h.decode).toHaveBeenCalledWith("liveCursor", expect.anything());
   });
 
-  it("missing / unfetchable cursor → null (never throws)", async () => {
-    h.cursorFetch.mockRejectedValue(new Error("Account does not exist"));
+  it("missing account → null (never throws)", async () => {
+    h.getAccountInfo.mockResolvedValue(null);
+    expect(await readLiveCursor(REAL_WALLET)).toBeNull();
+  });
 
+  it("RPC failure → null (cursor reads degrade gracefully)", async () => {
+    h.getAccountInfo.mockRejectedValue(new Error("rpc down"));
     expect(await readLiveCursor(REAL_WALLET)).toBeNull();
   });
 });
 
-describe("readLiveEntry — wallet+pool scoped LiveEntry", () => {
-  it("filters by wallet at offset 8 AND pool at offset 40", async () => {
-    h.entryAll.mockResolvedValue([]);
+describe("readLiveEntry — direct derived-PDA read, owner-agnostic (stress-test F5)", () => {
+  it("fetches the DERIVED entry PDA via getAccountInfo (no owner-scoped .all() scan)", async () => {
+    h.getAccountInfo.mockResolvedValue(null);
 
     await readLiveEntry(REAL_WALLET, 777020634);
 
-    expect(h.entryAll).toHaveBeenCalledTimes(1);
-    const filters = h.entryAll.mock.calls[0][0] as { memcmp: { offset: number; bytes: string } }[];
-    const walletF = filters.find((f) => f.memcmp.offset === 8);
-    const poolF = filters.find((f) => f.memcmp.offset === 40);
-    expect(walletF).toBeDefined();
-    expect(walletF!.memcmp.bytes).toBe(REAL_WALLET);
-    expect(poolF).toBeDefined();
-    // pool is derived from poolId; just assert a pubkey memcmp is present at 40.
-    expect(typeof poolF!.memcmp.bytes).toBe("string");
-    expect(poolF!.memcmp.bytes.length).toBeGreaterThan(0);
+    // One direct read of the derived [b"liveentry", pool, player] PDA…
+    expect(h.getAccountInfo).toHaveBeenCalledTimes(1);
+    // …and NOT the owner-scoped scan that blanked delegated (mid-match) entries.
+    expect(h.entryAll).not.toHaveBeenCalled();
+    expect(h.getProgramAccounts).not.toHaveBeenCalled();
   });
 
-  it("no matching entry → null", async () => {
-    h.entryAll.mockResolvedValue([]);
-
+  it("no ticket at the PDA → null", async () => {
+    h.getAccountInfo.mockResolvedValue(null);
     expect(await readLiveEntry(REAL_WALLET, 1)).toBeNull();
   });
 
-  it("returns the mapped entry view when one exists", async () => {
-    h.entryAll.mockResolvedValue([
-      {
-        publicKey: pk("ENTRY"),
-        account: {
-          player: pk("WALLET"),
-          pool: pk("POOL"),
-          amount: bn("35000000"),
-          basePts: 12,
-          bonusPts: 5,
-          streak: 2,
-          nextScoreSeq: 3,
-          picks: [1, 0, 0xff, ...Array(61).fill(0xff)],
-          bump: 4,
-        },
-      },
-    ]);
+  it("REGRESSION: a DELEGATED entry (owner = Delegation Program) still maps to a view", async () => {
+    // Mid-match state: the seat is playing and scoring on the ER; base owner flipped.
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(159), owner: pk("DELeGG") });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveEntry"
+        ? {
+            player: pk("WALLET"),
+            pool: pk("POOL"),
+            amount: bn("35000000"),
+            basePts: 12,
+            bonusPts: 5,
+            streak: 2,
+            nextScoreSeq: 3,
+            picks: [1, 0, 0xff, ...Array(61).fill(0xff)],
+            bump: 4,
+          }
+        : undefined,
+    );
 
     const e = await readLiveEntry(REAL_WALLET, 1);
 
     expect(e).not.toBeNull();
-    expect(e!.pubkey).toBe("ENTRY");
-    expect(e!.total).toBe(17);
+    expect(e!.total).toBe(17); // base 12 + bonus 5 — live points visible mid-match
+  });
+
+  it("garbage data at the PDA (decode throws) → null; an RPC failure PROPAGATES (route 502s)", async () => {
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(159) });
+    h.decode.mockImplementation(() => {
+      throw new Error("bad discriminator");
+    });
+    expect(await readLiveEntry(REAL_WALLET, 1)).toBeNull();
+
+    h.getAccountInfo.mockRejectedValue(new Error("rpc down"));
+    await expect(readLiveEntry(REAL_WALLET, 1)).rejects.toThrow("rpc down");
   });
 });
 
@@ -589,22 +608,29 @@ describe("GET /api/live/pool", () => {
     await app.close();
   });
 
-  it("folds in the currently-open call + sorted standings", async () => {
-    // getProgramAccounts serves BOTH the pool scan and the call scan; distinguish by
-    // the memcmp/data shape. Simplest: return the pool for the livePool decode and a
-    // call for the call decode, driven by decode(name).
-    h.getProgramAccounts.mockResolvedValue([
-      { pubkey: { toBase58: () => "X" }, account: { data: Buffer.alloc(176) } },
-    ]);
-    // Pool scan uses dataSize 176; call scan uses dataSize 62. Return a 176-buffer
-    // for pools and a 62-buffer for calls so each scan sees its own account.
-    h.getProgramAccounts.mockImplementation(async (_pid: unknown, opts: any) => {
+  it("folds in the currently-open call + sorted standings (delegated-owner scans included)", async () => {
+    // getProgramAccounts serves the pool scan (dataSize 176), the call scan (62),
+    // and the standings entry scan (159). The call + entry scans are DUAL-OWNER
+    // (our program + the Delegation Program) — serve rows only under the
+    // delegation owner to prove mid-match reads work (stress-test F5).
+    const seenOwners = new Set<string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    h.getProgramAccounts.mockImplementation(async (owner: any, opts: any) => {
+      seenOwners.add(owner.toBase58?.() ?? String(owner));
       const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
-      if (size === 176) return [{ pubkey: { toBase58: () => "POOL" }, account: { data: Buffer.alloc(176) } }];
-      if (size === 62) return [{ pubkey: { toBase58: () => "CALL" }, account: { data: Buffer.alloc(62) } }];
+      const delegated = owner.toBase58?.() === "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh";
+      if (size === 176 && !delegated)
+        return [{ pubkey: { toBase58: () => "POOL" }, account: { data: Buffer.alloc(176) } }];
+      if (size === 62 && delegated)
+        return [{ pubkey: { toBase58: () => "CALL" }, account: { data: Buffer.alloc(62) } }];
+      if (size === 159 && delegated)
+        return [
+          { pubkey: { toBase58: () => "E_LOW" }, account: { data: Buffer.alloc(159, 1) } },
+          { pubkey: { toBase58: () => "E_HIGH" }, account: { data: Buffer.alloc(159, 2) } },
+        ];
       return [];
     });
-    h.decode.mockImplementation((name: string) => {
+    h.decode.mockImplementation((name: string, data?: any) => {
       if (name === "livePool") return poolRaw({ poolId: 303, fixtureId: 303 });
       if (name === "call") {
         return {
@@ -613,12 +639,13 @@ describe("GET /api/live/pool", () => {
           outcome: 0xff, bump: 5,
         };
       }
+      if (name === "liveEntry") {
+        return data?.[0] === 1
+          ? entryRaw({ player: "PL", basePts: 3, bonusPts: 1 })   // total 4
+          : entryRaw({ player: "PH", basePts: 10, bonusPts: 2 }); // total 12
+      }
       return undefined;
     });
-    h.entryAll.mockResolvedValue([
-      { publicKey: pk("E_LOW"), account: entryRaw({ player: "PL", basePts: 3, bonusPts: 1 }) },   // total 4
-      { publicKey: pk("E_HIGH"), account: entryRaw({ player: "PH", basePts: 10, bonusPts: 2 }) }, // total 12
-    ]);
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/live/pool?fixtureId=303" });
     expect(res.statusCode).toBe(200);
@@ -626,8 +653,10 @@ describe("GET /api/live/pool", () => {
     expect(body.openCall).not.toBeNull();
     expect(body.openCall.state).toBe("open");
     expect(body.openCall.seq).toBe(2);
-    // standings sorted by total DESC.
+    // standings sorted by total DESC — sourced ENTIRELY from delegated-owner rows.
     expect(body.standings.map((s: { total: number }) => s.total)).toEqual([12, 4]);
+    // Both owners were scanned.
+    expect(seenOwners.has("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh")).toBe(true);
     await app.close();
   });
 
@@ -653,11 +682,32 @@ describe("GET /api/live/pool", () => {
 });
 
 describe("GET /api/live/pool/:id/standings", () => {
-  it("returns entries sorted by total desc", async () => {
-    h.entryAll.mockResolvedValue([
-      { publicKey: pk("E_MID"), account: entryRaw({ player: "PM", basePts: 5, bonusPts: 0 }) },   // 5
-      { publicKey: pk("E_HIGH"), account: entryRaw({ player: "PH", basePts: 9, bonusPts: 3 }) },   // 12
-      { publicKey: pk("E_LOW"), account: entryRaw({ player: "PL", basePts: 1, bonusPts: 0 }) },    // 1
+  /** Serve entry rows from the dual-owner gPA scan (dataSize 159 → entry buffers). */
+  function armEntryScan(rows: { key: string; basePts: number; bonusPts: number }[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    h.getProgramAccounts.mockImplementation(async (owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      // Rows live under the DELEGATION owner only — the mid-match state.
+      if (size === 159 && owner.toBase58?.() === "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh") {
+        return rows.map((r, i) => ({
+          pubkey: { toBase58: () => r.key },
+          account: { data: Buffer.alloc(159, i + 1) },
+        }));
+      }
+      return [];
+    });
+    h.decode.mockImplementation((name: string, data?: any) => {
+      if (name !== "liveEntry") return undefined;
+      const r = rows[(data?.[0] ?? 1) - 1];
+      return entryRaw({ player: `P${r.key}`, basePts: r.basePts, bonusPts: r.bonusPts });
+    });
+  }
+
+  it("returns entries sorted by total desc — sourced from DELEGATED rows (mid-match)", async () => {
+    armEntryScan([
+      { key: "E_MID", basePts: 5, bonusPts: 0 },  // 5
+      { key: "E_HIGH", basePts: 9, bonusPts: 3 }, // 12
+      { key: "E_LOW", basePts: 1, bonusPts: 0 },  // 1
     ]);
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/live/pool/303/standings" });
@@ -670,7 +720,7 @@ describe("GET /api/live/pool/:id/standings", () => {
   });
 
   it("returns 200 [] (not 404) for a pool with no entries", async () => {
-    h.entryAll.mockResolvedValue([]);
+    h.getProgramAccounts.mockResolvedValue([]);
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/live/pool/303/standings" });
     expect(res.statusCode).toBe(200);
@@ -678,17 +728,26 @@ describe("GET /api/live/pool/:id/standings", () => {
     await app.close();
   });
 
-  it("filters entries by pool at offset 40", async () => {
-    h.entryAll.mockResolvedValue([]);
+  it("scans BOTH owners with disc + runtime dataSize(159) + pool@40 filters", async () => {
+    h.getProgramAccounts.mockResolvedValue([]);
     const app = buildServer(makeMockStore());
     await app.inject({ url: "/api/live/pool/303/standings" });
-    const filters = h.entryAll.mock.calls[0][0] as { memcmp: { offset: number; bytes: string } }[];
-    expect(filters.some((f) => f.memcmp.offset === 40)).toBe(true);
+    // The entry scan ran under our program AND the Delegation Program.
+    const entryScans = h.getProgramAccounts.mock.calls.filter((c: any[]) =>
+      (c[1] as any).filters.some((f: any) => f.dataSize === 159),
+    );
+    expect(entryScans.length).toBe(2);
+    const owners = entryScans.map((c: any[]) => (c[0] as any).toBase58());
+    expect(owners).toContain("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
+    for (const [, opts] of entryScans as any[]) {
+      expect(opts.filters.some((f: any) => f.memcmp?.offset === 40)).toBe(true);
+      expect(opts.filters.some((f: any) => f.memcmp?.offset === 0)).toBe(true);
+    }
     await app.close();
   });
 
   it("502s when the standings read fails", async () => {
-    h.entryAll.mockRejectedValue(new Error("rpc down"));
+    h.getProgramAccounts.mockRejectedValue(new Error("rpc down"));
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/live/pool/303/standings" });
     expect(res.statusCode).toBe(502);
@@ -712,8 +771,8 @@ describe("GET /api/live/entry", () => {
     await app.close();
   });
 
-  it("returns 200 { entry: null } when no ticket exists", async () => {
-    h.entryAll.mockResolvedValue([]);
+  it("returns 200 { entry: null } when no ticket exists at the derived PDA", async () => {
+    h.getAccountInfo.mockResolvedValue(null);
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: `/api/live/entry?wallet=${REAL_WALLET}&poolId=1` });
     expect(res.statusCode).toBe(200);
@@ -721,10 +780,11 @@ describe("GET /api/live/entry", () => {
     await app.close();
   });
 
-  it("returns the wallet's entry with amount as a string + total", async () => {
-    h.entryAll.mockResolvedValue([
-      { publicKey: pk("ENTRY"), account: entryRaw({ player: "WALLET", basePts: 12, bonusPts: 5 }) },
-    ]);
+  it("returns the wallet's entry (even DELEGATED mid-match) with amount as a string + total", async () => {
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(159), owner: pk("DELeGG") });
+    h.decode.mockImplementation((name: string) =>
+      name === "liveEntry" ? entryRaw({ player: "WALLET", basePts: 12, bonusPts: 5 }) : undefined,
+    );
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: `/api/live/entry?wallet=${REAL_WALLET}&poolId=1` });
     expect(res.statusCode).toBe(200);
@@ -735,8 +795,8 @@ describe("GET /api/live/entry", () => {
     await app.close();
   });
 
-  it("502s when the entry read fails", async () => {
-    h.entryAll.mockRejectedValue(new Error("rpc down"));
+  it("502s when the entry read fails (RPC error ≠ 'no ticket')", async () => {
+    h.getAccountInfo.mockRejectedValue(new Error("rpc down"));
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: `/api/live/entry?wallet=${REAL_WALLET}&poolId=1` });
     expect(res.statusCode).toBe(502);
