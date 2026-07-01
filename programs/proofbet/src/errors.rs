@@ -64,4 +64,45 @@ pub enum ProofBetError {
     // exceed entry_count (a parlay can have at most entry_count perfect tickets).
     #[msg("perfect_count cannot exceed entry_count")]
     PerfectCountExceedsEntries,
+    // ── Live match game (SLICE 1) — appended at the END, byte-stable ordinals ──
+    #[msg("pool_id must be non-zero")]
+    InvalidPoolId,
+    #[msg("num_calls must be between 1 and MAX_CALLS")]
+    InvalidCallCount,
+    #[msg("live pool is not open for joining")]
+    PoolNotOpen,
+    #[msg("live pool is not open or live")]
+    PoolNotLive,
+    #[msg("live pool has not ended")]
+    PoolNotEnded,
+    #[msg("live pool is not in a terminal (claimable) state")]
+    PoolNotTerminal,
+    #[msg("live pool cannot be voided from its current state")]
+    PoolNotVoidable,
+    #[msg("joins have closed for this pool")]
+    JoinClosed,
+    #[msg("a call is already open; resolve it first")]
+    CallStillOpen,
+    #[msg("call seq must equal the cursor's next_seq")]
+    CallSeqMismatch,
+    #[msg("call limit reached for this pool")]
+    CallLimitReached,
+    #[msg("call is not open")]
+    CallNotOpen,
+    #[msg("call is not resolved")]
+    CallNotResolved,
+    #[msg("the answer window for this call has closed")]
+    AnswerWindowClosed,
+    #[msg("calls must be scored in order (seq == next_score_seq)")]
+    ScoreOutOfOrder,
+    #[msg("every seat must be scored through all resolved calls before settle")]
+    NotAllScored,
+    #[msg("a passed entry account failed PDA/owner/coverage binding")]
+    ScoreMismatch,
+    #[msg("option must be within the call's num_options")]
+    InvalidOption,
+    #[msg("a live pool needs at least 2 players to settle")]
+    NotEnoughPlayers,
+    #[msg("winner_count must be greater than zero to pay a winner")]
+    WinnerCountZero,
 }

@@ -117,3 +117,86 @@ pub struct ContestClaimed {
     /// 0 = no payout (loser/rolled), 1 = win share, 2 = void refund.
     pub kind: u8,
 }
+
+// ── Live match game (SLICE 1) ──────────────────────────────────────────────
+#[event]
+pub struct LivePoolCreated {
+    pub pool: Pubkey,
+    pub pool_id: u64,
+    pub fixture_id: i64,
+    pub entry_price: u64,
+    pub lock_ts: i64,
+    pub settle_after_ts: i64,
+    pub num_calls: u32,
+    pub settle_authority: Pubkey,
+}
+
+#[event]
+pub struct JoinedLivePool {
+    pub pool: Pubkey,
+    pub player: Pubkey,
+    pub amount: u64,
+    pub player_count: u64,
+}
+
+#[event]
+pub struct CallOpened {
+    pub pool: Pubkey,
+    pub seq: u32,
+    pub kind: crate::live_state::CallKind,
+    pub num_options: u8,
+}
+
+#[event]
+pub struct CallResolved {
+    pub pool: Pubkey,
+    pub seq: u32,
+    pub outcome: u8,
+    pub voided: bool,
+}
+
+#[event]
+pub struct EntryScored {
+    pub pool: Pubkey,
+    pub player: Pubkey,
+    pub seq: u32,
+    pub base_pts: u32,
+    pub bonus_pts: u32,
+    pub streak: u16,
+}
+
+#[event]
+pub struct LivePoolEnded {
+    pub pool: Pubkey,
+    pub pool_id: u64,
+}
+
+#[event]
+pub struct LivePoolSettled {
+    pub pool: Pubkey,
+    pub pool_id: u64,
+    /// This pool's own entry pot at settle (pool.lamports - rent_floor).
+    pub pot: u64,
+    pub winning_score: u64,
+    pub winner_count: u64,
+    pub distributable: u64,
+    pub rake: u64,
+    pub jackpot_in: u64,
+    pub jackpot_out: u64,
+    pub rolled_over: bool,
+}
+
+#[event]
+pub struct LivePoolVoided {
+    pub pool: Pubkey,
+    pub pool_id: u64,
+}
+
+#[event]
+pub struct LivePoolClaimed {
+    pub pool: Pubkey,
+    pub player: Pubkey,
+    pub payout: u64,
+    /// 0 = no payout (loser/rolled), 1 = win share, 2 = void refund.
+    pub kind: u8,
+}

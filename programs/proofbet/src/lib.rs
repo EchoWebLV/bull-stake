@@ -4,6 +4,7 @@ pub mod contest_state;
 pub mod errors;
 pub mod events;
 pub mod instructions;
+pub mod live_state;
 pub mod state;
 
 use instructions::*;
@@ -81,5 +82,66 @@ pub mod proofbet {
 
     pub fn claim_contest(ctx: Context<ClaimContest>) -> Result<()> {
         instructions::claim_contest::handler(ctx)
+    }
+
+    // ── Live match game (SLICE 1 — base layer) ────────────────────────────────
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_live_pool(
+        ctx: Context<CreateLivePool>,
+        pool_id: u64,
+        fixture_id: i64,
+        entry_price: u64,
+        lock_ts: i64,
+        settle_after_ts: i64,
+        fee_recipient: Pubkey,
+        fee_bps: u16,
+        num_calls: u32,
+    ) -> Result<()> {
+        instructions::live::create_live_pool::handler(
+            ctx, pool_id, fixture_id, entry_price, lock_ts, settle_after_ts, fee_recipient, fee_bps, num_calls,
+        )
+    }
+
+    pub fn join_live_pool(ctx: Context<JoinLivePool>) -> Result<()> {
+        instructions::live::join_live_pool::handler(ctx)
+    }
+
+    pub fn open_call(
+        ctx: Context<OpenCall>,
+        seq: u32,
+        kind: crate::live_state::CallKind,
+        num_options: u8,
+        base_points: [u8; 3],
+        answer_secs: u16,
+    ) -> Result<()> {
+        instructions::live::open_call::handler(ctx, seq, kind, num_options, base_points, answer_secs)
+    }
+
+    pub fn lock_pick(ctx: Context<LockPick>, option: u8) -> Result<()> {
+        instructions::live::lock_pick::handler(ctx, option)
+    }
+
+    pub fn resolve_call(ctx: Context<ResolveCall>, outcome: u8) -> Result<()> {
+        instructions::live::resolve_call::handler(ctx, outcome)
+    }
+
+    pub fn score_entry(ctx: Context<ScoreEntry>) -> Result<()> {
+        instructions::live::score_entry::handler(ctx)
+    }
+
+    pub fn end_live_pool(ctx: Context<EndLivePool>) -> Result<()> {
+        instructions::live::end_live_pool::handler(ctx)
+    }
+
+    pub fn settle_live_pool(ctx: Context<SettleLivePool>) -> Result<()> {
+        instructions::live::settle_live_pool::handler(ctx)
+    }
+
+    pub fn claim_live_pool(ctx: Context<ClaimLivePool>) -> Result<()> {
+        instructions::live::claim_live_pool::handler(ctx)
+    }
+
+    pub fn void_live_pool(ctx: Context<VoidLivePool>) -> Result<()> {
+        instructions::live::void_live_pool::handler(ctx)
     }
 }
