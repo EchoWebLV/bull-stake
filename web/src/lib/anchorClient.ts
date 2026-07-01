@@ -12,8 +12,11 @@ const RPC = import.meta.env.VITE_RPC_URL ?? "https://api.devnet.solana.com";
 export const PROGRAM_ID = new PublicKey((idl as { address: string }).address);
 export const connection = new Connection(RPC, "confirmed");
 
+/** On-chain parlay leg arrays are [_; MAX_LEGS]; mirrors contest_state.rs MAX_LEGS. */
+export const MAX_LEGS = 6;
+
 /** Read-only program (no signer) for building instructions. */
-function readonlyProgram(payer: PublicKey): anchor.Program {
+export function readonlyProgram(payer: PublicKey): anchor.Program {
   const provider = new anchor.AnchorProvider(
     connection,
     { publicKey: payer, signTransaction: async (t) => t, signAllTransactions: async (t) => t } as anchor.Wallet,
@@ -22,7 +25,7 @@ function readonlyProgram(payer: PublicKey): anchor.Program {
   return new anchor.Program(idl as anchor.Idl, provider);
 }
 
-async function withBlockhash(tx: Transaction, payer: PublicKey): Promise<Transaction> {
+export async function withBlockhash(tx: Transaction, payer: PublicKey): Promise<Transaction> {
   tx.feePayer = payer;
   tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
   return tx;
@@ -60,7 +63,7 @@ export async function buildClaimTx(
   return withBlockhash(tx, payer);
 }
 
-/** Build an unsigned enter(nonce, picks) transaction. `picks` is per-match 0/1/2, padded to length 5. */
+/** Build an unsigned enter(nonce, picks) transaction. `picks` is per-leg 0/1/2, padded to MAX_LEGS. */
 export async function buildEnterTx(
   payerAddress: string, contestId: number, nonce: number, picks: number[],
 ): Promise<Transaction> {
@@ -69,9 +72,9 @@ export async function buildEnterTx(
   const contest = deriveContestPda(PROGRAM_ID, contestId);
   const entry = deriveEntryPda(PROGRAM_ID, contest, payer, nonce);
   const padded = [...picks];
-  while (padded.length < 5) padded.push(0);
+  while (padded.length < MAX_LEGS) padded.push(0);
   const tx = await program.methods
-    .enter(new anchor.BN(nonce), padded.slice(0, 5))
+    .enter(new anchor.BN(nonce), padded.slice(0, MAX_LEGS))
     .accountsStrict({ bettor: payer, contest, entry, systemProgram: SystemProgram.programId })
     .transaction();
   return withBlockhash(tx, payer);
