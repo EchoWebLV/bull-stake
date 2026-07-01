@@ -39,9 +39,18 @@ import {
   resolveCallOnEr,
   scoreAllSeats,
   commitLiveOnEr,
+  endAndUndelegateOnEr,
+  pollBaseUndelegated,
+  endLivePoolOnBase,
+  awaitSettleWindow,
+  settleLivePoolOnBase,
+  voidLivePoolOnBase,
+  refundVoidedOnBase,
+  finalizeFt,
+  finalizeVoid,
 } from "../live-runner.js";
 import { CallKind, VOID_OUTCOME } from "../live-feed.js";
-import { liveCursorPda, liveEntryPda, callPda } from "../live-pda.js";
+import { liveCursorPda, liveEntryPda, callPda, jackpotPda } from "../live-pda.js";
 
 const { Keypair, PublicKey } = pkg;
 
@@ -514,6 +523,7 @@ function makeErSpy() {
       resolveCall: makeErMethodRecorder("resolveCall", calls),
       scoreEntry: makeErMethodRecorder("scoreEntry", calls),
       commitLive: makeErMethodRecorder("commitLive", calls),
+      endAndUndelegate: makeErMethodRecorder("endAndUndelegate", calls),
     },
   };
   return { er, calls };
@@ -798,5 +808,453 @@ describe("commitLiveOnEr — full writable remainingAccounts [cursor, ...entries
       expect(r.isSigner).toBe(false);
       expect(r.isWritable).toBe(true);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S3-T7 — end→settle→void/refund (BASE)
+//
+// *** HERMETIC ***
+//   • Both the `er` (endAndUndelegate) and `base` (endLivePool / settleLivePool /
+//     voidLivePool / refundVoided) Programs are hand-rolled spies whose fluent
+//     `.methods.<x>()` chains RECORD args/accounts/remaining and resolve a fake
+//     signature — never a real `.rpc()`, never a Connection.
+//   • `pollBaseUndelegated` / `awaitSettleWindow` drive a plain-object baseConn
+//     whose `getAccountInfo` / `getBlockTime` / `getSlot` are scripted vi.fns, so
+//     no socket ever opens. Fake timers advance the poll loops deterministically.
+//   • The settle-vs-refund remaining_accounts SHAPES are asserted to DIFFER
+//     (entries-only ascending isWritable:false vs interleaved [entry,player]
+//     pairs len=player_count*2) — the copy-paste-reverts-on-chain trap (Risk #3).
+// A test that spent SOL or hit the network would be a FAILING test; none here does.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Hand-rolled BASE Program spy with the end/settle/void/refund recorders. */
+function makeSettleBaseSpy() {
+  const calls: any[] = [];
+  const base: any = {
+    methods: {
+      endLivePool: makeMethodRecorder("endLivePool", calls),
+      settleLivePool: makeMethodRecorder("settleLivePool", calls),
+      voidLivePool: makeMethodRecorder("voidLivePool", calls),
+      refundVoided: makeMethodRecorder("refundVoided", calls),
+    },
+  };
+  return { base, calls };
+}
+
+function settleRunner(base: any, er?: any) {
+  const { runner } = makeRunner();
+  (runner as any).base = base;
+  if (er) (runner as any).er = er;
+  return runner;
+}
+
+/** Two ascending seats + their entries/calls, reused across the settle/void tests. */
+function seatFixture() {
+  const raw = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+  const seats = sortSeatsAscending(raw);
+  const entries = seats.map((p) => liveEntryPda(POOL_PK, p));
+  const calls = [callPda(POOL_PK, 0), callPda(POOL_PK, 1)];
+  return { seats, entries, calls };
+}
+
+describe("endAndUndelegateOnEr (ER) — full writable [cursor, ...entries, ...calls]", () => {
+  it("accounts {keeper, pool} + remaining = cursor+entries+calls, all writable", async () => {
+    const { er, calls } = makeErSpy();
+    const runner = erRunner(er);
+    const { seats, entries, calls: callPdas } = seatFixture();
+    await endAndUndelegateOnEr(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats,
+      calls: callPdas,
+    });
+    const rec = calls.find((c) => c.name === "endAndUndelegate");
+    expect(rec).toBeTruthy();
+    expect(rec.accounts.keeper.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    const expected = [CURSOR_PK, ...entries, ...callPdas];
+    expect(rec.remaining).toHaveLength(expected.length);
+    rec.remaining.forEach((r: any, i: number) => {
+      expect(r.pubkey.toBase58()).toBe(expected[i].toBase58());
+      expect(r.isSigner).toBe(false);
+      expect(r.isWritable).toBe(true);
+    });
+  });
+});
+
+describe("pollBaseUndelegated — wait until owner === PROGRAM_ID on base", () => {
+  function makeBaseConn(ownerScript: (any | null)[]) {
+    let i = 0;
+    const getAccountInfo = vi.fn(async (_pk: any, _c?: any) => {
+      const owner = ownerScript[Math.min(i, ownerScript.length - 1)];
+      i++;
+      return owner === null ? null : { owner };
+    });
+    return { getAccountInfo };
+  }
+  function runnerWithBaseConn(baseConn: any) {
+    const { runner } = makeRunner();
+    (runner as any).baseConn = baseConn;
+    return runner;
+  }
+
+  it("keeps polling while owner is DELEGATION_PROGRAM, resolves once PROGRAM_ID", async () => {
+    vi.useFakeTimers();
+    try {
+      const baseConn = makeBaseConn([DELEGATION_PROGRAM, DELEGATION_PROGRAM, LIVE_PROGRAM_ID]);
+      const runner = runnerWithBaseConn(baseConn);
+      const promise = pollBaseUndelegated(runner, [CURSOR_PK], { intervalMs: 3000, timeoutMs: 90000 });
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(await promise).toBe(true);
+      expect(baseConn.getAccountInfo.mock.calls.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for EVERY passed account (cursor AND an entry) to flip", async () => {
+    // Two accounts: the cursor flips immediately, the entry lags one tick. The
+    // loop must not resolve until BOTH are PROGRAM_ID-owned.
+    vi.useFakeTimers();
+    try {
+      let n = 0;
+      const getAccountInfo = vi.fn(async (pk: any) => {
+        // cursor is always ready; entry only ready after the first tick.
+        if (pk.toBase58() === CURSOR_PK.toBase58()) return { owner: LIVE_PROGRAM_ID };
+        n++;
+        return { owner: n >= 2 ? LIVE_PROGRAM_ID : DELEGATION_PROGRAM };
+      });
+      const { runner } = makeRunner();
+      (runner as any).baseConn = { getAccountInfo };
+      const entry = liveEntryPda(POOL_PK, Keypair.generate().publicKey);
+      const promise = pollBaseUndelegated(runner, [CURSOR_PK, entry], { intervalMs: 3000, timeoutMs: 90000 });
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(await promise).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws on timeout if an account never flips", async () => {
+    vi.useFakeTimers();
+    try {
+      const baseConn = makeBaseConn([DELEGATION_PROGRAM]);
+      const runner = runnerWithBaseConn(baseConn);
+      const promise = pollBaseUndelegated(runner, [CURSOR_PK], { intervalMs: 3000, timeoutMs: 6000 });
+      const caught = promise.catch((e: Error) => e);
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(3000);
+      const err = await caught;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/undeleg|timeout|owner|base/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("endLivePoolOnBase — accounts {keeper, pool, cursor}, no args", () => {
+  it("calls endLivePool with keeper/pool/cursor and no positional args", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    await endLivePoolOnBase(runner, { pool: POOL_PK, cursor: CURSOR_PK });
+    const rec = calls.find((c) => c.name === "endLivePool");
+    expect(rec).toBeTruthy();
+    expect(rec.args).toEqual([]); // no positional args
+    expect(rec.accounts.keeper.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    expect(rec.accounts.cursor.toBase58()).toBe(CURSOR_PK.toBase58());
+  });
+});
+
+describe("awaitSettleWindow — gate on getBlockTime(getSlot) >= settleAfterTs+1", () => {
+  function runnerWithClock(times: (number | null)[]) {
+    const { runner } = makeRunner();
+    let i = 0;
+    const getSlot = vi.fn(async () => 1000 + i);
+    const getBlockTime = vi.fn(async (_slot: number) => {
+      const t = times[Math.min(i, times.length - 1)];
+      i++;
+      return t;
+    });
+    (runner as any).baseConn = { getSlot, getBlockTime };
+    return { runner, getBlockTime, getSlot };
+  }
+
+  it("uses ON-CHAIN clock (getBlockTime of getSlot), NOT wall-clock", async () => {
+    vi.useFakeTimers();
+    try {
+      const settleAfterTs = 5000;
+      // first read is before the window (blocks), second read passes.
+      const { runner, getBlockTime, getSlot } = runnerWithClock([4999, 5001]);
+      const promise = awaitSettleWindow(runner, settleAfterTs, { intervalMs: 5000, timeoutMs: 480000 });
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await promise).toBe(true);
+      // it consulted the on-chain clock (getSlot → getBlockTime), never Date.now.
+      expect(getSlot).toHaveBeenCalled();
+      expect(getBlockTime).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requires strictly settleAfterTs+1 (settleAfterTs exactly is NOT enough)", async () => {
+    vi.useFakeTimers();
+    try {
+      const settleAfterTs = 5000;
+      // exactly settleAfterTs on the first tick must NOT satisfy; +1 on the next does.
+      const { runner } = runnerWithClock([5000, 5001]);
+      const promise = awaitSettleWindow(runner, settleAfterTs, { intervalMs: 5000, timeoutMs: 480000 });
+      await vi.advanceTimersByTimeAsync(5000);
+      const settledEarly = await Promise.race([
+        promise.then(() => "resolved"),
+        Promise.resolve("pending"),
+      ]);
+      expect(settledEarly).toBe("pending"); // did NOT resolve at exactly settleAfterTs
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await promise).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws on timeout if the on-chain clock never reaches the window", async () => {
+    vi.useFakeTimers();
+    try {
+      const { runner } = runnerWithClock([100]); // stuck far before
+      const promise = awaitSettleWindow(runner, 5000, { intervalMs: 5000, timeoutMs: 10000 });
+      const caught = promise.catch((e: Error) => e);
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(5000);
+      const err = await caught;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/settle|window|clock|timeout/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("settleLivePoolOnBase — entries-only, ascending, isWritable:false, NO score arg", () => {
+  it("accounts {settleAuthority, jackpot, pool, cursor, feeRecipient}; keeper is both authority+recipient", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    const { seats } = seatFixture();
+    await settleLivePoolOnBase(runner, { pool: POOL_PK, cursor: CURSOR_PK, seats });
+    const rec = calls.find((c) => c.name === "settleLivePool");
+    expect(rec.accounts.settleAuthority.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.feeRecipient.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    expect(rec.accounts.cursor.toBase58()).toBe(CURSOR_PK.toBase58());
+    expect(rec.accounts.jackpot.toBase58()).toBe(jackpotPda().toBase58());
+    // there is NO keeper/settleLivePool score argument (on-chain recomputes it).
+    expect(rec.args).toEqual([]);
+  });
+
+  it("remaining = ENTRIES ONLY, strictly ascending, exactly player_count, all isWritable:false", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    // Pass seats deliberately OUT of order — the fn must sort them ascending.
+    const raw = [Keypair.generate().publicKey, Keypair.generate().publicKey, Keypair.generate().publicKey];
+    await settleLivePoolOnBase(runner, { pool: POOL_PK, cursor: CURSOR_PK, seats: raw });
+    const rec = calls.find((c) => c.name === "settleLivePool");
+    // exactly player_count remaining accounts (== #seats), entries only.
+    expect(rec.remaining).toHaveLength(raw.length);
+    // The on-chain monotonicity rule is over the remaining-account KEYS (the entry
+    // PDAs), so the expected order is entries sorted BY ENTRY key — NOT by player.
+    const expectedEntries = raw
+      .map((p) => liveEntryPda(POOL_PK, p))
+      .sort((a, b) => Buffer.compare(a.toBuffer(), b.toBuffer()));
+    rec.remaining.forEach((r: any, i: number) => {
+      expect(r.pubkey.toBase58()).toBe(expectedEntries[i].toBase58());
+      expect(r.isSigner).toBe(false);
+      expect(r.isWritable).toBe(false); // settle reads seats, never writes them
+    });
+    // strictly ascending by Buffer.compare
+    for (let i = 1; i < rec.remaining.length; i++) {
+      expect(
+        Buffer.compare(rec.remaining[i - 1].pubkey.toBuffer(), rec.remaining[i].pubkey.toBuffer()),
+      ).toBeLessThan(0);
+    }
+  });
+});
+
+describe("voidLivePoolOnBase — accounts {settleAuthority, pool}, no args", () => {
+  it("calls voidLivePool with settleAuthority=keeper, pool, no positional args", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    await voidLivePoolOnBase(runner, { pool: POOL_PK });
+    const rec = calls.find((c) => c.name === "voidLivePool");
+    expect(rec.args).toEqual([]);
+    expect(rec.accounts.settleAuthority.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    expect(rec.accounts).not.toHaveProperty("cursor");
+  });
+});
+
+describe("refundVoidedOnBase — INTERLEAVED [entry, player] pairs, len=player_count*2", () => {
+  it("accounts {cranker, pool}; remaining interleaved pairs with entries ascending + players writable", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    const raw = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+    await refundVoidedOnBase(runner, { pool: POOL_PK, seats: raw });
+    const rec = calls.find((c) => c.name === "refundVoided");
+    expect(rec.accounts.cranker.toBase58()).toBe(runner.keeper.toBase58());
+    expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
+    // interleaved [entry0, player0, entry1, player1, …], len = player_count*2.
+    expect(rec.remaining).toHaveLength(raw.length * 2);
+    // sort seats ascending BY ENTRY key (matches on-chain ascending-entry rule).
+    const bySeat = raw
+      .map((p) => ({ player: p, entry: liveEntryPda(POOL_PK, p) }))
+      .sort((a, b) => Buffer.compare(a.entry.toBuffer(), b.entry.toBuffer()));
+    for (let s = 0; s < bySeat.length; s++) {
+      const entryRa = rec.remaining[s * 2];
+      const playerRa = rec.remaining[s * 2 + 1];
+      expect(entryRa.pubkey.toBase58()).toBe(bySeat[s].entry.toBase58());
+      expect(entryRa.isWritable).toBe(true); // pool credits/debits — entries writable in refund
+      expect(playerRa.pubkey.toBase58()).toBe(bySeat[s].player.toBase58());
+      expect(playerRa.isWritable).toBe(true); // player receives the refund → MUST be writable
+    }
+    // entries (even indices) strictly ascending
+    for (let i = 2; i < rec.remaining.length; i += 2) {
+      expect(
+        Buffer.compare(rec.remaining[i - 2].pubkey.toBuffer(), rec.remaining[i].pubkey.toBuffer()),
+      ).toBeLessThan(0);
+    }
+  });
+
+  it("settle vs refund remaining_accounts SHAPES DIFFER (entries-only vs interleaved pairs)", async () => {
+    const { base: sBase, calls: sCalls } = makeSettleBaseSpy();
+    const sRunner = settleRunner(sBase);
+    const { base: rBase, calls: rCalls } = makeSettleBaseSpy();
+    const rRunner = settleRunner(rBase);
+    const { seats } = seatFixture();
+    await settleLivePoolOnBase(sRunner, { pool: POOL_PK, cursor: CURSOR_PK, seats });
+    await refundVoidedOnBase(rRunner, { pool: POOL_PK, seats });
+    const settleRa = sCalls.find((c) => c.name === "settleLivePool").remaining;
+    const refundRa = rCalls.find((c) => c.name === "refundVoided").remaining;
+    // settle = player_count; refund = player_count*2 — provably different lengths.
+    expect(settleRa).toHaveLength(seats.length);
+    expect(refundRa).toHaveLength(seats.length * 2);
+    expect(settleRa.length).not.toBe(refundRa.length);
+    // settle entries are non-writable; refund players are writable — shapes differ.
+    expect(settleRa.every((r: any) => r.isWritable === false)).toBe(true);
+    expect(refundRa.some((r: any) => r.isWritable === true)).toBe(true);
+  });
+});
+
+describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool → settleWindow → settle", () => {
+  it("runs the FT sequence in the exact documented order", async () => {
+    const order: string[] = [];
+    // Shared er+base spies that log their method name into `order`.
+    const er: any = {
+      methods: {
+        endAndUndelegate: (...a: any[]) => {
+          const chain: any = {
+            accountsPartial: () => chain,
+            remainingAccounts: () => chain,
+            rpc: async () => {
+              order.push("endAndUndelegate");
+              return "sig_end_undeleg";
+            },
+          };
+          return chain;
+        },
+      },
+    };
+    const base: any = {
+      methods: {
+        endLivePool: (...a: any[]) => {
+          const chain: any = {
+            accountsPartial: () => chain,
+            rpc: async () => {
+              order.push("endLivePool");
+              return "sig_end";
+            },
+          };
+          return chain;
+        },
+        settleLivePool: (...a: any[]) => {
+          const chain: any = {
+            accountsPartial: () => chain,
+            remainingAccounts: () => chain,
+            rpc: async () => {
+              order.push("settleLivePool");
+              return "sig_settle";
+            },
+          };
+          return chain;
+        },
+      },
+    };
+    const { runner } = makeRunner();
+    (runner as any).er = er;
+    (runner as any).base = base;
+    // baseConn: undelegation flips immediately; clock already past window.
+    (runner as any).baseConn = {
+      getAccountInfo: vi.fn(async () => {
+        order.push("pollBase");
+        return { owner: LIVE_PROGRAM_ID };
+      }),
+      getSlot: vi.fn(async () => 1),
+      getBlockTime: vi.fn(async () => {
+        order.push("settleWindow");
+        return 999999;
+      }),
+    };
+    const { seats, calls: callPdas } = seatFixture();
+    await finalizeFt(runner, {
+      pool: POOL_PK,
+      cursor: CURSOR_PK,
+      seats,
+      calls: callPdas,
+      settleAfterTs: 5000,
+    });
+    // First occurrence order is the contract.
+    const firstIdx = (n: string) => order.indexOf(n);
+    expect(firstIdx("endAndUndelegate")).toBeGreaterThanOrEqual(0);
+    expect(firstIdx("endAndUndelegate")).toBeLessThan(firstIdx("pollBase"));
+    expect(firstIdx("pollBase")).toBeLessThan(firstIdx("endLivePool"));
+    expect(firstIdx("endLivePool")).toBeLessThan(firstIdx("settleWindow"));
+    expect(firstIdx("settleWindow")).toBeLessThan(firstIdx("settleLivePool"));
+  });
+});
+
+describe("finalizeVoid — voidLivePool then refundVoided (interleaved pairs)", () => {
+  it("voids then refunds with interleaved [entry,player] pairs", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    const raw = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+    await finalizeVoid(runner, { pool: POOL_PK, seats: raw });
+    const names = calls.map((c) => c.name);
+    expect(names.indexOf("voidLivePool")).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf("voidLivePool")).toBeLessThan(names.indexOf("refundVoided"));
+    const refund = calls.find((c) => c.name === "refundVoided");
+    expect(refund.remaining).toHaveLength(raw.length * 2);
+  });
+
+  it("player_count<2 (1 seat) still voids + refunds the lone seat (interleaved pair)", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    const lone = [Keypair.generate().publicKey];
+    await finalizeVoid(runner, { pool: POOL_PK, seats: lone });
+    const refund = calls.find((c) => c.name === "refundVoided");
+    expect(calls.some((c) => c.name === "voidLivePool")).toBe(true);
+    expect(refund.remaining).toHaveLength(2); // one [entry, player] pair
+  });
+
+  it("zero seats → voids but issues NO refund (nothing to pay back)", async () => {
+    const { base, calls } = makeSettleBaseSpy();
+    const runner = settleRunner(base);
+    await finalizeVoid(runner, { pool: POOL_PK, seats: [] });
+    expect(calls.some((c) => c.name === "voidLivePool")).toBe(true);
+    expect(calls.some((c) => c.name === "refundVoided")).toBe(false);
   });
 });

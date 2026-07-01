@@ -28,7 +28,7 @@ import anchorDefault from "@coral-xyz/anchor";
 import type { Idl, Program as ProgramT, AnchorProvider as AnchorProviderT } from "@coral-xyz/anchor";
 import pkg from "@solana/web3.js";
 import type { Connection as ConnectionT, Keypair as KeypairT, PublicKey as PublicKeyT } from "@solana/web3.js";
-import { liveEntryPda, callPda, liveCursorPda } from "./live-pda.js";
+import { liveEntryPda, callPda, liveCursorPda, jackpotPda } from "./live-pda.js";
 import {
   CallKind,
   callSpec,
@@ -596,6 +596,358 @@ export async function commitLiveOnEr(
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// S3-T7 — end→settle→void/refund (BASE)
+//
+// The full-time (FT) path returns custody to the base layer, then settles ON the
+// base layer; the void path abandons the pool and refunds every seat. These two
+// terminal branches have DELIBERATELY DIFFERENT remaining_account contracts — a
+// copy-paste between them reverts on-chain (plan Risk #3):
+//
+//   settle_live_pool  : remaining = ENTRIES ONLY, strictly ascending, exactly
+//                       player_count, isWritable:FALSE, NO score arg (the program
+//                       recomputes the winner on-chain over the passed seats).
+//   refund_voided     : remaining = INTERLEAVED [entry_0, player_0, entry_1, …],
+//                       entries ascending, length = player_count*2, players
+//                       writable (they RECEIVE the refund).
+//
+// Account-key notes (verified against the on-chain instruction structs):
+//   end_and_undelegate : { keeper, pool } + full writable [cursor,...entries,...calls]
+//                        (magic_program/magic_context are auto-resolved by Anchor)
+//   end_live_pool      : { keeper, pool, cursor }
+//   settle_live_pool   : { settleAuthority, jackpot, pool, cursor, feeRecipient }
+//   void_live_pool     : { settleAuthority, pool }
+//   refund_voided      : { cranker, pool }
+// On devnet the single keeper key plays settle_authority + fee_recipient + cranker.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Inputs for the ER-side `end_and_undelegate` (final commit + ownership return). */
+export interface EndAndUndelegateInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  /** Seat player pubkeys (their entries join the writable set). */
+  seats: PublicKeyT[];
+  /** Every delegated Call PDA. */
+  calls: PublicKeyT[];
+}
+
+/**
+ * Final ER→base commit that ALSO returns ownership of the delegated set to the
+ * program (proof.ts:236-237). Accounts `{keeper, pool}`; the remaining-account
+ * contract is the SAME full writable set as `commit_live`:
+ * `[cursor, ...entries, ...calls]` (isSigner:false, isWritable:true), in order.
+ * After this lands the accounts flip back to PROGRAM_ID ownership on base (poll
+ * with `pollBaseUndelegated`). Flows through `runner.step`.
+ */
+export async function endAndUndelegateOnEr(
+  runner: LiveRunner,
+  input: EndAndUndelegateInput,
+): Promise<string | null> {
+  const { pool, cursor, seats, calls } = input;
+  const keeper = runner.keeper;
+  const entries = seats.map((player) => liveEntryPda(pool, player));
+  const remaining = [cursor, ...entries, ...calls].map((pubkey) => ({
+    pubkey,
+    isSigner: false,
+    isWritable: true,
+  }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.er as any).methods;
+  return runner.step("end_and_undelegate", () =>
+    methods
+      .endAndUndelegate()
+      .accountsPartial({ keeper, pool })
+      .remainingAccounts(remaining)
+      .rpc(),
+  );
+}
+
+/** Poll cadence for the base-layer undelegation gate (proof.ts:241-243). */
+export interface PollBaseOpts {
+  /** Poll interval in ms (default 3000). */
+  intervalMs?: number;
+  /** Overall timeout in ms (default 90000 — first ER→base flip is ~21s). */
+  timeoutMs?: number;
+}
+
+/**
+ * Wait until EVERY passed account has its owner flipped back to our PROGRAM_ID on
+ * the BASE RPC (proof.ts:241-243). While any account is missing or still owned by
+ * the DELEGATION_PROGRAM, keep polling every `intervalMs` up to `timeoutMs`.
+ * Resolves `true` once ALL are PROGRAM_ID-owned; throws on timeout.
+ */
+export async function pollBaseUndelegated(
+  runner: LiveRunner,
+  pubkeys: PublicKeyT[],
+  opts: PollBaseOpts = {},
+): Promise<boolean> {
+  const intervalMs = opts.intervalMs ?? 3000;
+  const timeoutMs = opts.timeoutMs ?? 90_000;
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    let allReady = true;
+    for (const pk of pubkeys) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const info: any = await runner.baseConn.getAccountInfo(pk, "confirmed");
+      if (!(info && info.owner && info.owner.equals(runner.programId))) {
+        allReady = false;
+        break;
+      }
+    }
+    if (allReady) return true;
+    await sleep(intervalMs);
+  }
+  throw new Error("base undelegation timeout: an account never returned to PROGRAM_ID ownership on base");
+}
+
+/** Inputs for the base-layer `end_live_pool` (Open/Live → Ended). */
+export interface EndLivePoolInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+}
+
+/**
+ * Mark full-time on the base layer: `end_live_pool` flips the pool to Ended,
+ * gating settle. Accounts `{keeper, pool, cursor}`, no args (proof.ts:250-251).
+ * Requires no call still open (enforced on-chain). Flows through `runner.step`.
+ */
+export async function endLivePoolOnBase(
+  runner: LiveRunner,
+  input: EndLivePoolInput,
+): Promise<string | null> {
+  const { pool, cursor } = input;
+  const keeper = runner.keeper;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.base as any).methods;
+  return runner.step("end_live_pool", () =>
+    methods.endLivePool().accountsPartial({ keeper, pool, cursor }).rpc(),
+  );
+}
+
+/** Poll cadence for the on-chain settle-window gate (proof.ts:255-263). */
+export interface SettleWindowOpts {
+  /** Poll interval in ms (default 5000). */
+  intervalMs?: number;
+  /** Overall timeout in ms (default 480000). */
+  timeoutMs?: number;
+}
+
+/**
+ * Block until the ON-CHAIN clock passes the pool's settle window
+ * (proof.ts:255-263): `getBlockTime(getSlot()) >= settleAfterTs + 1`. NEVER a
+ * wall-clock comparison — the on-chain `settle_live_pool` gates on
+ * `Clock::get().unix_timestamp >= settle_after_ts`, so we read the same clock and
+ * require strictly `settleAfterTs + 1` (a full second past). Resolves `true` once
+ * the window opens; throws on timeout.
+ */
+export async function awaitSettleWindow(
+  runner: LiveRunner,
+  settleAfterTs: number,
+  opts: SettleWindowOpts = {},
+): Promise<boolean> {
+  const intervalMs = opts.intervalMs ?? 5000;
+  const timeoutMs = opts.timeoutMs ?? 480_000;
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    const slot = await runner.baseConn.getSlot();
+    const bt = await runner.baseConn.getBlockTime(slot);
+    if (bt !== null && bt >= settleAfterTs + 1) return true;
+    await sleep(intervalMs);
+  }
+  throw new Error("settle window timeout: on-chain clock never reached settle_after_ts + 1");
+}
+
+/** Inputs for the base-layer `settle_live_pool`. */
+export interface SettleLivePoolInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  /** Seat player pubkeys (any order — sorted ascending here). */
+  seats: PublicKeyT[];
+}
+
+/**
+ * Settle a finished pool ON the base layer (proof.ts:266-269). The keeper supplies
+ * NO score — the program recomputes the winner over every seat, so the remaining
+ * accounts are the ENTRY PDAs ONLY, strictly ascending by key, exactly
+ * player_count of them, all `isWritable:false`. Accounts:
+ * `{settleAuthority, jackpot, pool, cursor, feeRecipient}` (keeper plays both the
+ * authority and the recipient on devnet). Flows through `runner.step`.
+ *
+ * *** Distinct from refund_voided *** — that path passes INTERLEAVED [entry,player]
+ * pairs (writable players); this one passes entries-only, non-writable. Do NOT
+ * cross the two shapes.
+ */
+export async function settleLivePoolOnBase(
+  runner: LiveRunner,
+  input: SettleLivePoolInput,
+): Promise<string | null> {
+  const { pool, cursor, seats } = input;
+  const keeper = runner.keeper;
+  // Entries, strictly ascending BY ENTRY KEY (the on-chain monotonicity rule is
+  // over the remaining-account keys — i.e. the entry PDAs, not the players).
+  const entries = seats
+    .map((player) => liveEntryPda(pool, player))
+    .sort((a, b) => Buffer.compare(a.toBuffer(), b.toBuffer()));
+  const remaining = entries.map((pubkey) => ({
+    pubkey,
+    isSigner: false,
+    isWritable: false,
+  }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.base as any).methods;
+  return runner.step("settle_live_pool", () =>
+    methods
+      .settleLivePool()
+      .accountsPartial({
+        settleAuthority: keeper,
+        jackpot: jackpotPda(),
+        pool,
+        cursor,
+        feeRecipient: keeper,
+      })
+      .remainingAccounts(remaining)
+      .rpc(),
+  );
+}
+
+/** Inputs for the base-layer `void_live_pool`. */
+export interface VoidLivePoolInput {
+  pool: PublicKeyT;
+}
+
+/**
+ * Void a non-terminal pool on the base layer → refund path (void-contest.ts
+ * precedent). Accounts `{settleAuthority, pool}`, no args. The keeper may void any
+ * time before settle. Flows through `runner.step`.
+ */
+export async function voidLivePoolOnBase(
+  runner: LiveRunner,
+  input: VoidLivePoolInput,
+): Promise<string | null> {
+  const { pool } = input;
+  const keeper = runner.keeper;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.base as any).methods;
+  return runner.step("void_live_pool", () =>
+    methods.voidLivePool().accountsPartial({ settleAuthority: keeper, pool }).rpc(),
+  );
+}
+
+/** Inputs for the base-layer `refund_voided`. */
+export interface RefundVoidedInput {
+  pool: PublicKeyT;
+  /** Seat player pubkeys (any order — sorted ascending by entry key here). */
+  seats: PublicKeyT[];
+}
+
+/**
+ * Refund every seat of a Voided pool on the base layer (single-shot, permissionless).
+ * Accounts `{cranker, pool}` (keeper cranks on devnet). The remaining accounts are
+ * INTERLEAVED `[entry_0, player_0, entry_1, player_1, …]` — entries strictly
+ * ascending by key, length = player_count*2, players `isWritable:true` (they
+ * RECEIVE the refund). Entries are marked writable too (the on-chain handler binds
+ * them by PDA; the pool debits and the player credits). Flows through `runner.step`.
+ *
+ * *** Distinct from settle_live_pool *** — that path passes entries-only,
+ * non-writable, length player_count. Do NOT cross the two shapes.
+ */
+export async function refundVoidedOnBase(
+  runner: LiveRunner,
+  input: RefundVoidedInput,
+): Promise<string | null> {
+  const { pool, seats } = input;
+  const keeper = runner.keeper;
+  // Sort seats by their ENTRY key (the on-chain ascending rule is over entries).
+  const bySeat = seats
+    .map((player) => ({ player, entry: liveEntryPda(pool, player) }))
+    .sort((a, b) => Buffer.compare(a.entry.toBuffer(), b.entry.toBuffer()));
+  const remaining: { pubkey: PublicKeyT; isSigner: boolean; isWritable: boolean }[] = [];
+  for (const { player, entry } of bySeat) {
+    remaining.push({ pubkey: entry, isSigner: false, isWritable: true });
+    remaining.push({ pubkey: player, isSigner: false, isWritable: true });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const methods = (runner.base as any).methods;
+  return runner.step("refund_voided", () =>
+    methods
+      .refundVoided()
+      .accountsPartial({ cranker: keeper, pool })
+      .remainingAccounts(remaining)
+      .rpc(),
+  );
+}
+
+/** Inputs for the full FT (full-time) finalize path. */
+export interface FinalizeFtInput {
+  pool: PublicKeyT;
+  cursor: PublicKeyT;
+  seats: PublicKeyT[];
+  calls: PublicKeyT[];
+  /** The pool's `settle_after_ts` (seconds) — the on-chain settle gate. */
+  settleAfterTs: number;
+  /** Poll-loop overrides (tests inject fast intervals). */
+  pollBase?: PollBaseOpts;
+  settleWindow?: SettleWindowOpts;
+}
+
+/**
+ * The full-time terminal path, in the EXACT documented order (plan S3-T7):
+ *   1. end_and_undelegate (ER) — final commit + ownership return
+ *   2. pollBaseUndelegated — wait until cursor + every entry flip to PROGRAM_ID on base
+ *   3. end_live_pool (base) — flip status to Ended
+ *   4. awaitSettleWindow — gate on the on-chain clock ≥ settleAfterTs + 1
+ *   5. settle_live_pool (base) — entries-only, ascending, non-writable, no score arg
+ * Any thrown poll (undelegation / settle-window timeout) aborts the settle.
+ */
+export async function finalizeFt(
+  runner: LiveRunner,
+  input: FinalizeFtInput,
+): Promise<RunReport> {
+  const { pool, cursor, seats, calls, settleAfterTs } = input;
+  const entries = seats.map((player) => liveEntryPda(pool, player));
+
+  // 1. ER: final commit + undelegate.
+  await endAndUndelegateOnEr(runner, { pool, cursor, seats, calls });
+  // 2. Base: wait for cursor + entries to return to PROGRAM_ID ownership.
+  await runner.step("base_undelegated", () =>
+    pollBaseUndelegated(runner, [cursor, ...entries], input.pollBase),
+  );
+  // 3. Base: end (Ended).
+  await endLivePoolOnBase(runner, { pool, cursor });
+  // 4. Base: gate on the on-chain settle window.
+  await runner.step("settle_window", () =>
+    awaitSettleWindow(runner, settleAfterTs, input.settleWindow),
+  );
+  // 5. Base: settle (entries-only ascending, no score arg).
+  await settleLivePoolOnBase(runner, { pool, cursor, seats });
+  return runner.report;
+}
+
+/** Inputs for the void+refund terminal path. */
+export interface FinalizeVoidInput {
+  pool: PublicKeyT;
+  /** Seat player pubkeys (may be 0 or 1 for an under-filled pool). */
+  seats: PublicKeyT[];
+}
+
+/**
+ * The void terminal path (plan S3-T7): `void_live_pool` then, iff there is at
+ * least one seat to pay back, `refund_voided` with the INTERLEAVED [entry,player]
+ * pairs. Reached for `detectPhase === 'void'` OR an under-filled pool
+ * (player_count < 2). Zero seats → void only (nothing to refund).
+ */
+export async function finalizeVoid(
+  runner: LiveRunner,
+  input: FinalizeVoidInput,
+): Promise<RunReport> {
+  const { pool, seats } = input;
+  await voidLivePoolOnBase(runner, { pool });
+  if (seats.length > 0) {
+    await refundVoidedOnBase(runner, { pool, seats });
+  }
+  return runner.report;
+}
+
 /** Options for a full live-match run (extended in S3-T5..T7). */
 export interface RunLiveMatchOpts {
   /** The funded keeper keypair (shared wallet). Required unless a runner is injected. */
@@ -640,7 +992,9 @@ export async function runLiveMatch(
 
   const del = await delegateAll(runner, { pool: poolPda, cursor, seats, numCalls });
   if (del.branch === "void") {
-    // Under-filled pool → void+refund (the on-chain tx lands in S3-T7).
+    // Under-filled pool (player_count < 2) → void + refund on the base layer.
+    // The pool was never delegated, so no undelegation is needed first.
+    await finalizeVoid(runner, { pool: poolPda, seats });
     return runner.report;
   }
 
