@@ -4,7 +4,7 @@
  * Every branch is unit-tested; lines.ts (the CLI) is a thin shell around these.
  */
 import {
-  isLineRow, favouriteSide, pctMilliFor, latestLineRowAtOrBefore,
+  favouriteSide, pctMilliFor, latestLineRowAtOrBefore,
   type OddsRow,
 } from "../spike/src/odds.js";
 
@@ -15,7 +15,7 @@ export interface OpenPick { openMilli: number; favSide: 1 | 2; rowTs: number }
 /** The opening line from the latest FRESH line row (Ts within freshMaxMin of
  *  now). Nothing fresh → null: the caller skips the fixture and retries. */
 export function pickOpen(rows: OddsRow[], nowMs: number, freshMaxMin: number): OpenPick | null {
-  const r = latestLineRowAtOrBefore(rows.filter(isLineRow), nowMs);
+  const r = latestLineRowAtOrBefore(rows, nowMs);
   if (!r || r.Ts < nowMs - freshMaxMin * MIN_MS) return null;
   const favSide = favouriteSide(r);
   return { openMilli: pctMilliFor(r, favSide), favSide, rowTs: r.Ts };

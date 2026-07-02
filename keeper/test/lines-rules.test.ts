@@ -31,6 +31,11 @@ describe("pickOpen", () => {
     expect(pickOpen([row(now - 61 * MIN, "60.0", "20.0")], now, 60)).toBeNull();
     expect(pickOpen([], now, 60)).toBeNull();
   });
+  it("a row exactly freshMaxMin old is still fresh (kept)", () => {
+    const now = 100 * MIN;
+    expect(pickOpen([row(now - 60 * MIN, "60.0", "20.0")], now, 60))
+      .toEqual({ openMilli: 60000, favSide: 1, rowTs: now - 60 * MIN });
+  });
   it("ignores in-running and half-period rows", () => {
     const now = 100 * MIN;
     const rows = [
@@ -70,6 +75,16 @@ describe("resolveLine", () => {
   it("stale (last row older than staleMaxMin before KO) → void", () => {
     const rows = [row(ko - 31 * MIN, "62.0", "18.0")];
     expect(resolveLine(rows, base)).toEqual({ action: "void", reason: "stale" });
+  });
+  it("a row exactly staleMaxMin before KO still settles (not stale)", () => {
+    expect(resolveLine([row(ko - 30 * MIN, "62.0", "18.0")], base)).toEqual({
+      action: "settle", winningBucket: 0, closeMilli: 62000, closeTsMs: ko - 30 * MIN,
+    });
+  });
+  it("a row landing exactly at KO is the close (at-or-before is inclusive)", () => {
+    expect(resolveLine([row(ko, "62.1", "18.0")], base)).toEqual({
+      action: "settle", winningBucket: 0, closeMilli: 62100, closeTsMs: ko,
+    });
   });
   it("no eligible rows at all → void", () => {
     expect(resolveLine([], base)).toEqual({ action: "void", reason: "no-rows" });
