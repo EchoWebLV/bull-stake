@@ -133,6 +133,19 @@ export function liveIntervalMs(env: NodeJS.ProcessEnv): number {
   return Math.max(1, sec) * SECOND_MS;
 }
 
+/**
+ * The pool-scheduler interval in MILLISECONDS, from `SCHEDULE_INTERVAL_SEC`
+ * (SECONDS; default 300 = 5 min). Same shape/floor as liveIntervalMs. The pass
+ * itself is idempotent (pool-PDA-exists check), so the cadence only bounds how
+ * late inside the 45-min join window a pool can appear — 5 min leaves ≥40 min
+ * of real buy-in time even in the worst case.
+ */
+export function scheduleIntervalMs(env: NodeJS.ProcessEnv): number {
+  const raw = Number(env.SCHEDULE_INTERVAL_SEC ?? "300");
+  const sec = Number.isFinite(raw) ? raw : 300;
+  return Math.max(1, sec) * SECOND_MS;
+}
+
 // ── child-process runner ──────────────────────────────────────────────────────────
 
 /**
@@ -165,6 +178,15 @@ async function runDailyCreate(dryRun: boolean): Promise<void> {
   console.log(`[cron ${ts}] === create-daily-card${dryRun ? " (DRY RUN)" : ""} ===`);
   const code = await runKeeperScript("create-daily-card.ts", args);
   console.log(`[cron] create-daily-card exited ${code}`);
+}
+
+/** Run one pool-scheduler pass (auto-line-up live pools inside the join window). */
+async function runSchedulePools(dryRun: boolean): Promise<void> {
+  const args = dryRun ? ["--dry-run"] : [];
+  const ts = new Date().toISOString();
+  console.log(`[cron ${ts}] === schedule-pools${dryRun ? " (DRY RUN)" : ""} ===`);
+  const code = await runKeeperScript("schedule-pools.ts", args);
+  console.log(`[cron] schedule-pools exited ${code}`);
 }
 
 /**
@@ -316,7 +338,8 @@ async function main() {
   console.log(
     `[cron] scheduler up · settle every ${settleIntervalMin}m · ` +
     `create at ${String(createHourUtc).padStart(2, "0")}:00 UTC · ` +
-    `live every ${liveMs / SECOND_MS}s` +
+    `live every ${liveMs / SECOND_MS}s · ` +
+    `pool-schedule every ${scheduleIntervalMs(process.env) / SECOND_MS}s` +
     `${dryRun ? " · DRY RUN (settle preview only)" : ""}`,
   );
 
@@ -390,6 +413,23 @@ async function main() {
   });
   await tickLive();
   setInterval(tickLive, liveMs);
+
+  // (4) Pool auto-scheduler ("games line themselves up"): every SCHEDULE_INTERVAL_SEC
+  //     (default 5 min), spawn schedule-pools.ts — it creates a live pool for each
+  //     allowlisted fixture entering its 45-min join window (idempotent via the
+  //     pool-PDA-exists check, so overlapping/duplicate ticks are no-ops). Same
+  //     child-CLI pattern + busy guard as the settle job. Run once on boot so a
+  //     freshly started keeper lines up an imminent game immediately.
+  const scheduleMs = scheduleIntervalMs(process.env);
+  let scheduling = false;
+  const tickSchedule = async () => {
+    if (scheduling) { console.log("[cron] previous schedule pass still running — skipping tick"); return; }
+    scheduling = true;
+    try { await runSchedulePools(dryRun); }
+    finally { scheduling = false; }
+  };
+  await tickSchedule();
+  setInterval(tickSchedule, scheduleMs);
 }
 
 // Only run the scheduler when invoked directly — guard against import-time
