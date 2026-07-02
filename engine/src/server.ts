@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { registerRoutes } from "./routes.ts";
 import { LiveStore } from "./live.ts";
+import { LinesStore } from "./lines.ts";
 
 /**
  * Build and return a Fastify server.
@@ -10,8 +11,11 @@ import { LiveStore } from "./live.ts";
  * @param store - optional LiveStore to inject (useful in tests for mocking).
  *   When omitted and running as main (not under vitest), a real LiveStore is
  *   constructed and its poll loop is started after the server is listening.
+ * @param linesStore - optional LinesStore to inject (Beat the Market odds
+ *   tracker). When omitted, a bare LinesStore is constructed (server start
+ *   wires + starts it).
  */
-export function buildServer(store?: LiveStore): FastifyInstance {
+export function buildServer(store?: LiveStore, linesStore?: LinesStore): FastifyInstance {
   const app = Fastify({ logger: false });
   // Comma-separated allow-list so the prod web origin and local dev ports
   // (Vite's default 5173 + the preview harness's 5180) all work without churn.
@@ -22,7 +26,8 @@ export function buildServer(store?: LiveStore): FastifyInstance {
 
   // Use the injected store (tests) or create a bare store (server start wires it).
   const liveStore = store ?? new LiveStore();
-  registerRoutes(app, liveStore);
+  const lines = linesStore ?? new LinesStore();
+  registerRoutes(app, liveStore, lines);
   return app;
 }
 
@@ -30,7 +35,8 @@ export function buildServer(store?: LiveStore): FastifyInstance {
 const isMain = process.argv[1]?.endsWith("server.ts");
 if (isMain) {
   const liveStore = new LiveStore();
-  const app = buildServer(liveStore);
+  const linesStore = new LinesStore();
+  const app = buildServer(liveStore, linesStore);
   const port = Number(process.env.PORT ?? 8787);
 
   app.listen({ port, host: "0.0.0.0" }).then(async (addr) => {
@@ -68,6 +74,7 @@ if (isMain) {
       liveStore.setSlate(slate);
       console.log(`live slate: ${slate.length} fixture(s)`);
       liveStore.start(ctx, auth);
+      linesStore.start(ctx, auth);
 
       // Refresh the slate periodically (fixtures roll over across days).
       setInterval(() => {

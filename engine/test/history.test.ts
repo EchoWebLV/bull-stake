@@ -3,6 +3,7 @@ import {
   reconstructStatus,
   winningPayout,
   buildLegs,
+  sideLabel,
   type MarketSnapshot,
 } from "../src/history.ts";
 
@@ -152,5 +153,12 @@ describe("reconstructStatus — unclaimed", () => {
   it("voided → claimable-refund of the full stake (both sides)", () => {
     const r = reconstructStatus([1_000_000_000n, 500_000_000n], voidedMkt, null);
     expect(r).toEqual({ status: "claimable-refund", payout: 1_500_000_000n });
+  });
+});
+
+describe("sideLabel — line markets", () => {
+  it("labels line-market buckets Above/Below", () => {
+    expect(sideLabel("line", 0, "Spain", "Austria")).toBe("Above");
+    expect(sideLabel("line", 1, "Spain", "Austria")).toBe("Below");
   });
 });

@@ -12,6 +12,8 @@ import {
   readLastResolvedCall,
   readPoolStandings,
   readLiveEntry,
+  readLineMarkets,
+  readLinePosition,
   type ContestView,
   type LivePoolView,
 } from "./chain.ts";
@@ -20,6 +22,7 @@ import { impliedOdds } from "./odds.ts";
 import { M0, JOIN_AHEAD_MIN, TEST_FIXTURE_MIN } from "./config.ts";
 import { testMatchState, testMatchDurationSecs } from "./testMatch.ts";
 import { livePhase, type LiveStore } from "./live.ts";
+import type { LinesStore } from "./lines.ts";
 
 function loadReplay(): Replay {
   const url = new URL("../data/replay.json", import.meta.url);
@@ -124,7 +127,7 @@ async function assemblePoolResponse(pool: LivePoolView, store?: LiveStore) {
   return { pool, openCall, lastCall, standings, match };
 }
 
-export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
+export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesStore?: LinesStore): void {
   const feed = new Feed(loadReplay());
   feed.start(); // demo clock starts when the engine boots
 
@@ -589,5 +592,60 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
       }
     }
     return { pool: null, entry: null };
+  });
+
+  // ── Beat the Market ────────────────────────────────────────────────────────
+  const HOUSE_BOOST_LAMPORTS = Math.round(Number(process.env.LINES_SEED_SOL ?? "0.05") * 2 * 1e9);
+  // Money-read micro-cache: /api/lines fans out from every client poll; a 5s
+  // TTL keeps getProgramAccounts off the hot path (same idea as the ER cache).
+  let linesCache: { at: number; data: Awaited<ReturnType<typeof readLineMarkets>> } | null = null;
+  async function cachedLineMarkets() {
+    if (linesCache && Date.now() - linesCache.at < 5_000) return linesCache.data;
+    const data = await readLineMarkets();
+    linesCache = { at: Date.now(), data };
+    return data;
+  }
+
+  function lineDto(m: Awaited<ReturnType<typeof readLineMarkets>>[number]) {
+    const names = linesStore?.name(m.fixtureId);
+    const home = names?.home ?? `Fixture #${m.fixtureId}`;
+    const away = names?.away ?? "";
+    return {
+      fixtureId: m.fixtureId,
+      home, away,
+      favName: m.favSide === 1 ? home : (away || home),
+      favSide: m.favSide,
+      kickoffMs: m.entryCloseTs * 1000,
+      marketPk: m.pubkey,
+      status: m.status,
+      openMilli: m.openMilli,
+      current: linesStore?.current(m.fixtureId) ?? null, // {pctMilli, ts} | null — never invented
+      potLamports: m.totalPool,
+      bucketTotals: m.bucketTotals,
+      houseBoostLamports: HOUSE_BOOST_LAMPORTS,
+      winningBucket: m.winningBucket,
+      settledValueMilli: m.status === "settled" ? m.settledValueMilli : null,
+      settledTs: m.settledTs || null,
+    };
+  }
+
+  app.get("/api/lines", async () => {
+    const markets = await cachedLineMarkets();
+    const lines = markets
+      .map(lineDto)
+      .sort((a, b) => a.kickoffMs - b.kickoffMs);
+    return { lines };
+  });
+
+  app.get("/api/lines/:fixtureId", async (req, reply) => {
+    const fixtureId = Number((req.params as { fixtureId: string }).fixtureId);
+    const wallet = (req.query as { wallet?: string }).wallet;
+    const m = (await cachedLineMarkets()).find((x) => x.fixtureId === fixtureId);
+    if (!m) { reply.code(404); return { error: "no line for fixture" }; }
+    return {
+      line: lineDto(m),
+      series: linesStore?.series(fixtureId) ?? [],
+      myStakes: wallet ? await readLinePosition(fixtureId, wallet) : null,
+    };
   });
 }

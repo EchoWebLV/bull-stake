@@ -255,13 +255,14 @@ function snapshotFrom(mv: MarketView): MarketSnapshot {
   };
 }
 
-function sideLabel(group: string, bucket: number, home: string, away: string): string {
+export function sideLabel(group: string, bucket: number, home: string, away: string): string {
   if (bucket < 0) return "Multiple";
   if (group === "result") {
     if (bucket === 1) return "Draw";
     const team = bucket === 0 ? home : away;
     return team && !team.startsWith("Fixture ") ? team : bucket === 0 ? "Home" : "Away";
   }
+  if (group === "line") return bucket === 0 ? "Above" : "Below";
   return bucket === 0 ? "Over" : "Under";
 }
 
