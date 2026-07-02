@@ -1136,6 +1136,11 @@ export async function readLineMarkets(): Promise<LineMarketView[]> {
     const raw = await (conn as any).getProgramAccounts(program.programId, { filters });
     const out: LineMarketView[] = [];
     for (const item of raw) {
+      // Defensive: skip wrong-size (orphaned old-layout) accounts even if the RPC
+      // ignored the dataSize filter — stale layouts can borsh-decode into the
+      // current struct as GARBAGE rather than throwing, so try/catch alone
+      // does not skip them (same idiom as readLiveContests).
+      if (size && item.account.data.length !== size) continue;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let m: any;
       try { m = coder.decode("market", item.account.data); } catch { continue; }
