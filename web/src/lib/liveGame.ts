@@ -208,6 +208,11 @@ function resolvedRecently(call: CallView, nowMs: number): boolean {
 }
 
 /** 3-letter uppercased team code, or "—" when the name is a placeholder. */
+/** "home·away" for a per-side stat pair, "—" when the API carries none. */
+function sideStat(pair?: [number, number]): string {
+  return pair ? `${pair[0]}·${pair[1]}` : "—";
+}
+
 function code(name: string): string {
   if (!name || name === "—") return "—";
   return name.slice(0, 3).toUpperCase();
@@ -363,8 +368,10 @@ export function snapshotFromChain(
       home, away,
       scH: live?.home ?? 0, scA: live?.away ?? 0,
       clock, paused: !live,
-      // NOT available from /api/live/pool — do not fabricate.
-      shots: "—", corners: "—", cards: "—", poss: "—",
+      // Served for TEST fixtures (the scripted feed the keeper resolves against);
+      // real fixtures carry no per-side stats yet — "—" is honest, not fabricated.
+      shots: sideStat(m?.stats?.shots), corners: sideStat(m?.stats?.corners),
+      cards: sideStat(m?.stats?.cards), poss: m?.stats ? `${m.stats.poss[0]}%` : "—",
     },
     score: {
       pts, streak, bonus, callsUsed,
@@ -373,7 +380,9 @@ export function snapshotFromChain(
       pointsSeq: pts, // stable key: bumps when your total changes.
     },
     call,
-    feed: [], // no on-chain event feed in Phase A.
+    // Scripted events for TEST fixtures (newest first); real fixtures have no
+    // event feed in Phase A.
+    feed: [...(m?.events ?? [])].reverse(),
     players: data?.standings?.length ?? 0,
     standings,
     over,

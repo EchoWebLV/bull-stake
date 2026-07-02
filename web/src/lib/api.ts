@@ -189,6 +189,10 @@ export interface LivePoolResponse {
   match?: {
     fixtureId: number; home: string; away: string; kickoffMs: number | null;
     live?: { home: number; away: number; minute: number | null; phase: "pre" | "live" | "ht" | "ft" };
+    /** TEST fixtures only: per-side counters from the scripted feed (home first). */
+    stats?: { shots: [number, number]; corners: [number, number]; cards: [number, number]; poss: [number, number] };
+    /** TEST fixtures only: chronological scripted match events. */
+    events?: { min: number | ""; txt: string; big: boolean }[];
   } | null;
 }
 

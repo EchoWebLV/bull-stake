@@ -18,6 +18,7 @@ import {
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
 import { M0, JOIN_AHEAD_MIN, TEST_FIXTURE_MIN } from "./config.ts";
+import { testMatchState, testMatchDurationSecs } from "./testMatch.ts";
 import { livePhase, type LiveStore } from "./live.ts";
 
 function loadReplay(): Replay {
@@ -84,6 +85,19 @@ async function assemblePoolResponse(pool: LivePoolView, store?: LiveStore) {
     standings = await readPoolStandings(pool.poolId);
   } catch {
     standings = [];
+  }
+
+  // Test fixtures have no TxLINE presence — their match state is the scripted
+  // feed the keeper resolves against, computed deterministically from the
+  // pool's own on-chain timestamps (see testMatch.ts).
+  if (pool.fixtureId >= TEST_FIXTURE_MIN) {
+    const sim = testMatchState(
+      pool.lockTs,
+      testMatchDurationSecs(pool.lockTs, pool.settleAfterTs),
+      Date.now(),
+    );
+    const match = { fixtureId: pool.fixtureId, kickoffMs: pool.lockTs * 1000, ...sim };
+    return { pool, openCall, lastCall, standings, match };
   }
 
   const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
