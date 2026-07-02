@@ -132,13 +132,65 @@ function erConn(): any {
 }
 
 /**
- * Read a delegated account's raw bytes ER-FIRST, base as fallback. The ER holds
- * the live copy while the pool is delegated; before delegation and after
- * undelegate the account lives on base and the ER returns null (→ base). An ER
- * RPC error is swallowed (→ base) so a flaky rollup never blanks a readable
- * account. `expectSize` guards against a short/again-delegating ER row: only a
- * correctly-sized ER buffer wins; otherwise base. Returns null when NEITHER has
- * it (a genuine base RPC error propagates so the route can 502).
+ * ER-read micro-cache with STALE-SERVE and SINGLE-FLIGHT. The MagicBlock devnet
+ * RPC rate-limits under our 2s poll fan-out (multiple tabs × cursor+call+entry
+ * reads per poll), and a failed ER read used to silently fall back to the FROZEN
+ * base copy — which never shows an open call, so the tap card blanked to
+ * "waiting for the next call…" for whole matches (live test-match finding).
+ *   - fresh (< TTL): serve from cache, zero RPC.
+ *   - concurrent identical reads share ONE in-flight request.
+ *   - ER error: serve the last ER value up to ER_STALE_MAX_MS old — a slightly
+ *     stale open call is correct for seconds; the frozen base copy is wrong for
+ *     the whole match. Older than that → rethrow (caller falls to base).
+ */
+const ER_CACHE_TTL_MS = 1_500; // one 2s web poll
+const ER_STALE_MAX_MS = 12_000; // ≈ one answer window
+const erCache = new Map<string, { data: Buffer | null; at: number }>();
+const erInflight = new Map<string, Promise<Buffer | null>>();
+
+/** TEST SEAM: reset the ER read cache (unit tests share module state). */
+export function __clearErReadCache(): void {
+  erCache.clear();
+  erInflight.clear();
+}
+
+async function erAccountData(pda: PublicKey): Promise<Buffer | null> {
+  const key = pda.toBase58();
+  const hit = erCache.get(key);
+  if (hit && Date.now() - hit.at < ER_CACHE_TTL_MS) return hit.data;
+
+  let flight = erInflight.get(key);
+  if (!flight) {
+    const started: Promise<Buffer | null> = erConn()
+      .getAccountInfo(pda)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((info: any) => {
+        const data: Buffer | null = info?.data ?? null;
+        erCache.set(key, { data, at: Date.now() });
+        return data;
+      })
+      .finally(() => erInflight.delete(key));
+    flight = started;
+    erInflight.set(key, started);
+  }
+  try {
+    return await flight;
+  } catch (e) {
+    const stale = erCache.get(key);
+    if (stale && Date.now() - stale.at < ER_STALE_MAX_MS) return stale.data;
+    throw e;
+  }
+}
+
+/**
+ * Read a delegated account's raw bytes ER-FIRST (via the cached/stale-serving
+ * `erAccountData`), base as fallback. The ER holds the live copy while the pool
+ * is delegated; before delegation and after undelegate the account lives on base
+ * and the ER returns null (→ base). An ER failure WITH no recent stale value is
+ * swallowed (→ base) so a dead rollup never blanks a readable account.
+ * `expectSize` guards against a short/again-delegating ER row: only a correctly-
+ * sized ER buffer wins; otherwise base. Returns null when NEITHER has it (a
+ * genuine base RPC error propagates so the route can 502).
  */
 async function readDelegatedInfo(
   pda: PublicKey,
@@ -147,11 +199,10 @@ async function readDelegatedInfo(
   baseConn: any,
 ): Promise<{ data: Buffer } | null> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const erInfo: any = await erConn().getAccountInfo(pda);
-    if (erInfo?.data && erInfo.data.length === expectSize) return erInfo;
+    const data = await erAccountData(pda);
+    if (data && data.length === expectSize) return { data };
   } catch {
-    // ER unreachable / not serving this account → fall through to base.
+    // ER unreachable with no stale value → fall through to base.
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const baseInfo: any = await baseConn.getAccountInfo(pda);
