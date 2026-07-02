@@ -78,7 +78,14 @@ export interface GoalDeltas {
 /**
  * Static per-kind specs, mirrored from the web live game's call generators
  * (web/src/lib/liveGame.ts: nextGoal/goalRush/cornerSoon/cardSoon — the
- * base-point weights) with a fixed 9s answer window.
+ * base-point weights) with a fixed 20s answer window.
+ *
+ * 20s is the floor for a REAL pipeline, not a style choice: the sim's 9s
+ * assumed a local feed. On chain the player only learns a call opened after
+ * the engine's ER cache (≤1.5s) + the app's poll (≤2s), then needs to read,
+ * decide, and land an ER tx (~1-2s) — 9s left ~3-5s of human time and players
+ * missed every call (match #5, 2026-07-02: 8/8 calls unanswered by everyone).
+ *
  * `basePoints` is the on-chain [u8; 3] wire array, so the binary (2-option)
  * kinds pad the unused third option with a trailing 0:
  *   NextGoal  : 3 opts, [home 4, no-goal 1, away 4]
@@ -87,10 +94,10 @@ export interface GoalDeltas {
  *   CardSoon  : 2 opts, [yes 3, no 1, —0]
  */
 const CALL_SPECS: Record<CallKind, CallSpec> = {
-  [CallKind.NextGoal]: { numOptions: 3, basePoints: [4, 1, 4], answerSecs: 9 },
-  [CallKind.GoalRush]: { numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 },
-  [CallKind.CornerSoon]: { numOptions: 2, basePoints: [2, 1, 0], answerSecs: 9 },
-  [CallKind.CardSoon]: { numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 },
+  [CallKind.NextGoal]: { numOptions: 3, basePoints: [4, 1, 4], answerSecs: 20 },
+  [CallKind.GoalRush]: { numOptions: 2, basePoints: [3, 1, 0], answerSecs: 20 },
+  [CallKind.CornerSoon]: { numOptions: 2, basePoints: [2, 1, 0], answerSecs: 20 },
+  [CallKind.CardSoon]: { numOptions: 2, basePoints: [3, 1, 0], answerSecs: 20 },
 };
 
 /** Kinds whose ANSWER is a goal — a goal rise is expected, so it must NOT void them. */

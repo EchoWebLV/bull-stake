@@ -174,24 +174,24 @@ describe("shouldVoidOnGoal", () => {
 // ── callSpec ─────────────────────────────────────────────────────────────────
 
 describe("callSpec", () => {
-  it("NextGoal → 3 options, base points [4,1,4], 9s answer window", () => {
+  it("NextGoal → 3 options, base points [4,1,4], 20s answer window", () => {
     expect(callSpec(CallKind.NextGoal)).toEqual({
       numOptions: 3,
       basePoints: [4, 1, 4],
-      answerSecs: 9,
+      answerSecs: 20,
     });
   });
 
   it("GoalRush → 2 options, [3,1,0]", () => {
-    expect(callSpec(CallKind.GoalRush)).toEqual({ numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 });
+    expect(callSpec(CallKind.GoalRush)).toEqual({ numOptions: 2, basePoints: [3, 1, 0], answerSecs: 20 });
   });
 
   it("CornerSoon → 2 options, [2,1,0]", () => {
-    expect(callSpec(CallKind.CornerSoon)).toEqual({ numOptions: 2, basePoints: [2, 1, 0], answerSecs: 9 });
+    expect(callSpec(CallKind.CornerSoon)).toEqual({ numOptions: 2, basePoints: [2, 1, 0], answerSecs: 20 });
   });
 
   it("CardSoon → 2 options, [3,1,0]", () => {
-    expect(callSpec(CallKind.CardSoon)).toEqual({ numOptions: 2, basePoints: [3, 1, 0], answerSecs: 9 });
+    expect(callSpec(CallKind.CardSoon)).toEqual({ numOptions: 2, basePoints: [3, 1, 0], answerSecs: 20 });
   });
 
   it("every basePoints array is exactly length 3 (on-chain [u8;3] wire array)", () => {
