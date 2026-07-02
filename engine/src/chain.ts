@@ -2,7 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { readFileSync } from "node:fs";
 import { PROGRAM_ID, RPC_URL, ER_RPC } from "./config.ts";
-import { marketById } from "./markets.ts";
+import { marketById, LINE_CLOSE_MARKET_ID } from "./markets.ts";
 
 /** i64 little-endian as 8 bytes (matches Rust fixture_id.to_le_bytes()). */
 function i64le(n: number): Buffer {
@@ -1093,4 +1093,87 @@ export async function readMarket(marketPubkey: string): Promise<MarketView> {
     // on-chain i32 (not an Option) — only meaningful when status === "settled" (0 otherwise)
     settledValue: Number(m.settledValue),
   };
+}
+
+// ── Beat the Market: line-market reader (market_id 90) ──────────────────────
+
+export interface LineMarketView {
+  pubkey: string;
+  fixtureId: number;
+  status: "open" | "settled" | "voided";
+  /** Favourite side the line tracks: 1 = home/Participant1, 2 = away. */
+  favSide: 1 | 2;
+  /** Opening line, milli-percent (stat threshold field). */
+  openMilli: number;
+  /** Kick-off (= entry_close_ts), unix SECONDS. */
+  entryCloseTs: number;
+  bucketTotals: [string, string]; // [Above, Below] lamports
+  totalPool: string;
+  winningBucket: number | null;
+  /** Closing line, milli-percent; meaningful only when settled. */
+  settledValueMilli: number;
+  settledTs: number;
+}
+
+/**
+ * Every LINE_CLOSE (market_id 90) market on the program. Discriminator+size
+ * filtered getProgramAccounts, decoded via the Anchor coder, then filtered by
+ * market_id — same defensive shape as readLiveContests: any RPC/coder failure
+ * returns [] rather than throwing into a route.
+ */
+export async function readLineMarkets(): Promise<LineMarketView[]> {
+  try {
+    const program = loadProgram();
+    const conn = program.provider.connection;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const coder = (program.coder as any).accounts;
+    const disc = coder.memcmp("market");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const size: number | undefined = (program.account as any).market?.size;
+    const filters: object[] = [{ memcmp: { offset: disc.offset ?? 0, bytes: disc.bytes } }];
+    if (size) filters.push({ dataSize: size });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = await (conn as any).getProgramAccounts(program.programId, { filters });
+    const out: LineMarketView[] = [];
+    for (const item of raw) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let m: any;
+      try { m = coder.decode("market", item.account.data); } catch { continue; }
+      if ((m.marketId as number) !== LINE_CLOSE_MARKET_ID) continue;
+      out.push({
+        pubkey: item.pubkey.toBase58(),
+        fixtureId: Number(m.fixtureId),
+        status: statusString(m.status),
+        favSide: (m.statKey as number) === 2 ? 2 : 1,
+        openMilli: m.threshold as number,
+        entryCloseTs: Number(m.entryCloseTs),
+        bucketTotals: [m.bucketTotals[0].toString(), m.bucketTotals[1].toString()],
+        totalPool: m.totalPool.toString(),
+        winningBucket: m.winningBucket == null ? null : Number(m.winningBucket),
+        settledValueMilli: m.settledValue as number,
+        settledTs: Number(m.settledTs),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** This wallet's stakes on a fixture's line market: [Above, Below] lamports,
+ *  or null when no position exists. */
+export async function readLinePosition(
+  fixtureId: number, wallet: string,
+): Promise<[string, string] | null> {
+  try {
+    const program = loadProgram();
+    const market = deriveMarketPda(program.programId, fixtureId, LINE_CLOSE_MARKET_ID);
+    const position = derivePositionPda(program.programId, market, new PublicKey(wallet));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p: any = await (program.account as any).position.fetchNullable(position);
+    if (p === null) return null;
+    return [p.amounts[0].toString(), p.amounts[1].toString()];
+  } catch {
+    return null;
+  }
 }
