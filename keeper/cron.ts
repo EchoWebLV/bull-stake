@@ -1,13 +1,16 @@
 /**
  * Streak settlement scheduler — the keeper's long-running entrypoint.
  *
- * Two jobs, one process, ZERO new dependencies (plain `setInterval`, the same
+ * Five jobs, one process, ZERO new dependencies (plain `setInterval`, the same
  * convention engine/src/server.ts uses):
  *
  *   1. CREATE  — once per UTC day at 08:00 UTC, run `create-daily-card.ts` to
  *                compose + open that day's ONE 6-leg card. Idempotent on the
  *                create side (create-daily-card skips if today's Contest PDA
  *                already exists), so a missed/duplicated tick is harmless.
+ *                Can be paused entirely with DAILY_CARD_CREATE=0 (settle/live/
+ *                pool-schedule/lines jobs are unaffected) — see
+ *                `dailyCardCreateEnabled`.
  *
  *   2. SETTLE  — every SETTLE_INTERVAL_MIN minutes, run `settle-contest.ts` with
  *                NO --contest-id (its built-in "enumerate Open contests due"
@@ -32,17 +35,33 @@
  * and slices fixtures/market_ids to it), the SAME pass settles a 4-leg
  * single-match parlay and the 6-leg daily card — no card-shape special-casing.
  *
- * The scheduler does NOT touch Anchor/RPC/TxLINE itself. It spawns the existing
- * CLIs as child processes (inheriting this process's cwd + .env), so the money
- * path lives in exactly one place (settle-contest.ts) and this file is just the
- * clock. That also means --dry-run here simply forwards --dry-run to the settle
- * child: you get the full settle PREVIEW (pot/rake/jackpot/perfect-count) for
- * every due contest with no transaction sent.
+ *   3. LIVE    — fast job on its own LIVE_INTERVAL_SEC clock (default 30s):
+ *                discovers Open/Live/Ended LivePools and drives each in-process
+ *                via runLiveMatch, under a per-pool in-flight guard.
+ *
+ *   4. SCHEDULE — every SCHEDULE_INTERVAL_SEC (default 5m), run
+ *                `schedule-pools.ts` to auto-create a live pool for each
+ *                allowlisted fixture entering its join window. Idempotent
+ *                (pool-PDA-exists check).
+ *
+ *   5. LINES   — every LINES_INTERVAL_MIN (default 5m), run `lines.ts` — the
+ *                Beat-the-Market ensure/seed/settle/sweep pass for line
+ *                markets. Idempotent (PDA-exists / zero-totals / status-open
+ *                guards), so cadence only bounds settle latency after KO.
+ *
+ * The scheduler does NOT touch Anchor/RPC/TxLINE itself for the CLI-spawned jobs.
+ * It spawns the existing CLIs as child processes (inheriting this process's cwd +
+ * .env), so the money path lives in exactly one place per job (settle-contest.ts,
+ * lines.ts, schedule-pools.ts, create-daily-card.ts) and this file is just the
+ * clock. That also means --dry-run here simply forwards --dry-run to each spawned
+ * child: you get the full PREVIEW (pot/rake/jackpot/perfect-count for settle; the
+ * analogous preview for lines) for everything due, with no transaction sent.
  *
  * ── Usage ──────────────────────────────────────────────────────────────────────
  *   npx tsx cron.ts                  long-running: 08:00Z daily create + settle loop
- *   npx tsx cron.ts --dry-run        same loop, but the settle pass is preview-only
- *                                    (forwards --dry-run to settle-contest)
+ *                                    + live job + pool-schedule + lines pass
+ *   npx tsx cron.ts --dry-run        same loop, but every spawned child pass is
+ *                                    preview-only (forwards --dry-run)
  *   npx tsx cron.ts --once           run ONE settle pass right now and exit (no loop,
  *                                    no create). Combine with --dry-run to exercise
  *                                    the settle pass safely (used by this task's VERIFY).
@@ -51,7 +70,11 @@
  * Env (all optional; sensible defaults):
  *   SETTLE_INTERVAL_MIN   minutes between settle passes        (default 10)
  *   DAILY_CREATE_HOUR_UTC hour-of-day UTC to run create        (default 8)
- *   KEEPER_DRY_RUN=1      force --dry-run on the settle pass    (default off)
+ *   DAILY_CARD_CREATE=0   pause the daily card create job      (default on)
+ *   LIVE_INTERVAL_SEC     seconds between fast live job ticks  (default 30)
+ *   SCHEDULE_INTERVAL_SEC seconds between pool-scheduler ticks (default 300)
+ *   LINES_INTERVAL_MIN    minutes between lines-pass ticks     (default 5)
+ *   KEEPER_DRY_RUN=1      force --dry-run on all spawned passes (default off)
  *
  * ── Alternative: system cron (if you'd rather not run a long-lived process) ─────
  * Run the two CLIs straight from crontab. NOTE crontab times are the HOST's local
@@ -146,6 +169,24 @@ export function scheduleIntervalMs(env: NodeJS.ProcessEnv): number {
   return Math.max(1, sec) * SECOND_MS;
 }
 
+/**
+ * The Beat-the-Market lines-pass interval in MILLISECONDS, from
+ * `LINES_INTERVAL_MIN` (MINUTES; default 5). Same floor pattern as the other
+ * interval helpers. The pass is idempotent (PDA-exists / zero-totals /
+ * status-open guards), so cadence only bounds settle latency after KO.
+ */
+export function linesIntervalMs(env: NodeJS.ProcessEnv): number {
+  const raw = Number(env.LINES_INTERVAL_MIN ?? "5");
+  const min = Number.isFinite(raw) ? raw : 5;
+  return Math.max(1 / 60, min) * MINUTE_MS;
+}
+
+/** Daily-card create toggle: `DAILY_CARD_CREATE=0` pauses the 08:00Z card
+ *  create (the Parlay tab is hidden); anything else leaves it on. Pure. */
+export function dailyCardCreateEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env.DAILY_CARD_CREATE !== "0";
+}
+
 // ── child-process runner ──────────────────────────────────────────────────────────
 
 /**
@@ -187,6 +228,15 @@ async function runSchedulePools(dryRun: boolean): Promise<void> {
   console.log(`[cron ${ts}] === schedule-pools${dryRun ? " (DRY RUN)" : ""} ===`);
   const code = await runKeeperScript("schedule-pools.ts", args);
   console.log(`[cron] schedule-pools exited ${code}`);
+}
+
+/** Run one Beat-the-Market lines pass (ensure/seed/settle/sweep; idempotent). */
+async function runLinesPass(dryRun: boolean): Promise<void> {
+  const args = dryRun ? ["--dry-run"] : [];
+  const ts = new Date().toISOString();
+  console.log(`[cron ${ts}] === lines pass${dryRun ? " (DRY RUN)" : ""} ===`);
+  const code = await runKeeperScript("lines.ts", args);
+  console.log(`[cron] lines pass exited ${code}`);
 }
 
 /**
@@ -335,12 +385,14 @@ async function main() {
   }
 
   // ── Long-running scheduler. ──
+  const dailyCreateOn = dailyCardCreateEnabled(process.env);
   console.log(
     `[cron] scheduler up · settle every ${settleIntervalMin}m · ` +
-    `create at ${String(createHourUtc).padStart(2, "0")}:00 UTC · ` +
+    `create ${dailyCreateOn ? `at ${String(createHourUtc).padStart(2, "0")}:00 UTC` : "PAUSED"} · ` +
     `live every ${liveMs / SECOND_MS}s · ` +
-    `pool-schedule every ${scheduleIntervalMs(process.env) / SECOND_MS}s` +
-    `${dryRun ? " · DRY RUN (settle preview only)" : ""}`,
+    `pool-schedule every ${scheduleIntervalMs(process.env) / SECOND_MS}s · ` +
+    `lines every ${linesIntervalMs(process.env) / MINUTE_MS}m` +
+    `${dryRun ? " · DRY RUN (settle/lines preview only)" : ""}`,
   );
 
   // (1) Daily create, wall-clock aligned to HH:00 UTC. We self-schedule with
@@ -364,7 +416,11 @@ async function main() {
       scheduleDailyCreate(); // re-arm for the next day
     }, wait);
   };
-  scheduleDailyCreate();
+  if (dailyCardCreateEnabled(process.env)) {
+    scheduleDailyCreate();
+  } else {
+    console.log("[cron] daily-card create PAUSED (DAILY_CARD_CREATE=0) — settle loop unaffected");
+  }
 
   // (2) Settle pass on a fixed interval. Run one immediately on boot so a freshly
   //     started keeper doesn't wait a full interval before checking for due cards,
@@ -430,6 +486,18 @@ async function main() {
   };
   await tickSchedule();
   setInterval(tickSchedule, scheduleMs);
+
+  // (5) Beat the Market lines pass: ensure/seed/settle line markets every
+  //     LINES_INTERVAL_MIN (default 5m). Idempotent; run once on boot.
+  let linesBusy = false;
+  const tickLines = async () => {
+    if (linesBusy) { console.log("[cron] previous lines pass still running — skipping tick"); return; }
+    linesBusy = true;
+    try { await runLinesPass(dryRun); }
+    finally { linesBusy = false; }
+  };
+  await tickLines();
+  setInterval(tickLines, linesIntervalMs(process.env));
 }
 
 // Only run the scheduler when invoked directly — guard against import-time

@@ -9,7 +9,14 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { msUntilNextUtcHour, isSameUtcDay, liveIntervalMs, makeTickLive } from "../cron.js";
+import {
+  msUntilNextUtcHour,
+  isSameUtcDay,
+  liveIntervalMs,
+  makeTickLive,
+  linesIntervalMs,
+  dailyCardCreateEnabled,
+} from "../cron.js";
 
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -252,5 +259,24 @@ describe("discoverLivePools — drivable statuses only", () => {
       { dataSize: 176 },
     ]);
     expect(program.coder.accounts.memcmp).toHaveBeenCalledWith("livePool");
+  });
+});
+
+// ── Beat the Market: lines-pass interval + daily-card create pause ────────────
+
+describe("linesIntervalMs", () => {
+  it("defaults to 5 minutes and floors at 1s", () => {
+    expect(linesIntervalMs({} as NodeJS.ProcessEnv)).toBe(5 * 60_000);
+    expect(linesIntervalMs({ LINES_INTERVAL_MIN: "2" } as unknown as NodeJS.ProcessEnv)).toBe(120_000);
+    expect(linesIntervalMs({ LINES_INTERVAL_MIN: "0" } as unknown as NodeJS.ProcessEnv)).toBe(1_000);
+    expect(linesIntervalMs({ LINES_INTERVAL_MIN: "junk" } as unknown as NodeJS.ProcessEnv)).toBe(5 * 60_000);
+  });
+});
+
+describe("dailyCardCreateEnabled", () => {
+  it("is on by default and off only at the explicit '0'", () => {
+    expect(dailyCardCreateEnabled({} as NodeJS.ProcessEnv)).toBe(true);
+    expect(dailyCardCreateEnabled({ DAILY_CARD_CREATE: "1" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+    expect(dailyCardCreateEnabled({ DAILY_CARD_CREATE: "0" } as unknown as NodeJS.ProcessEnv)).toBe(false);
   });
 });
