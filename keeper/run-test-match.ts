@@ -34,6 +34,14 @@ import { makeSimFeed } from "./test-feed.js";
 const { BN } = anchorDefault;
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
+// A rate-limited RPC can reject a promise web3.js holds internally (outside any
+// awaited try/catch) — by default Node kills the process, orphaning an OPEN call
+// mid-match (the next driver voids it, costing players the round). The driver is
+// a dev harness babysitting real money mid-game: log and keep driving instead.
+process.on("unhandledRejection", (e) => {
+  console.log(`[test-match] unhandled rejection (continuing): ${(e as Error)?.message ?? e}`);
+});
+
 function flag(name: string, dflt: number): number {
   const i = process.argv.indexOf(`--${name}`);
   const v = i >= 0 ? Number(process.argv[i + 1]) : NaN;
@@ -45,19 +53,35 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 async function main() {
   const joinMins = flag("join-mins", 3);
   const durationMins = flag("duration-mins", 8);
+  const resumeFixture = flag("resume", 0); // re-attach to an existing test pool
   const entryPriceLamports = Math.round(
     Number(process.env.ENTRY_PRICE_SOL ?? "0.035") * LAMPORTS_PER_SOL,
   );
+
+  const ctx = createContext();
+  const proofbet = loadProofbetProgram(ctx.provider);
+  const keeper = ctx.wallet.publicKey;
+
+  if (resumeFixture > 0) {
+    // RESUME: drive an already-created pool (e.g. after a driver crash/restart).
+    // Every parameter is recovered from chain state; the state machine is
+    // re-entrant, so re-attaching mid-match is safe by design.
+    const pool = livePoolPda(new BN(resumeFixture));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = await (proofbet.account as any).livePool.fetch(pool);
+    const lockTs = Number(row.lockTs);
+    const durationSecs = Number(row.settleAfterTs) - lockTs - 60;
+    console.log(`[test-match] RESUME fixture ${resumeFixture} · pool ${pool.toBase58()}`);
+    const fetchEvents = makeSimFeed(resumeFixture, lockTs * 1000, { durationSecs });
+    await driveToTerminal(proofbet, ctx, pool, fetchEvents);
+    return;
+  }
 
   // Synthetic fixture id: 990 prefix + seconds-of-era suffix → unique per run,
   // far outside TxLINE's real fixture range.
   const fixtureId = 9_900_000_000 + (Math.floor(Date.now() / 1000) % 100_000_000);
   const kickoffMs = Date.now() + joinMins * 60_000;
   const durationSecs = durationMins * 60;
-
-  const ctx = createContext();
-  const proofbet = loadProofbetProgram(ctx.provider);
-  const keeper = ctx.wallet.publicKey;
 
   // settle window opens 1 min after full time (NOT the 3h default) so the whole
   // test — join → play → settle → claimable — completes in ~joinMins+durationMins+2.
@@ -94,9 +118,20 @@ async function main() {
   console.log(`[test-match] house seat joined (${entryPriceLamports / LAMPORTS_PER_SOL}◎): ${joinSig}`);
 
   const fetchEvents = makeSimFeed(fixtureId, kickoffMs, { durationSecs });
+  await driveToTerminal(proofbet, ctx, pool, fetchEvents);
+}
 
-  // Drive the state machine until terminal. Each runLiveMatch call is one bounded,
-  // idempotent step (the cron contract); a thrown step is logged and retried.
+/** Drive the state machine until terminal. Each runLiveMatch call is one bounded,
+ *  idempotent step (the cron contract); a thrown step is logged and retried. */
+async function driveToTerminal(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  proofbet: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ctx: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pool: any,
+  fetchEvents: ReturnType<typeof makeSimFeed>,
+): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const acct: any = proofbet.account;
   for (;;) {
@@ -125,7 +160,11 @@ async function main() {
     } catch (e) {
       console.log(`[test-match] step threw: ${(e as Error).message} — retrying`);
     }
-    await sleep(5_000);
+    // 20s between driver steps. Each step runs at most ONE call cycle, so this
+    // sets the BREATHER between calls (~40s call-to-call with the answer window
+    // and tx time) — a 5s loop machine-gunned all 8 calls back-to-back and no
+    // human could catch them. Mirrors the production cron's LIVE_INTERVAL_SEC 30.
+    await sleep(20_000);
   }
 }
 
