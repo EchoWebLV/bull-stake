@@ -1014,3 +1014,115 @@ describe("GET /api/live/entry", () => {
     await app.close();
   });
 });
+
+// ── /api/live/next — the featured-game picker (timer feature) ────────────────
+//
+// Priority: in-play pool (lockTs ≤ now < settleAfterTs) → joinable pool
+// (now < lockTs) → soonest upcoming fixture (pool null) → nothing. Pools are
+// status "open" only; the fixture branch reads the store. Date.now is spied so
+// the fixed poolRaw lockTs (1750000000) / settleAfterTs (1750003600) bracket it.
+describe("GET /api/live/next", () => {
+  const LOCK = 1_750_000_000; // poolRaw's fixed lockTs (sec)
+
+  /** Serve one open pool from the 176-byte scan. */
+  function armOnePool() {
+    h.getProgramAccounts.mockImplementation(async (_owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 176
+        ? [{ pubkey: { toBase58: () => "POOL" }, account: { data: Buffer.alloc(176) } }]
+        : [];
+    });
+    h.decode.mockImplementation((name: string) =>
+      name === "livePool" ? poolRaw({ poolId: 1, fixtureId: 1, status: { open: {} } }) : undefined,
+    );
+  }
+
+  it("features an IN-PLAY pool (lockTs ≤ now < settleAfterTs) with kickoff + joinOpensTs", async () => {
+    armOnePool();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue((LOCK + 600) * 1000); // 10 min in
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/live/next" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pool.poolId).toBe(1);
+    expect(body.kickoffMs).toBe(LOCK * 1000);        // falls back to lockTs (no board row)
+    expect(body.joinOpensTs).toBe(LOCK - 45 * 60);   // kickoff − JOIN_AHEAD_MIN
+    await app.close();
+    nowSpy.mockRestore();
+  });
+
+  it("features a JOINABLE pool before lock (the countdown/join state)", async () => {
+    armOnePool();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue((LOCK - 1200) * 1000); // T-20 min
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/live/next" });
+    const body = res.json();
+    expect(body.pool.poolId).toBe(1);
+    expect(body.kickoffMs).toBe(LOCK * 1000);
+    await app.close();
+    nowSpy.mockRestore();
+  });
+
+  it("prefers the IN-PLAY pool over a joinable one (priority order)", async () => {
+    // Two pools: fixture 1 in-play (lock LOCK), fixture 2 joinable (lock LOCK+7200).
+    h.getProgramAccounts.mockImplementation(async (_owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 176
+        ? [
+            { pubkey: { toBase58: () => "P1" }, account: { data: Buffer.alloc(176, 1) } },
+            { pubkey: { toBase58: () => "P2" }, account: { data: Buffer.alloc(176, 2) } },
+          ]
+        : [];
+    });
+    h.decode.mockImplementation((name: string, data?: any) => {
+      if (name !== "livePool") return undefined;
+      const second = data?.[0] === 2;
+      const raw = poolRaw({ poolId: second ? 2 : 1, fixtureId: second ? 2 : 1, status: { open: {} } });
+      if (second) { raw.lockTs = bn(LOCK + 7200); raw.settleAfterTs = bn(LOCK + 7200 + 3600); }
+      return raw;
+    });
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue((LOCK + 600) * 1000);
+    const app = buildServer(makeMockStore());
+    const body = (await app.inject({ url: "/api/live/next" })).json();
+    expect(body.pool.poolId).toBe(1); // the in-play one, not the later joinable one
+    await app.close();
+    nowSpy.mockRestore();
+  });
+
+  it("ignores non-open pools and falls to the soonest UPCOMING fixture (pool null)", async () => {
+    h.getProgramAccounts.mockImplementation(async (_owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 176
+        ? [{ pubkey: { toBase58: () => "P1" }, account: { data: Buffer.alloc(176) } }]
+        : [];
+    });
+    h.decode.mockImplementation((name: string) =>
+      name === "livePool" ? poolRaw({ poolId: 1, fixtureId: 1, status: { settled: {} } }) : undefined,
+    );
+    const KICK = (LOCK + 9000) * 1000;
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 7, home: "England", away: "Brazil", kickoffMs: KICK + 3_600_000, status: "upcoming" as const, minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 },
+        { fixtureId: 8, home: "Spain", away: "France", kickoffMs: KICK, status: "upcoming" as const, minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 },
+        { fixtureId: 9, home: "Ghana", away: "Peru", kickoffMs: KICK - 9_999_000, status: "ft" as const, minute: null, phase: null, scoreH: 1, scoreA: 0, corners: 0, goals: 1, yellows: 0 },
+      ]),
+    } as any);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(LOCK * 1000);
+    const app = buildServer(store);
+    const body = (await app.inject({ url: "/api/live/next" })).json();
+    expect(body.pool).toBeNull();
+    expect(body.match.fixtureId).toBe(8); // soonest upcoming (Spain–France), not ft/later
+    expect(body.kickoffMs).toBe(KICK);
+    expect(body.joinOpensTs).toBe(Math.floor(KICK / 1000) - 45 * 60);
+    await app.close();
+    nowSpy.mockRestore();
+  });
+
+  it("returns the all-null body when nothing is scheduled anywhere", async () => {
+    h.getProgramAccounts.mockResolvedValue([]);
+    const app = buildServer(makeMockStore());
+    const body = (await app.inject({ url: "/api/live/next" })).json();
+    expect(body).toMatchObject({ pool: null, match: null, kickoffMs: null, joinOpensTs: null });
+    await app.close();
+  });
+});

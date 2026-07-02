@@ -31,6 +31,14 @@ export const M0 = {
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
 /**
+ * Minutes before kickoff that a game's join window opens — the keeper creates the
+ * pool at T-minus this (its own JOIN_AHEAD_MIN mirrors it), and /api/live/next
+ * reports `joinOpensTs` from it so the countdown can say when Join lights up.
+ * On-chain, joins hard-close at lock_ts (= kickoff); this only sets the OPEN edge.
+ */
+export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 45);
+
+/**
  * Competitions eligible for the slate / sweepstake card.
  * Default: World Cup only (what the devnet free tier carries). Year-round
  * operation needs a broader TxLINE entitlement — once it's available, widen via

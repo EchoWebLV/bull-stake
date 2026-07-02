@@ -807,13 +807,21 @@ export async function readLiveEntry(wallet: string, poolId: number | bigint): Pr
  * Returns null when no pool exists for the fixture (route serves `{ pool: null }`).
  */
 export async function readLivePoolByFixture(fixtureId: number): Promise<LivePoolView | null> {
-  const raw = await readLivePools();
-  const views = (raw as { pubkey: PublicKey; account: unknown }[])
-    .map((r) => toLivePoolView(r.pubkey, r.account))
-    .filter((v) => v.fixtureId === fixtureId);
+  const views = (await readLivePoolViews()).filter((v) => v.fixtureId === fixtureId);
   if (views.length === 0) return null;
   // Highest poolId wins (newest pool for a reused fixture); deterministic tie-break.
   return views.sort((a, b) => b.poolId - a.poolId)[0];
+}
+
+/**
+ * Every LivePool as a mapped view (the raw `readLivePools` scan → `toLivePoolView`).
+ * The /api/live/next picker works over this whole set; scoped readers filter it.
+ */
+export async function readLivePoolViews(): Promise<LivePoolView[]> {
+  const raw = await readLivePools();
+  return (raw as { pubkey: PublicKey; account: unknown }[]).map((r) =>
+    toLivePoolView(r.pubkey, r.account),
+  );
 }
 
 /**

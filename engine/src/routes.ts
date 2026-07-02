@@ -7,15 +7,17 @@ import {
   readJackpot,
   listEntriesForWallet,
   readLivePoolByFixture,
+  readLivePoolViews,
   readOpenCall,
   readLastResolvedCall,
   readPoolStandings,
   readLiveEntry,
   type ContestView,
+  type LivePoolView,
 } from "./chain.ts";
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
-import { M0 } from "./config.ts";
+import { M0, JOIN_AHEAD_MIN } from "./config.ts";
 import { livePhase, type LiveStore } from "./live.ts";
 
 function loadReplay(): Replay {
@@ -53,6 +55,59 @@ export function selectTodaysCard(
   if (covering.length > 0) return covering[0];
   // No window covers now → most recent Open card.
   return [...open].sort(byLatest)[0];
+}
+
+/**
+ * The full pool body served by /api/live/pool AND /api/live/next: the pool plus its
+ * best-effort open call, just-resolved call, standings, and the single-fixture
+ * name/live-drama join (live board row → fixture-meta → "#<fixtureId>"; `livePhase`
+ * fold, `live` key omitted when the board doesn't track the fixture). A hiccup on
+ * any enrichment degrades to null/[] rather than failing an otherwise-good pool.
+ */
+async function assemblePoolResponse(pool: LivePoolView, store?: LiveStore) {
+  let openCall = null;
+  try {
+    openCall = await readOpenCall(pool.pubkey);
+  } catch {
+    openCall = null;
+  }
+  // The just-resolved call (if any) — the web flashes its verdict in the gap
+  // between calls, since `openCall` only ever carries the OPEN one.
+  let lastCall = null;
+  try {
+    lastCall = await readLastResolvedCall(pool.pubkey);
+  } catch {
+    lastCall = null;
+  }
+  let standings = [] as Awaited<ReturnType<typeof readPoolStandings>>;
+  try {
+    standings = await readPoolStandings(pool.poolId);
+  } catch {
+    standings = [];
+  }
+
+  const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
+  const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
+  const live = byId.get(pool.fixtureId);
+  const meta = names.get(pool.fixtureId);
+  const match = {
+    fixtureId: pool.fixtureId,
+    home: live?.home ?? meta?.home ?? `#${pool.fixtureId}`,
+    away: live?.away ?? meta?.away ?? "",
+    kickoffMs: live?.kickoffMs ?? null,
+    ...(live
+      ? {
+          live: {
+            home: live.scoreH,
+            away: live.scoreA,
+            minute: live.minute,
+            phase: livePhase(live.status, live.phase),
+          },
+        }
+      : {}),
+  };
+
+  return { pool, openCall, lastCall, standings, match };
 }
 
 export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
@@ -360,55 +415,62 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
     }
     if (!pool) return { pool: null }; // 200 + null sentinel: no live pool (yet)
 
-    // Best-effort open-call + standings — a hiccup on either shouldn't blank out an
-    // otherwise-good pool, so degrade to null / [] rather than 502.
-    let openCall = null;
+    return assemblePoolResponse(pool, store);
+  });
+
+  /**
+   * GET /api/live/next
+   * The ONE game the home tab should feature, picked in priority order:
+   *   1. an IN-PLAY pool  — status open, lockTs ≤ now < settleAfterTs (a playing
+   *      pool's on-chain status stays "open"; in-play is a time fact) — earliest
+   *      lockTs wins;
+   *   2. a JOINABLE pool  — status open, now < lockTs (the 45-min join window);
+   *   3. the soonest UPCOMING fixture with no pool yet — countdown only, pool null;
+   *   4. nothing scheduled → all-null body.
+   * The body is a superset of /api/live/pool (same assembly) plus `kickoffMs` and
+   * `joinOpensTs` (kickoff − JOIN_AHEAD_MIN). Terminal/ended pools are never
+   * featured — the next game takes over. Replaces web-side discovery (finding #5).
+   */
+  app.get("/api/live/next", async (_req, reply) => {
+    let pools;
     try {
-      openCall = await readOpenCall(pool.pubkey);
-    } catch {
-      openCall = null;
+      pools = await readLivePoolViews();
+    } catch (e) {
+      reply.code(502);
+      return { error: `live pool scan failed: ${(e as Error).message}` };
     }
-    // The just-resolved call (if any) — the web flashes its verdict in the gap
-    // between calls, since `openCall` only ever carries the OPEN one. Best-effort.
-    let lastCall = null;
-    try {
-      lastCall = await readLastResolvedCall(pool.pubkey);
-    } catch {
-      lastCall = null;
-    }
-    let standings = [] as Awaited<ReturnType<typeof readPoolStandings>>;
-    try {
-      standings = await readPoolStandings(pool.poolId);
-    } catch {
-      standings = [];
+    const nowMs = Date.now();
+    const open = pools.filter((p) => p.status === "open");
+    const byLock = (a: { lockTs: number }, b: { lockTs: number }) => a.lockTs - b.lockTs;
+    const inPlay = open
+      .filter((p) => p.lockTs * 1000 <= nowMs && nowMs < p.settleAfterTs * 1000)
+      .sort(byLock)[0];
+    const joinable = open.filter((p) => nowMs < p.lockTs * 1000).sort(byLock)[0];
+    const featured = inPlay ?? joinable ?? null;
+
+    if (featured) {
+      const body = await assemblePoolResponse(featured, store);
+      // lock_ts == kickoff by construction; prefer the board's kickoff when known.
+      const kickoffMs = body.match.kickoffMs ?? featured.lockTs * 1000;
+      return { ...body, kickoffMs, joinOpensTs: featured.lockTs - JOIN_AHEAD_MIN * 60 };
     }
 
-    // Single-fixture name + live-drama join, exactly like /api/card: live board row
-    // wins, then persisted fixture-meta names, then "#<fixtureId>".
-    const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
-    const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
-    const live = byId.get(pool.fixtureId);
-    const meta = names.get(pool.fixtureId);
-    const match = {
-      fixtureId: pool.fixtureId,
-      home: live?.home ?? meta?.home ?? `#${pool.fixtureId}`,
-      away: live?.away ?? meta?.away ?? "",
-      kickoffMs: live?.kickoffMs ?? null,
-      // Fold the store's status/phase into the coarse card phase; omit `live` when
-      // the board doesn't track this fixture (mirrors /api/card's OMIT contract).
-      ...(live
-        ? {
-            live: {
-              home: live.scoreH,
-              away: live.scoreA,
-              minute: live.minute,
-              phase: livePhase(live.status, live.phase),
-            },
-          }
-        : {}),
+    // No pool anywhere → the soonest upcoming fixture (pure countdown state).
+    const up = (store?.getMatches() ?? [])
+      .filter((m) => m.status === "upcoming")
+      .sort((a, b) => a.kickoffMs - b.kickoffMs)[0];
+    if (up) {
+      return {
+        pool: null, openCall: null, lastCall: null, standings: [],
+        match: { fixtureId: up.fixtureId, home: up.home, away: up.away, kickoffMs: up.kickoffMs },
+        kickoffMs: up.kickoffMs,
+        joinOpensTs: Math.floor(up.kickoffMs / 1000) - JOIN_AHEAD_MIN * 60,
+      };
+    }
+    return {
+      pool: null, openCall: null, lastCall: null, standings: [],
+      match: null, kickoffMs: null, joinOpensTs: null,
     };
-
-    return { pool, openCall, lastCall, standings, match };
   });
 
   /**
