@@ -79,21 +79,25 @@ async function main() {
   );
   console.log(`# ensure: ${upcoming.length} fixture(s) in window`);
   for (const f of upcoming) {
-    const market = marketPda(pid, f.FixtureId);
-    if ((await acct.market.fetchNullable(market)) !== null) {
-      console.log(`  = ${label(f)} — market exists`); continue;
+    try {
+      const market = marketPda(pid, f.FixtureId);
+      if ((await acct.market.fetchNullable(market)) !== null) {
+        console.log(`  = ${label(f)} — market exists`); continue;
+      }
+      const snap = await fetchOddsSnapshot(ctx, auth, f.FixtureId);
+      const open = pickOpen(snap, now, OPEN_FRESH_MIN);
+      if (!open) { console.log(`  · ${label(f)} — no fresh 1X2 line, skipping`); continue; }
+      const favName = open.favSide === 1 ? f.Participant1 : f.Participant2;
+      console.log(`  + ${label(f)} — open ${fmt(open.openMilli)} on ${favName}${DRY ? " (dry-run)" : ""}`);
+      if (DRY) continue;
+      await program.methods
+        .initializeMarket(new BN(f.FixtureId), LINE_CLOSE_MARKET_ID,
+          lineInitArgs(open.openMilli, open.favSide, me, Math.floor(f.StartTime / 1000)))
+        .accountsStrict({ creator: me, market, vault: vaultPda(pid, market), systemProgram: SystemProgram.programId })
+        .rpc();
+    } catch (e) {
+      console.log(`  ! ${label(f)} — ensure failed (retry next tick): ${(e as Error).message.split("\n")[0]}`);
     }
-    const snap = await fetchOddsSnapshot(ctx, auth, f.FixtureId);
-    const open = pickOpen(snap, now, OPEN_FRESH_MIN);
-    if (!open) { console.log(`  · ${label(f)} — no fresh 1X2 line, skipping`); continue; }
-    const favName = open.favSide === 1 ? f.Participant1 : f.Participant2;
-    console.log(`  + ${label(f)} — open ${fmt(open.openMilli)} on ${favName}${DRY ? " (dry-run)" : ""}`);
-    if (DRY) continue;
-    await program.methods
-      .initializeMarket(new BN(f.FixtureId), LINE_CLOSE_MARKET_ID,
-        lineInitArgs(open.openMilli, open.favSide, me, Math.floor(f.StartTime / 1000)))
-      .accountsStrict({ creator: me, market, vault: vaultPda(pid, market), systemProgram: SystemProgram.programId })
-      .rpc();
   }
 
   // ── SEED / SETTLE / SWEEP over every candidate fixture ──────────────────────
@@ -101,71 +105,75 @@ async function main() {
     (f) => f.StartTime > now - 36 * 3_600_000 && f.StartTime <= now + HORIZON_MS,
   );
   for (const f of candidates) {
-    const market = marketPda(pid, f.FixtureId);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const m: any = await acct.market.fetchNullable(market);
-    if (m === null) continue;
-    const vault = vaultPda(pid, market);
-    const position = positionPda(pid, market, me);
-    const open = m.status.open !== undefined;
-    const totals: bigint[] = m.bucketTotals.slice(0, 2).map((b: any) => BigInt(b.toString()));
+    try {
+      const market = marketPda(pid, f.FixtureId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const m: any = await acct.market.fetchNullable(market);
+      if (m === null) continue;
+      const vault = vaultPda(pid, market);
+      const position = positionPda(pid, market, me);
+      const open = m.status.open !== undefined;
+      const totals: bigint[] = m.bucketTotals.slice(0, 2).map((b: any) => BigInt(b.toString()));
 
-    // SEED — both totals exactly zero, still open, before KO.
-    if (open && totals[0] === 0n && totals[1] === 0n && now < f.StartTime) {
-      const bal = await ctx.connection.getBalance(me);
-      if (bal < SEED_LAMPORTS * 2 + 0.01 * SOL) {
-        console.log(`  ! ${label(f)} — keeper balance ${(bal / SOL).toFixed(3)}◎ too low to seed, SKIPPING`);
-      } else {
-        console.log(`  ⬒ ${label(f)} — seeding ${(SEED_LAMPORTS / SOL)}◎ per side${DRY ? " (dry-run)" : ""}`);
-        if (!DRY) {
-          await program.methods.placeBet(0, new BN(SEED_LAMPORTS))
-            .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
-          await program.methods.placeBet(1, new BN(SEED_LAMPORTS))
-            .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
+      // SEED — both totals exactly zero, still open, before KO.
+      if (open && totals[0] === 0n && totals[1] === 0n && now < f.StartTime) {
+        const bal = await ctx.connection.getBalance(me);
+        if (bal < SEED_LAMPORTS * 2 + 0.01 * SOL) {
+          console.log(`  ! ${label(f)} — keeper balance ${(bal / SOL).toFixed(3)}◎ too low to seed, SKIPPING`);
+        } else {
+          console.log(`  ⬒ ${label(f)} — seeding ${(SEED_LAMPORTS / SOL)}◎ per side${DRY ? " (dry-run)" : ""}`);
+          if (!DRY) {
+            await program.methods.placeBet(0, new BN(SEED_LAMPORTS))
+              .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
+            await program.methods.placeBet(1, new BN(SEED_LAMPORTS))
+              .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
+          }
         }
       }
-    }
 
-    // SETTLE — still open, past KO + buffer.
-    if (open && now >= f.StartTime + SETTLE_BUFFER_MS) {
-      const updates = await fetchOddsUpdates(ctx, auth, f.FixtureId);
-      const res = resolveLine(updates, {
-        kickoffMs: f.StartTime,
-        openMilli: m.threshold as number,
-        favSide: (m.statKey as number) === 2 ? 2 : 1,
-        staleMaxMin: STALE_MAX_MIN,
-      });
-      if (res.action === "settle") {
-        console.log(`  ✓ ${label(f)} — close ${fmt(res.closeMilli)} vs open ${fmt(m.threshold)} → ` +
-          `${res.winningBucket === 0 ? "ABOVE" : "BELOW"} wins${DRY ? " (dry-run)" : ""}`);
-        if (!DRY) {
-          await program.methods
-            .settle(res.winningBucket, 0, new BN(Math.floor(res.closeTsMs / 1000)), res.closeMilli)
-            .accountsStrict({ settleAuthority: me, market, vault, feeRecipient: m.feeRecipient }).rpc();
-        }
-      } else {
-        console.log(`  ∅ ${label(f)} — VOID (${res.reason})${DRY ? " (dry-run)" : ""}`);
-        if (!DRY) {
-          await program.methods.voidMarket(0, new BN(Math.floor(now / 1000)))
-            .accountsStrict({ settleAuthority: me, market }).rpc();
+      // SETTLE — still open, past KO + buffer.
+      if (open && now >= f.StartTime + SETTLE_BUFFER_MS) {
+        const updates = await fetchOddsUpdates(ctx, auth, f.FixtureId);
+        const res = resolveLine(updates, {
+          kickoffMs: f.StartTime,
+          openMilli: m.threshold as number,
+          favSide: (m.statKey as number) === 2 ? 2 : 1,
+          staleMaxMin: STALE_MAX_MIN,
+        });
+        if (res.action === "settle") {
+          console.log(`  ✓ ${label(f)} — close ${fmt(res.closeMilli)} vs open ${fmt(m.threshold)} → ` +
+            `${res.winningBucket === 0 ? "ABOVE" : "BELOW"} wins${DRY ? " (dry-run)" : ""}`);
+          if (!DRY) {
+            await program.methods
+              .settle(res.winningBucket, 0, new BN(Math.floor(res.closeTsMs / 1000)), res.closeMilli)
+              .accountsStrict({ settleAuthority: me, market, vault, feeRecipient: m.feeRecipient }).rpc();
+          }
+        } else {
+          console.log(`  ∅ ${label(f)} — VOID (${res.reason})${DRY ? " (dry-run)" : ""}`);
+          if (!DRY) {
+            await program.methods.voidMarket(0, new BN(Math.floor(now / 1000)))
+              .accountsStrict({ settleAuthority: me, market }).rpc();
+          }
         }
       }
-    }
 
-    // SWEEP — terminal market, keeper still holds a position → claim seed share.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fresh: any = DRY ? m : await acct.market.fetch(market);
-    const terminal = fresh.status.settled !== undefined || fresh.status.voided !== undefined;
-    if (terminal && (await acct.position.fetchNullable(position)) !== null) {
-      console.log(`  $ ${label(f)} — claiming keeper seed share${DRY ? " (dry-run)" : ""}`);
-      if (!DRY) {
-        try {
-          await program.methods.claim()
-            .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
-        } catch (e) {
-          console.log(`    claim failed (retry next pass): ${(e as Error).message.split("\n")[0]}`);
+      // SWEEP — terminal market, keeper still holds a position → claim seed share.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fresh: any = DRY ? m : await acct.market.fetch(market);
+      const terminal = fresh.status.settled !== undefined || fresh.status.voided !== undefined;
+      if (terminal && (await acct.position.fetchNullable(position)) !== null) {
+        console.log(`  $ ${label(f)} — claiming keeper seed share${DRY ? " (dry-run)" : ""}`);
+        if (!DRY) {
+          try {
+            await program.methods.claim()
+              .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
+          } catch (e) {
+            console.log(`    claim failed (retry next pass): ${(e as Error).message.split("\n")[0]}`);
+          }
         }
       }
+    } catch (e) {
+      console.log(`  ! ${label(f)} — pass failed (retry next tick): ${(e as Error).message.split("\n")[0]}`);
     }
   }
 }
