@@ -6,7 +6,10 @@
  *           full-game 1X2 StablePrice row → initialize_market(id 90) with
  *           threshold = opening line, stat_key = favourite side. PDA exists → skip.
  *   SEED    open line markets with BOTH bucket totals exactly 0 → place_bet
- *           LINES_SEED_SOL on each side (guard makes double-seeding impossible).
+ *           LINES_SEED_SOL on each side (both-zero guard prevents double-seeding;
+ *           a crash between the two placeBets leaves a one-sided seed, which
+ *           fails safe — bounded loss or zero-winner auto-void — and is
+ *           detected+logged for manual top-up).
  *   SETTLE  open line markets past KO+buffer → close from /api/odds/updates
  *           (full history — snapshot may be overwritten by in-running rows),
  *           then settle(winning, 0, closeTs, closeMilli) or void_market.
@@ -129,6 +132,8 @@ async function main() {
               .accountsStrict({ bettor: me, market, vault, position, systemProgram: SystemProgram.programId }).rpc();
           }
         }
+      } else if (open && (totals[0] === 0n) !== (totals[1] === 0n) && now < f.StartTime) {
+        console.log(`  ! ${label(f)} — ONE-SIDED seed detected (bucket ${totals[0] === 0n ? 1 : 0} only) — crash recovery needed, top up manually`);
       }
 
       // SETTLE — still open, past KO + buffer.
@@ -182,4 +187,5 @@ const label = (f: Fixture) =>
   `${f.FixtureId} ${f.Participant1} v ${f.Participant2} (KO ${new Date(f.StartTime).toISOString().slice(5, 16)}Z)`;
 const fmt = (milli: number) => `${(milli / 1000).toFixed(1)}%`;
 
-main().catch((e) => { console.error(e); process.exit(1); });
+const isMain = process.argv[1]?.endsWith("lines.ts");
+if (isMain) main().catch((e) => { console.error(e); process.exit(1); });
