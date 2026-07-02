@@ -232,3 +232,29 @@ export const isWinner = (
   p: Pick<LivePoolView, "status" | "winningScore">,
   e: Pick<LiveEntryView, "total">,
 ): boolean => p.status === "settled" && p.winningScore > 0 && e.total === p.winningScore;
+
+// ── Beat the Market ──────────────────────────────────────────────────────────
+export interface LineDto {
+  fixtureId: number; home: string; away: string;
+  favName: string; favSide: 1 | 2;
+  kickoffMs: number; marketPk: string;
+  status: "open" | "settled" | "voided";
+  openMilli: number;
+  current: { pctMilli: number; ts: number } | null;
+  potLamports: string;
+  bucketTotals: [string, string];
+  houseBoostLamports: number;
+  winningBucket: number | null;
+  settledValueMilli: number | null;
+  settledTs: number | null;
+}
+export interface LinesResponse { lines: LineDto[] }
+export interface LineDetailResponse {
+  line: LineDto;
+  series: [number, number][];
+  myStakes: [string, string] | null;
+}
+export const getLines = (): Promise<LinesResponse> =>
+  fetch(`${ENGINE}/api/lines`).then(json);
+export const getLineDetail = (fixtureId: number, wallet?: string | null): Promise<LineDetailResponse> =>
+  fetch(`${ENGINE}/api/lines/${fixtureId}${wallet ? `?wallet=${wallet}` : ""}`).then(json);
