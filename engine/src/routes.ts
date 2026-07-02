@@ -543,4 +543,51 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
       return { error: `live entry read failed: ${(e as Error).message}` };
     }
   });
+
+  /**
+   * GET /api/live/unclaimed?wallet=<base58>[&test=1]
+   * The wallet's most recent UNFINISHED terminal pool: settled/voided/rolledOver
+   * with the wallet's LiveEntry account still open — claiming (winner share /
+   * refund / seat close) is what closes the entry, so an open entry on a
+   * terminal pool == money or a close still owed to this wallet. The web PINS
+   * this pool over the featured rotation: /api/live/next only ever serves open
+   * pools, so without the pin a winner's claim button rotates away the moment
+   * the next pool spawns. Same audience split as /next (`test=1`). Scans the
+   * newest 12 terminal pools; `{pool:null, entry:null}` when nothing is owed.
+   */
+  app.get("/api/live/unclaimed", async (req, reply) => {
+    const { wallet } = req.query as Record<string, string>;
+    const wantTest = (req.query as Record<string, string>).test === "1";
+    if (!wallet) {
+      reply.code(400);
+      return { error: "wallet query param required" };
+    }
+    let pools;
+    try {
+      pools = await readLivePoolViews();
+    } catch (e) {
+      reply.code(502);
+      return { error: `live pool scan failed: ${(e as Error).message}` };
+    }
+    const terminal = pools
+      .filter(
+        (p) =>
+          (p.status === "settled" || p.status === "voided" || p.status === "rolledOver") &&
+          (p.fixtureId >= TEST_FIXTURE_MIN) === wantTest,
+      )
+      .sort((a, b) => b.settleAfterTs - a.settleAfterTs)
+      .slice(0, 12);
+    for (const p of terminal) {
+      try {
+        const entry = await readLiveEntry(wallet, p.poolId);
+        if (entry) {
+          const body = await assemblePoolResponse(p, store);
+          return { ...body, entry };
+        }
+      } catch {
+        // Unreadable entry (RPC blip) → skip; the web re-polls within seconds.
+      }
+    }
+    return { pool: null, entry: null };
+  });
 }

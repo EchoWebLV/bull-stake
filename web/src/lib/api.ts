@@ -210,6 +210,13 @@ export const getLivePool = (fixtureId: number): Promise<LivePoolResponse> =>
 /** `test=true` → only TEST matches (the /test page); default → only real fixtures. */
 export const getNextGame = (test = false): Promise<NextGameResponse> =>
   fetch(`${ENGINE}/api/live/next${test ? "?test=1" : ""}`).then(json);
+/** The wallet's most recent terminal pool whose entry is still open — a claim
+ *  (winnings / refund / close) is owed. `{pool:null, entry:null}` when clear. */
+export const getUnclaimed = (
+  wallet: string,
+  test = false,
+): Promise<LivePoolResponse & { entry: LiveEntryView | null }> =>
+  fetch(`${ENGINE}/api/live/unclaimed?wallet=${wallet}${test ? "&test=1" : ""}`).then(json);
 export const getPoolStandings = (poolId: number): Promise<LiveEntryView[]> =>
   fetch(`${ENGINE}/api/live/pool/${poolId}/standings`).then(json);
 export const getLiveEntry = (wallet: string, poolId: number): Promise<LiveEntryView | null> =>

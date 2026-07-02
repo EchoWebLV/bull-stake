@@ -1051,6 +1051,72 @@ describe("GET /api/live/entry", () => {
   });
 });
 
+// ── /api/live/unclaimed — the claim-pin source ───────────────────────────────
+//
+// /api/live/next only serves OPEN pools, so a settled pool vanishes from the
+// rotation the instant the next one spawns — taking the winner's claim button
+// with it. This endpoint finds the wallet's newest terminal pool whose entry
+// account is still open (claiming closes it); the web pins that pool.
+describe("GET /api/live/unclaimed", () => {
+  const TEST_FIXTURE = 9_982_985_739; // ≥ TEST_FIXTURE_MIN → the /test audience
+
+  /** One settled pool in the 176-byte scan (test-range fixture). */
+  function armSettledPool() {
+    h.getProgramAccounts.mockImplementation(async (_owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 176
+        ? [{ pubkey: { toBase58: () => "POOL" }, account: { data: Buffer.alloc(176) } }]
+        : [];
+    });
+    h.decode.mockImplementation((name: string) => {
+      if (name === "livePool")
+        return poolRaw({ poolId: TEST_FIXTURE, fixtureId: TEST_FIXTURE, status: { settled: {} } });
+      if (name === "liveEntry") return entryRaw({ player: "WALLET", basePts: 2, bonusPts: 0 });
+      return undefined;
+    });
+  }
+
+  it("400s when wallet is missing", async () => {
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/live/unclaimed" });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("returns the settled pool + the still-open entry (the claim pin)", async () => {
+    armSettledPool();
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(159), owner: pk("By8y") });
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/live/unclaimed?wallet=${REAL_WALLET}&test=1` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pool.fixtureId).toBe(TEST_FIXTURE);
+    expect(body.pool.status).toBe("settled");
+    expect(body.entry).not.toBeNull();
+    expect(body.entry.total).toBe(2);
+    await app.close();
+  });
+
+  it("returns { pool:null, entry:null } once the entry is closed (claim taken)", async () => {
+    armSettledPool();
+    h.getAccountInfo.mockResolvedValue(null); // entry PDA closed by claim
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/live/unclaimed?wallet=${REAL_WALLET}&test=1` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ pool: null, entry: null });
+    await app.close();
+  });
+
+  it("respects the audience split: a TEST-fixture pool never leaks to the real tab", async () => {
+    armSettledPool();
+    h.getAccountInfo.mockResolvedValue({ data: Buffer.alloc(159), owner: pk("By8y") });
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/live/unclaimed?wallet=${REAL_WALLET}` }); // no test=1
+    expect(res.json()).toEqual({ pool: null, entry: null });
+    await app.close();
+  });
+});
+
 // ── /api/live/next — the featured-game picker (timer feature) ────────────────
 //
 // Priority: in-play pool (lockTs ≤ now < settleAfterTs) → joinable pool

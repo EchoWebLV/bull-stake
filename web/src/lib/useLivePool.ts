@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  getNextGame, getLiveEntry,
+  getNextGame, getLiveEntry, getUnclaimed,
   type NextGameResponse, type LiveEntryView,
 } from "./api.ts";
 
@@ -38,6 +38,26 @@ export function useLivePool(wallet: string | null, test = false): LivePoolState 
     if (wallet && data?.pool) {
       entry = await getLiveEntry(wallet, data.pool.poolId).catch(() => null);
     }
+
+    // UNFINISHED BUSINESS outranks the rotation (unless I'm seated in the
+    // featured pool right now): /next only ever serves OPEN pools, so the
+    // moment my pool settles it vanishes — taking the claim button with it.
+    // Pin my newest terminal pool with a still-open entry until the claim
+    // (which closes the entry) releases the pin. Server-driven: no local state.
+    const playingFeatured = !!(data?.pool && entry);
+    if (wallet && !playingFeatured) {
+      const owed = await getUnclaimed(wallet, test).catch(() => null);
+      if (owed?.pool && owed.entry) {
+        lastHadPool.current = true;
+        setState({
+          loading: false,
+          data: { ...owed, kickoffMs: owed.match?.kickoffMs ?? null, joinOpensTs: null },
+          entry: owed.entry,
+        });
+        return;
+      }
+    }
+
     lastHadPool.current = !!data?.pool;
     setState({ loading: false, data, entry });
   }, [wallet, test]);
