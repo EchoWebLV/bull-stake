@@ -117,6 +117,25 @@ export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
     );
   }
 
+  // No pool and no pre-game: a clean idle card. Without this gate the in-game
+  // scaffold renders from an all-null snapshot — dashes, 0–0, ◎0 pot — which
+  // reads as a broken screen, not an empty one.
+  if (!pool) {
+    return (
+      <div className="livegame">
+        <div className="lg-pre">
+          <div className="lg-pre-lab">{test ? "Test match — real devnet SOL" : "Next match"}</div>
+          <div className="lg-pre-teams">No game right now</div>
+          <div className="lg-pre-hint">
+            {test
+              ? "No test match is running — one appears here the moment the keeper starts it."
+              : "The next match pool opens 45 min before kick-off."}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const { match, score, call, feed, standings, over } = snap;
   const claimLabel =
     pool && entry && isWinner(pool, entry) ? "Claim winnings ▸"
