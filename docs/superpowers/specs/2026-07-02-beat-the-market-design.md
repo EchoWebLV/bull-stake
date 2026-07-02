@@ -44,7 +44,7 @@ Nothing is interpolated, averaged, or invented. If TxLINE doesn't say it, the ma
 
 ## 3. On-chain mapping (no program changes, no redeploy)
 
-- **Catalog:** new entry in `engine/src/markets.ts` — **`market_id 90 · LINE_CLOSE`**, `num_buckets 2`, bucket labels Above/Below. Stat-machinery fields are explicit sentinels (`stat_key 0`, `op 0`, `comparison 0`) — documented as unused for this market type.
+- **Catalog:** new entry in `engine/src/markets.ts` — **`market_id 90 · LINE_CLOSE`**, `num_buckets 2`, bucket labels Above/Below. `stat_key` = favourite side (1 = home, 2 = away) so the market is fully self-describing; `op`/`comparison` stay sentinels.
 - **`threshold` (i32) = open** (milli-percent) — written at `initialize_market`, making every line market **self-describing on-chain** and the keeper restart-safe with no local state.
 - **PDA** `[b"market", fixture_id, market_id=90]` → at most one line per fixture; creation is idempotent (PDA exists → no-op).
 - **Settle:** existing `settle(winning_bucket, settled_seq = 0, settled_ts = closeRow.Ts/1000, settled_value = close)`. `settled_seq` is unused for LINE_CLOSE (documented). Open + close + timestamp = complete on-chain audit trail.

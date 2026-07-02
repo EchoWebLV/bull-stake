@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import { MARKET_TEMPLATE, marketById, toInitArgs, type MarketDef } from "../src/markets.ts";
+import {
+  LINE_CLOSE_MARKET_ID, LINE_CLOSE_DEF, lineInitArgs, MARKET_TEMPLATE as TPL,
+} from "../src/markets.ts";
 
 const DUMMY_AUTH = new PublicKey("11111111111111111111111111111112");
 
@@ -130,5 +133,29 @@ describe("toInitArgs", () => {
     const args = toInitArgs(def, DUMMY_AUTH, 9999999);
     expect(args.statKey).toBe(1007);
     expect(args.statKey2).toBe(1008);
+  });
+});
+
+describe("LINE_CLOSE (market 90)", () => {
+  it("is registered for lookups but NOT in the per-fixture template", () => {
+    expect(LINE_CLOSE_MARKET_ID).toBe(90);
+    expect(marketById(90)).toBe(LINE_CLOSE_DEF);
+    expect(marketById(90)?.group).toBe("line");
+    expect(marketById(90)?.numBuckets).toBe(2);
+    expect(TPL.some((d) => d.marketId === 90)).toBe(false);
+  });
+
+  it("lineInitArgs encodes open line + favourite side into the existing init args", () => {
+    const args = lineInitArgs(54407, 1, DUMMY_AUTH, 1_752_000_000);
+    expect(args.statKey).toBe(1);          // favourite side (1 = home)
+    expect(args.statKey2).toBeNull();
+    expect(args.op).toBeNull();
+    expect(args.comparison).toEqual({ greaterThan: {} }); // sentinel, unused
+    expect(args.threshold).toBe(54407);    // opening line, milli-pct
+    expect(args.entryCloseTs.toNumber()).toBe(1_752_000_000);
+    expect(args.feeBps).toBe(0);
+    expect(args.numBuckets).toBe(2);
+    expect(args.settleAuthority).toBe(DUMMY_AUTH);
+    expect(args.feeRecipient).toBeNull();
   });
 });

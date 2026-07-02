@@ -22,7 +22,7 @@ export const RESULT_BUCKETS = ["home", "draw", "away"] as const;
 export interface MarketDef {
   marketId: number;
   label: string;
-  group: "corners" | "goals" | "result" | "cards";
+  group: "corners" | "goals" | "result" | "cards" | "line";
   line: number;
   statKey: number;
   statKey2: number | null;
@@ -53,6 +53,51 @@ export const MARKET_TEMPLATE: MarketDef[] = [
 const BY_ID = new Map<number, MarketDef>(MARKET_TEMPLATE.map((d) => [d.marketId, d]));
 export function marketById(id: number): MarketDef | undefined {
   return BY_ID.get(id);
+}
+
+// ── Beat the Market: the odds-line market (id 90) ───────────────────────────
+// One per fixture, OUTSIDE the per-fixture template. Bucket 0 = Above,
+// 1 = Below the opening line. Field reuse (documented in spec §3):
+//   stat_key   = favourite side (1 = Participant1/home, 2 = Participant2/away)
+//   threshold  = opening line in milli-percent (54.407% → 54407)
+//   settled_value (at settle) = closing line in milli-percent
+export const LINE_CLOSE_MARKET_ID = 90;
+
+export const LINE_CLOSE_DEF: MarketDef = {
+  marketId: LINE_CLOSE_MARKET_ID,
+  label: "Line Close (favourite % vs open)",
+  group: "line",
+  line: 0,
+  statKey: 0,      // per-market: overwritten by lineInitArgs (favourite side)
+  statKey2: null,
+  op: null,
+  comparison: "greaterThan", // sentinel — never evaluated for LINE_CLOSE
+  threshold: 0,    // per-market: overwritten by lineInitArgs (opening line)
+  settleAt: "FT",
+  numBuckets: 2,
+};
+BY_ID.set(LINE_CLOSE_MARKET_ID, LINE_CLOSE_DEF);
+
+/** initializeMarket args for a LINE_CLOSE market. `openMilli` is the opening
+ *  line (milli-pct), `favSide` the favourite (1|2) it tracks. */
+export function lineInitArgs(
+  openMilli: number,
+  favSide: 1 | 2,
+  settleAuthority: PublicKey,
+  entryCloseTsSec: number,
+) {
+  return {
+    settleAuthority,
+    feeRecipient: null,
+    statKey: favSide,
+    statKey2: null,
+    op: null,
+    comparison: { greaterThan: {} },
+    threshold: openMilli,
+    entryCloseTs: new BN(entryCloseTsSec),
+    feeBps: 0,
+    numBuckets: 2,
+  };
 }
 
 /** Map Op string to Anchor enum object (null → null). */
