@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { snapshotFromChain, SCORING_HINT, type GameSnapshot } from "../lib/liveGame.ts";
+import {
+  snapshotFromChain, preGameFromChain, SCORING_HINT,
+  type GameSnapshot, type PreGame,
+} from "../lib/liveGame.ts";
 import { useLivePool } from "../lib/useLivePool.ts";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import {
@@ -90,6 +93,25 @@ export function LiveMatchView() {
     } finally {
       setBusy("");
     }
+  }
+
+  // Pre-game: the big countdown (upcoming fixture, or joinable pool pre-lock).
+  // Recomputed on the 150ms heartbeat so the timer ticks between polls.
+  const pre = useMemo(() => preGameFromChain(data, entry, nowMs), [data, entry, nowMs]);
+  if (pre) {
+    return (
+      <div className="livegame">
+        {flashMsg && <div className="lg-toast lg-go" key={flashMsg}>{flashMsg}</div>}
+        <PreGameCard
+          pre={pre}
+          busy={busy === "join"}
+          canJoin={joinable}
+          loggedIn={!!address}
+          onJoin={onJoin}
+        />
+        <div className="lg-hint">{SCORING_HINT}</div>
+      </div>
+    );
   }
 
   const { match, score, call, feed, standings, over } = snap;
@@ -197,6 +219,45 @@ export function LiveMatchView() {
       </div>
 
       <div className="lg-hint">{SCORING_HINT}</div>
+    </div>
+  );
+}
+
+/** Pre-game: the big countdown to kick-off, plus the join state once the pool exists.
+ *  `upcoming` = fixture known, join window not open yet (no pool on-chain);
+ *  `joinable` = pool created (T-45 inside), real pot + the real-money Join button. */
+function PreGameCard({ pre, busy, canJoin, loggedIn, onJoin }: {
+  pre: PreGame; busy: boolean; canJoin: boolean; loggedIn: boolean; onJoin: () => void;
+}) {
+  const hm = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="lg-pre">
+      <div className="lg-pre-lab">Next match</div>
+      <div className="lg-pre-teams">
+        {pre.home} <span className="lg-pre-vs">vs</span> {pre.away}
+      </div>
+      <div className="lg-pre-ko">kick-off {hm(pre.kickoffMs)}</div>
+      <div className="lg-pre-timer tnum">{pre.countdown}</div>
+      {pre.phase === "joinable" ? (
+        <>
+          <div className="lg-pre-pot">
+            <b className="tnum">{pre.pot}</b> pot · <b className="tnum">{pre.players}</b> in · {pre.entry} each
+          </div>
+          {pre.joined ? (
+            <div className="lg-pre-in">You’re in — picks open at kick-off</div>
+          ) : (
+            <button className="lg-cbtn lg-pre-join" onClick={onJoin} disabled={!canJoin || busy}>
+              {busy ? "Joining…" : `Join · ${pre.entry}`}
+            </button>
+          )}
+          {!loggedIn && <div className="lg-pre-hint">log in to grab a seat</div>}
+        </>
+      ) : (
+        <div className="lg-pre-hint">
+          Join opens {pre.joinOpensTs ? `at ${hm(pre.joinOpensTs * 1000)}` : "45 min before kick-off"}
+        </div>
+      )}
     </div>
   );
 }

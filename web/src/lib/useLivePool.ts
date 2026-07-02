@@ -1,67 +1,57 @@
 /**
- * useLivePool.ts — discovers the active live fixture, then polls its on-chain
- * pool + this wallet's seat every 2s.
+ * useLivePool.ts — polls the engine's featured game (/api/live/next) + this
+ * wallet's seat.
  *
- * Discovery uses the existing /api/matches list (no new engine route): the first
- * match whose /api/live/pool returns a non-null pool is the live-centerpiece
- * game (in practice there is one daily). Once found it's cached for the session.
+ * The engine picks WHICH game to feature every poll (in-play → joinable → next
+ * upcoming fixture), so there is no client-side discovery and no pinned fixture
+ * (the old getMatches() scan cached the first pooled fixture for the whole
+ * session — finding #5). Poll cadence: 2s when a pool is featured (join counts,
+ * points move), 5s when idle (pure countdown / nothing scheduled).
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  getMatches, getLivePool, getLiveEntry,
-  type LivePoolResponse, type LiveEntryView,
+  getNextGame, getLiveEntry,
+  type NextGameResponse, type LiveEntryView,
 } from "./api.ts";
 
-const POLL_MS = 2000;
+const POLL_POOL_MS = 2000;
+const POLL_IDLE_MS = 5000;
 
 export interface LivePoolState {
   loading: boolean;
-  fixtureId: number | null;
-  data: LivePoolResponse | null; // pool + openCall + standings + match
+  data: NextGameResponse | null; // pool + openCall + lastCall + standings + match + kickoff
   entry: LiveEntryView | null;   // this wallet's seat (null if not joined)
   refresh: () => Promise<void>;
 }
 
 export function useLivePool(wallet: string | null): LivePoolState {
   const [state, setState] = useState<Omit<LivePoolState, "refresh">>({
-    loading: true, fixtureId: null, data: null, entry: null,
+    loading: true, data: null, entry: null,
   });
-  const fixtureRef = useRef<number | null>(null);
-
-  const discover = useCallback(async (): Promise<number | null> => {
-    if (fixtureRef.current != null) return fixtureRef.current;
-    const matches = await getMatches().catch(() => []);
-    // live fixtures first, then the rest — a pooled live match wins.
-    const ordered = [...matches].sort(
-      (a, b) => (a.status === "live" ? 0 : 1) - (b.status === "live" ? 0 : 1),
-    );
-    for (const m of ordered) {
-      const r = await getLivePool(m.fixtureId).catch(() => ({ pool: null }) as LivePoolResponse);
-      if (r.pool) { fixtureRef.current = m.fixtureId; return m.fixtureId; }
-    }
-    return null;
-  }, []);
+  // The latest response drives the NEXT poll's cadence (2s with a pool, 5s idle).
+  const lastHadPool = useRef(false);
 
   const refresh = useCallback(async () => {
-    const fixtureId = await discover();
-    if (fixtureId == null) {
-      setState({ loading: false, fixtureId: null, data: null, entry: null });
-      return;
-    }
-    const data = await getLivePool(fixtureId).catch(() => null);
+    const data = await getNextGame().catch(() => null);
     let entry: LiveEntryView | null = null;
     if (wallet && data?.pool) {
       entry = await getLiveEntry(wallet, data.pool.poolId).catch(() => null);
     }
-    setState({ loading: false, fixtureId, data, entry });
-  }, [discover, wallet]);
+    lastHadPool.current = !!data?.pool;
+    setState({ loading: false, data, entry });
+  }, [wallet]);
 
   useEffect(() => {
     let alive = true;
-    const tick = async () => { if (alive) await refresh(); };
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (!alive) return;
+      await refresh();
+      if (!alive) return;
+      timer = setTimeout(tick, lastHadPool.current ? POLL_POOL_MS : POLL_IDLE_MS);
+    };
     tick();
-    const id = setInterval(tick, POLL_MS);
-    return () => { alive = false; clearInterval(id); };
+    return () => { alive = false; clearTimeout(timer); };
   }, [refresh]);
 
   return { ...state, refresh };

@@ -189,11 +189,22 @@ export interface LivePoolResponse {
   match?: {
     fixtureId: number; home: string; away: string; kickoffMs: number | null;
     live?: { home: number; away: number; minute: number | null; phase: "pre" | "live" | "ht" | "ft" };
-  };
+  } | null;
+}
+
+/** GET /api/live/next — the ONE game the home tab features: an in-play pool, else a
+ *  joinable pool (45-min window), else the soonest upcoming fixture (pool null,
+ *  countdown only), else nothing (all nulls). Superset of LivePoolResponse. */
+export interface NextGameResponse extends LivePoolResponse {
+  kickoffMs: number | null;
+  /** When the join window opens (seconds) — kickoff − 45 min. */
+  joinOpensTs: number | null;
 }
 
 export const getLivePool = (fixtureId: number): Promise<LivePoolResponse> =>
   fetch(`${ENGINE}/api/live/pool?fixtureId=${fixtureId}`).then(json);
+export const getNextGame = (): Promise<NextGameResponse> =>
+  fetch(`${ENGINE}/api/live/next`).then(json);
 export const getPoolStandings = (poolId: number): Promise<LiveEntryView[]> =>
   fetch(`${ENGINE}/api/live/pool/${poolId}/standings`).then(json);
 export const getLiveEntry = (wallet: string, poolId: number): Promise<LiveEntryView | null> =>

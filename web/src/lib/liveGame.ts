@@ -14,7 +14,7 @@
 
 import {
   poolIsClaimable, isWinner,
-  type LivePoolResponse, type LiveEntryView, type CallView, type CallKind,
+  type LivePoolResponse, type NextGameResponse, type LiveEntryView, type CallView, type CallKind,
 } from "./api.ts";
 
 export interface Team { code: string; name: string; color: string; }
@@ -72,6 +72,84 @@ const SOL = "◎";
 /** SOL float → "◎0.84" / "◎0.035" (trims trailing zeros under 1). */
 export function solStr(n: number): string {
   return SOL + (n < 1 ? String(+n.toFixed(3)) : n.toFixed(2));
+}
+
+// ── Pre-game countdown (the "next game" big timer) ──────────────────────────
+
+/** ms-until → display countdown: "3d 04h" beyond a day, else "HH:MM:SS". Clamps at 0. */
+export function formatCountdown(msLeft: number): string {
+  const s = Math.max(0, Math.floor(msLeft / 1000));
+  if (s >= 86_400) {
+    const d = Math.floor(s / 86_400);
+    const h = Math.floor((s % 86_400) / 3600);
+    return `${d}d ${String(h).padStart(2, "0")}h`;
+  }
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+/** The pre-kickoff view-model: the big timer + (once the pool exists) the join state. */
+export interface PreGame {
+  /** upcoming = fixture known, no pool yet (join not open); joinable = pool open, pre-lock. */
+  phase: "upcoming" | "joinable";
+  home: string; away: string;
+  kickoffMs: number;
+  /** Seconds — when the join window opens (null when the engine didn't say). */
+  joinOpensTs: number | null;
+  countdown: string; // formatted vs nowMs
+  /** Joinable only (zero-ish for upcoming): the real pot so far. */
+  pot: string; players: number; entry: string;
+  joined: boolean;
+}
+
+/**
+ * Map the featured game into a PRE-GAME state, or null when the existing in-play /
+ * terminal / idle flow should render instead:
+ *   - pool null + upcoming kickoff  → "upcoming" (big countdown, join not open yet)
+ *   - pool open + now < lockTs      → "joinable" (countdown + pot + Join)
+ *   - anything else                 → null (kicked off, terminal, or nothing at all)
+ */
+export function preGameFromChain(
+  data: NextGameResponse | LivePoolResponse | null | undefined,
+  entry: LiveEntryView | null,
+  nowMs: number,
+): PreGame | null {
+  const kickoffMs = (data as NextGameResponse | null | undefined)?.kickoffMs ?? null;
+  const joinOpensTs = (data as NextGameResponse | null | undefined)?.joinOpensTs ?? null;
+  const pool = data?.pool ?? null;
+  const m = data?.match ?? null;
+
+  if (!pool) {
+    // Countdown-only state: a known upcoming fixture with no pool yet.
+    if (kickoffMs == null || !m || nowMs >= kickoffMs) return null;
+    return {
+      phase: "upcoming",
+      home: m.home, away: m.away,
+      kickoffMs, joinOpensTs,
+      countdown: formatCountdown(kickoffMs - nowMs),
+      pot: solStr(0), players: 0, entry: "",
+      joined: false,
+    };
+  }
+
+  if (pool.status === "open" && nowMs < pool.lockTs * 1000) {
+    const kick = kickoffMs ?? pool.lockTs * 1000; // lock_ts == kickoff by construction
+    const entryLamports = Number(pool.entryPrice);
+    return {
+      phase: "joinable",
+      home: m?.home ?? "—", away: m?.away ?? "—",
+      kickoffMs: kick, joinOpensTs,
+      countdown: formatCountdown(kick - nowMs),
+      pot: solStr((entryLamports * pool.playerCount) / LAMPORTS_PER_SOL),
+      players: pool.playerCount,
+      entry: solStr(entryLamports / LAMPORTS_PER_SOL),
+      joined: !!entry,
+    };
+  }
+
+  return null; // in-play / terminal → the existing snapshot flow renders
 }
 
 export const SCORING_HINT =
