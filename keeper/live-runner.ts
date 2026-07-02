@@ -686,8 +686,6 @@ export interface EndAndUndelegateInput {
   cursor: PublicKeyT;
   /** Seat player pubkeys (their entries join the writable set). */
   seats: PublicKeyT[];
-  /** Every delegated Call PDA. */
-  calls: PublicKeyT[];
 }
 
 /**
@@ -715,9 +713,16 @@ export const ER_ALREADY_CLEARED_SIG = "er-already-cleared";
 
 /**
  * Final ER→base commit that ALSO returns ownership of the delegated set to the
- * program (proof.ts:236-237). Accounts `{keeper, pool}`; the remaining-account
- * contract is the SAME full writable set as `commit_live`:
- * `[cursor, ...entries, ...calls]` (isSigner:false, isWritable:true), in order.
+ * program (proof.ts:236-237). Accounts `{keeper, pool}`; remaining accounts are
+ * `[cursor, ...entries]` (isSigner:false, isWritable:true), in order.
+ *
+ * DELIBERATELY NOT the calls: settle reads only the cursor + entries on base,
+ * and every call's final state was already base-committed by the last
+ * mid-match `commit_live`. Undelegating the full set wedged 3/3 matches on
+ * MagicBlock devnet (11-account handbacks never landed) while the 4-account
+ * proof handed back in ~21s — so the batch stays proof-sized. Call PDAs simply
+ * remain delegated (inert rent; a cleanup crank can reap them later).
+ *
  * After this lands the accounts flip back to PROGRAM_ID ownership on base (poll
  * with `pollBaseUndelegated`). Flows through `runner.step`.
  *
@@ -730,10 +735,10 @@ export async function endAndUndelegateOnEr(
   runner: LiveRunner,
   input: EndAndUndelegateInput,
 ): Promise<string | null> {
-  const { pool, cursor, seats, calls } = input;
+  const { pool, cursor, seats } = input;
   const keeper = runner.keeper;
   const entries = seats.map((player) => liveEntryPda(pool, player));
-  const remaining = [cursor, ...entries, ...calls].map((pubkey) => ({
+  const remaining = [cursor, ...entries].map((pubkey) => ({
     pubkey,
     isSigner: false,
     isWritable: true,
@@ -995,7 +1000,6 @@ export interface FinalizeFtInput {
   pool: PublicKeyT;
   cursor: PublicKeyT;
   seats: PublicKeyT[];
-  calls: PublicKeyT[];
   /** The pool's `settle_after_ts` (seconds) — the on-chain settle gate. */
   settleAfterTs: number;
   /** The pool's `player_count` — the settle coverage requirement (seen == this). */
@@ -1083,7 +1087,7 @@ export async function finalizeFt(
   runner: LiveRunner,
   input: FinalizeFtInput,
 ): Promise<RunReport> {
-  const { pool, cursor, seats, calls, settleAfterTs, playerCount } = input;
+  const { pool, cursor, seats, settleAfterTs, playerCount } = input;
 
   // ROSTER GUARD (see doc): incomplete scan → wait for the next tick.
   if (seats.length !== playerCount) return runner.report;
@@ -1100,7 +1104,7 @@ export async function finalizeFt(
 
   if (!returned) {
     // 1. ER: final commit + undelegate (idempotent — see fn doc).
-    await endAndUndelegateOnEr(runner, { pool, cursor, seats, calls });
+    await endAndUndelegateOnEr(runner, { pool, cursor, seats });
     // 2. Base: wait for cursor + entries to return to PROGRAM_ID ownership.
     const handedBack = await runner.step("base_undelegated", () =>
       pollBaseUndelegated(runner, [cursor, ...entries], input.pollBase),
@@ -1535,7 +1539,6 @@ export async function runLiveMatch(
       pool: poolPda,
       cursor,
       seats,
-      calls,
       settleAfterTs,
       playerCount,
       pollBase: opts.pollBase,

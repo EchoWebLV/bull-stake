@@ -931,22 +931,25 @@ function seatFixture() {
   return { seats, entries, calls };
 }
 
-describe("endAndUndelegateOnEr (ER) — full writable [cursor, ...entries, ...calls]", () => {
-  it("accounts {keeper, pool} + remaining = cursor+entries+calls, all writable", async () => {
+describe("endAndUndelegateOnEr (ER) — writable [cursor, ...entries], NEVER the calls", () => {
+  it("accounts {keeper, pool} + remaining = cursor+entries only, all writable", async () => {
     const { er, calls } = makeErSpy();
     const runner = erRunner(er);
-    const { seats, entries, calls: callPdas } = seatFixture();
+    const { seats, entries } = seatFixture();
     await endAndUndelegateOnEr(runner, {
       pool: POOL_PK,
       cursor: CURSOR_PK,
       seats,
-      calls: callPdas,
     });
     const rec = calls.find((c) => c.name === "endAndUndelegate");
     expect(rec).toBeTruthy();
     expect(rec.accounts.keeper.toBase58()).toBe(runner.keeper.toBase58());
     expect(rec.accounts.pool.toBase58()).toBe(POOL_PK.toBase58());
-    const expected = [CURSOR_PK, ...entries, ...callPdas];
+    // Settle needs only cursor + entries back on base; the calls' final state is
+    // already base-committed by the last mid-match commit_live. Undelegating the
+    // full 11-account set wedged 3/3 matches on MagicBlock devnet while the
+    // 4-account profile handed back in ~21s — the batch stays proof-sized.
+    const expected = [CURSOR_PK, ...entries];
     expect(rec.remaining).toHaveLength(expected.length);
     rec.remaining.forEach((r: any, i: number) => {
       expect(r.pubkey.toBase58()).toBe(expected[i].toBase58());
@@ -1294,12 +1297,11 @@ describe("finalizeFt — probe → endAndUndelegate → pollBase → endLivePool
     };
   }
 
-  function ftInput(seats: any[], callPdas: any[]) {
+  function ftInput(seats: any[]) {
     return {
       pool: POOL_PK,
       cursor: CURSOR_PK,
       seats,
-      calls: callPdas,
       settleAfterTs: 5000,
       playerCount: seats.length,
       pollBase: { intervalMs: 1, timeoutMs: 40 },
@@ -1315,8 +1317,8 @@ describe("finalizeFt — probe → endAndUndelegate → pollBase → endLivePool
     // First owner read (the probe) still shows the Delegation Program; every
     // read after the ER end shows the handback landed.
     (runner as any).baseConn = scriptedBaseConn(order, [DELEGATION_PROGRAM, LIVE_PROGRAM_ID]);
-    const { seats, calls: callPdas } = seatFixture();
-    await finalizeFt(runner, ftInput(seats, callPdas));
+    const { seats } = seatFixture();
+    await finalizeFt(runner, ftInput(seats));
     const firstIdx = (n: string) => order.indexOf(n);
     expect(firstIdx("probeDelegated")).toBe(0);
     expect(firstIdx("probeDelegated")).toBeLessThan(firstIdx("endAndUndelegate"));
@@ -1333,8 +1335,8 @@ describe("finalizeFt — probe → endAndUndelegate → pollBase → endLivePool
     (runner as any).er = er;
     (runner as any).base = base;
     (runner as any).baseConn = scriptedBaseConn(order, [LIVE_PROGRAM_ID]);
-    const { seats, calls: callPdas } = seatFixture();
-    await finalizeFt(runner, ftInput(seats, callPdas));
+    const { seats } = seatFixture();
+    await finalizeFt(runner, ftInput(seats));
     expect(order).not.toContain("endAndUndelegate");
     expect(order.indexOf("endLivePool")).toBeGreaterThanOrEqual(0);
     expect(order.indexOf("endLivePool")).toBeLessThan(order.indexOf("settleLivePool"));
@@ -1348,8 +1350,8 @@ describe("finalizeFt — probe → endAndUndelegate → pollBase → endLivePool
     (runner as any).base = base;
     // Probe AND every poll read: still delegation-owned. Poll times out (40ms).
     (runner as any).baseConn = scriptedBaseConn(order, [DELEGATION_PROGRAM]);
-    const { seats, calls: callPdas } = seatFixture();
-    await finalizeFt(runner, ftInput(seats, callPdas));
+    const { seats } = seatFixture();
+    await finalizeFt(runner, ftInput(seats));
     // The ER end fired, the wait timed out, and the tail NEVER ran.
     expect(order).toContain("endAndUndelegate");
     expect(order).not.toContain("endLivePool");
@@ -1369,8 +1371,8 @@ describe("finalizeFt — probe → endAndUndelegate → pollBase → endLivePool
     (runner as any).base = base;
     // Probe: delegated; polls after: handback lands → the tail proceeds.
     (runner as any).baseConn = scriptedBaseConn(order, [DELEGATION_PROGRAM, LIVE_PROGRAM_ID]);
-    const { seats, calls: callPdas } = seatFixture();
-    await finalizeFt(runner, ftInput(seats, callPdas));
+    const { seats } = seatFixture();
+    await finalizeFt(runner, ftInput(seats));
     const endStep = runner.report.steps.find((s: any) => s.name === "end_and_undelegate");
     expect(endStep?.ok).toBe(true);
     expect(endStep?.sig).toBe("er-already-cleared");
