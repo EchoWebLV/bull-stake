@@ -1,6 +1,12 @@
-export type Tab = "sweepstake" | "markets" | "bets" | "wallet";
+export type Tab = "live" | "sweepstake" | "markets" | "bets" | "wallet";
 
 const ICONS: Record<Tab, React.ReactNode> = {
+  live: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   sweepstake: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M7 4h10v3a5 5 0 01-10 0z" />
@@ -30,8 +36,11 @@ const ICONS: Record<Tab, React.ReactNode> = {
   ),
 };
 
-const LABELS: Record<Tab, string> = { sweepstake: "Parlay", markets: "Markets", bets: "My Bets", wallet: "Wallet" };
-const TABS: Tab[] = ["sweepstake", "markets", "bets", "wallet"];
+const LABELS: Record<Tab, string> = { live: "Live", sweepstake: "Parlay", markets: "Market", bets: "My Bets", wallet: "Wallet" };
+// Parlay (sweepstake) is hidden (not deleted) — SweepstakeView stays in App.tsx,
+// just unrouted, and the daily-card create cron is paused (DAILY_CARD_CREATE=0).
+// The markets slot returns as the Beat-the-Market day game.
+const TABS: Tab[] = ["live", "markets", "bets", "wallet"];
 
 export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   return (

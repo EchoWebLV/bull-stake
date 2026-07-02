@@ -6,7 +6,9 @@ import { WalletView } from "./components/WalletView.tsx";
 import { BottomNav, type Tab } from "./components/BottomNav.tsx";
 import { SweepstakeView } from "./components/SweepstakeView.tsx";
 import { LiveMatchView } from "./components/LiveMatchView.tsx";
+import { MarketLinesView } from "./components/MarketLinesView.tsx";
 
+// hidden-not-deleted
 /**
  * Markets tab — teaser only for now. The per-market parimutuel board
  * (components/MatchList.tsx) is retired from the nav while the daily card is the
@@ -39,8 +41,7 @@ export default function App() {
       <LoginBar />
 
       {tab === "live" && <LiveMatchView test={IS_TEST_PAGE} />}
-      {tab === "sweepstake" && <SweepstakeView />}
-      {tab === "markets" && <MarketsTeaser />}
+      {tab === "markets" && <MarketLinesView />}
       {tab === "bets" && <BetsView />}
       {tab === "wallet" && <WalletView />}
 
