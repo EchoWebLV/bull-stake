@@ -2048,7 +2048,8 @@ Expected boot log: `daily-card create PAUSED` + settle/live/schedule/lines job l
 - [ ] **Step 7: Commit any fixups + update memory**
 
 ```bash
-git add -A && git commit -m "chore: beat-the-market e2e fixups"
+# Add ONLY files this plan touched (the working tree carries unrelated WIP — never -A):
+git add <explicit list of fixed-up files> && git commit -m "chore: beat-the-market e2e fixups"
 ```
 
 Update `~/.claude` memory (`streak-daily-card-pivot` → note the card is paused + Parlay hidden; new memory for Beat the Market: market_id 90 semantics, stat_key=favSide, threshold=open milli-pct, odds endpoints, seed flow).
