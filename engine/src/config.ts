@@ -39,6 +39,15 @@ export const LAMPORTS_PER_SOL = 1_000_000_000;
 export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 45);
 
 /**
+ * Fixture ids at/above this are TEST MATCHES (keeper/run-test-match.ts mints
+ * 990xxxxxxx ids — far outside TxLINE's real range). Test pools are real on-chain
+ * pools played for real devnet SOL, but they are ONLY featured through
+ * `/api/live/next?test=1` (the app's /test page) — NEVER the main Live tab, which
+ * carries exclusively real fixtures.
+ */
+export const TEST_FIXTURE_MIN = 9_900_000_000;
+
+/**
  * Competitions eligible for the slate / sweepstake card.
  * Default: World Cup only (what the devnet free tier carries). Year-round
  * operation needs a broader TxLINE entitlement — once it's available, widen via

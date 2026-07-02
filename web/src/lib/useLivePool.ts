@@ -24,7 +24,8 @@ export interface LivePoolState {
   refresh: () => Promise<void>;
 }
 
-export function useLivePool(wallet: string | null): LivePoolState {
+/** `test=true` polls the TEST audience (/api/live/next?test=1 — the /test page). */
+export function useLivePool(wallet: string | null, test = false): LivePoolState {
   const [state, setState] = useState<Omit<LivePoolState, "refresh">>({
     loading: true, data: null, entry: null,
   });
@@ -32,14 +33,14 @@ export function useLivePool(wallet: string | null): LivePoolState {
   const lastHadPool = useRef(false);
 
   const refresh = useCallback(async () => {
-    const data = await getNextGame().catch(() => null);
+    const data = await getNextGame(test).catch(() => null);
     let entry: LiveEntryView | null = null;
     if (wallet && data?.pool) {
       entry = await getLiveEntry(wallet, data.pool.poolId).catch(() => null);
     }
     lastHadPool.current = !!data?.pool;
     setState({ loading: false, data, entry });
-  }, [wallet]);
+  }, [wallet, test]);
 
   useEffect(() => {
     let alive = true;

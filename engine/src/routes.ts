@@ -17,7 +17,7 @@ import {
 } from "./chain.ts";
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
-import { M0, JOIN_AHEAD_MIN } from "./config.ts";
+import { M0, JOIN_AHEAD_MIN, TEST_FIXTURE_MIN } from "./config.ts";
 import { livePhase, type LiveStore } from "./live.ts";
 
 function loadReplay(): Replay {
@@ -430,8 +430,13 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
    * The body is a superset of /api/live/pool (same assembly) plus `kickoffMs` and
    * `joinOpensTs` (kickoff − JOIN_AHEAD_MIN). Terminal/ended pools are never
    * featured — the next game takes over. Replaces web-side discovery (finding #5).
+   *
+   * `?test=1` flips the audience: ONLY test pools (fixtureId ≥ TEST_FIXTURE_MIN —
+   * the /test page); without it, test pools are EXCLUDED so the main Live tab
+   * carries exclusively real fixtures.
    */
-  app.get("/api/live/next", async (_req, reply) => {
+  app.get("/api/live/next", async (req, reply) => {
+    const wantTest = (req.query as Record<string, string>).test === "1";
     let pools;
     try {
       pools = await readLivePoolViews();
@@ -440,7 +445,9 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
       return { error: `live pool scan failed: ${(e as Error).message}` };
     }
     const nowMs = Date.now();
-    const open = pools.filter((p) => p.status === "open");
+    const open = pools.filter(
+      (p) => p.status === "open" && (p.fixtureId >= TEST_FIXTURE_MIN) === wantTest,
+    );
     const byLock = (a: { lockTs: number }, b: { lockTs: number }) => a.lockTs - b.lockTs;
     const inPlay = open
       .filter((p) => p.lockTs * 1000 <= nowMs && nowMs < p.settleAfterTs * 1000)
@@ -456,9 +463,12 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore): void {
     }
 
     // No pool anywhere → the soonest upcoming fixture (pure countdown state).
-    const up = (store?.getMatches() ?? [])
-      .filter((m) => m.status === "upcoming")
-      .sort((a, b) => a.kickoffMs - b.kickoffMs)[0];
+    // Real tab only: TxLINE has no test fixtures, so /test skips straight to nulls.
+    const up = wantTest
+      ? undefined
+      : (store?.getMatches() ?? [])
+          .filter((m) => m.status === "upcoming")
+          .sort((a, b) => a.kickoffMs - b.kickoffMs)[0];
     if (up) {
       return {
         pool: null, openCall: null, lastCall: null, standings: [],

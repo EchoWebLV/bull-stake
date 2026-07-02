@@ -84,6 +84,7 @@ vi.mock("@coral-xyz/anchor", async () => {
 });
 
 import {
+  __clearErReadCache,
   readLivePools,
   readCall,
   readLiveCursor,
@@ -125,6 +126,8 @@ beforeEach(() => {
   // per-case, and readOpenCall now reads the cursor (getAccountInfo) before its
   // scan fallback — a leaked value would fake a cursor and skip the scan.
   h.getAccountInfo.mockResolvedValue(null);
+  // The ER read cache is module state — clear it so no test sees another's rows.
+  __clearErReadCache();
 });
 
 // ── S4-T1: readLivePools + readCall (size-filtered scan) ─────────────────────
@@ -472,6 +475,39 @@ describe("ER-first live reads (#1 — makes the live game playable)", () => {
 
     expect(rows.map((r) => r.total)).toEqual([20, 20]); // both seats reflect LIVE ER points
     expect(h.erGetMulti).toHaveBeenCalledTimes(1);
+  });
+
+  // Bug A (live test-match finding): ER rate limits must not blank the open call.
+  it("STALE-SERVE: after one good ER read, a failing ER read serves the recent value", async () => {
+    // First read: ER serves the live cursor (openSeq 2).
+    h.erGetAccountInfo.mockResolvedValue({ data: Buffer.alloc(53, 0xC) });
+    h.decode.mockImplementation((name: string) => (name === "liveCursor" ? cursorRaw(2) : undefined));
+    expect((await readLiveCursor(REAL_WALLET))!.openSeq).toBe(2);
+
+    // ER now rate-limits AND the cache TTL is bypassed by clearing only inflight…
+    // (the fresh-TTL window would serve it anyway; the point is the ERROR path:)
+    h.erGetAccountInfo.mockRejectedValue(new Error("429 Too Many Requests"));
+    const c = await readLiveCursor(REAL_WALLET);
+    // …the recent ER value is served — NOT the frozen base copy (base is armed null).
+    expect(c).not.toBeNull();
+    expect(c!.openSeq).toBe(2);
+  });
+
+  it("SINGLE-FLIGHT: concurrent reads of the same PDA share one ER request", async () => {
+    let calls = 0;
+    h.erGetAccountInfo.mockImplementation(async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 10));
+      return { data: Buffer.alloc(53, 0xC) };
+    });
+    h.decode.mockImplementation((name: string) => (name === "liveCursor" ? cursorRaw(1) : undefined));
+
+    const [a, b, c] = await Promise.all([
+      readLiveCursor(REAL_WALLET), readLiveCursor(REAL_WALLET), readLiveCursor(REAL_WALLET),
+    ]);
+
+    expect(calls).toBe(1); // one RPC served all three concurrent readers
+    expect([a, b, c].every((v) => v?.openSeq === 1)).toBe(true);
   });
 
   it("readPoolStandings falls back to base bytes when the ER is unreachable", async () => {
@@ -1124,5 +1160,68 @@ describe("GET /api/live/next", () => {
     const body = (await app.inject({ url: "/api/live/next" })).json();
     expect(body).toMatchObject({ pool: null, match: null, kickoffMs: null, joinOpensTs: null });
     await app.close();
+  });
+
+  // TEST-match audience split: the main tab NEVER features a synthetic fixture;
+  // /test (?test=1) features ONLY them (fixtureId ≥ TEST_FIXTURE_MIN = 9.9e9).
+  it("EXCLUDES a test pool from the main tab (falls to the real upcoming fixture)", async () => {
+    h.getProgramAccounts.mockImplementation(async (_owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 176
+        ? [{ pubkey: { toBase58: () => "TP" }, account: { data: Buffer.alloc(176) } }]
+        : [];
+    });
+    h.decode.mockImplementation((name: string) => {
+      if (name !== "livePool") return undefined;
+      const raw = poolRaw({ poolId: 1, fixtureId: 1, status: { open: {} } });
+      raw.fixtureId = bn(9_900_000_777); // a test fixture
+      return raw;
+    });
+    const KICK = (LOCK + 9000) * 1000;
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 8, home: "Spain", away: "France", kickoffMs: KICK, status: "upcoming" as const, minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 },
+      ]),
+    } as any);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue((LOCK - 60) * 1000); // test pool joinable — but hidden
+    const app = buildServer(store);
+    const body = (await app.inject({ url: "/api/live/next" })).json();
+    expect(body.pool).toBeNull();
+    expect(body.match.fixtureId).toBe(8); // the REAL fixture, not the test pool
+    await app.close();
+    nowSpy.mockRestore();
+  });
+
+  it("?test=1 features ONLY the test pool and never falls to real fixtures", async () => {
+    h.getProgramAccounts.mockImplementation(async (_owner: any, opts: any) => {
+      const size = opts.filters.find((f: any) => f.dataSize)?.dataSize;
+      return size === 176
+        ? [{ pubkey: { toBase58: () => "TP" }, account: { data: Buffer.alloc(176) } }]
+        : [];
+    });
+    h.decode.mockImplementation((name: string) => {
+      if (name !== "livePool") return undefined;
+      const raw = poolRaw({ poolId: 1, fixtureId: 1, status: { open: {} } });
+      raw.fixtureId = bn(9_900_000_777);
+      return raw;
+    });
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue((LOCK - 60) * 1000);
+    const app = buildServer(makeMockStore());
+    const body = (await app.inject({ url: "/api/live/next?test=1" })).json();
+    expect(body.pool.fixtureId).toBe(9_900_000_777);
+    await app.close();
+    nowSpy.mockRestore();
+
+    // …and with NO test pool, ?test=1 is all-null even when real fixtures exist.
+    h.getProgramAccounts.mockResolvedValue([]);
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 8, home: "Spain", away: "France", kickoffMs: 1, status: "upcoming" as const, minute: null, phase: null, scoreH: 0, scoreA: 0, corners: 0, goals: 0, yellows: 0 },
+      ]),
+    } as any);
+    const app2 = buildServer(store);
+    const body2 = (await app2.inject({ url: "/api/live/next?test=1" })).json();
+    expect(body2).toMatchObject({ pool: null, match: null });
+    await app2.close();
   });
 });

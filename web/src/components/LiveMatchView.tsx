@@ -24,9 +24,11 @@ import { poolIsClaimable, isWinner } from "../lib/api.ts";
  * per tap). Join/claim are base-layer too. Gasless taps are Phase B.
  * ──────────────────────────────────────────────────────────────────────── */
 
-export function LiveMatchView() {
+/** `test` pins this view to the TEST audience (/test page): only synthetic-fixture
+ *  pools are featured there, and the main Live tab never shows them. */
+export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
   const { address, signAndSend, signAndSendEr } = usePrivySigner();
-  const { data, entry, refresh } = useLivePool(address ?? null);
+  const { data, entry, refresh } = useLivePool(address ?? null, test);
 
   // Heartbeat: bump nowMs 150ms so the countdown ticks between 2s polls.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -104,6 +106,7 @@ export function LiveMatchView() {
         {flashMsg && <div className="lg-toast lg-go" key={flashMsg}>{flashMsg}</div>}
         <PreGameCard
           pre={pre}
+          test={test}
           busy={busy === "join"}
           canJoin={joinable}
           loggedIn={!!address}
@@ -226,16 +229,17 @@ export function LiveMatchView() {
 /** Pre-game: the big countdown to kick-off, plus the join state once the pool exists.
  *  `upcoming` = fixture known, join window not open yet (no pool on-chain);
  *  `joinable` = pool created (T-45 inside), real pot + the real-money Join button. */
-function PreGameCard({ pre, busy, canJoin, loggedIn, onJoin }: {
-  pre: PreGame; busy: boolean; canJoin: boolean; loggedIn: boolean; onJoin: () => void;
+function PreGameCard({ pre, test, busy, canJoin, loggedIn, onJoin }: {
+  pre: PreGame; test: boolean; busy: boolean; canJoin: boolean; loggedIn: boolean; onJoin: () => void;
 }) {
   const hm = (ms: number) =>
     new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
     <div className="lg-pre">
-      <div className="lg-pre-lab">Next match</div>
+      <div className="lg-pre-lab">{test ? "Test match — real devnet SOL" : "Next match"}</div>
       <div className="lg-pre-teams">
-        {pre.home} <span className="lg-pre-vs">vs</span> {pre.away}
+        {pre.home}
+        {pre.away && <> <span className="lg-pre-vs">vs</span> {pre.away}</>}
       </div>
       <div className="lg-pre-ko">kick-off {hm(pre.kickoffMs)}</div>
       <div className="lg-pre-timer tnum">{pre.countdown}</div>
