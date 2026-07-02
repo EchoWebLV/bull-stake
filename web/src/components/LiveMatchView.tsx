@@ -294,7 +294,15 @@ function CallCard({ call, over, live, canTap, busy, onLock }: {
     return <div className="lg-call idle"><div className="lg-idlemsg">No live game right now.</div></div>;
   }
   if (!call) {
-    return <div className="lg-call idle"><div className="lg-idlemsg">{over ? "Full-time…" : "Waiting for the next call…"}</div></div>;
+    // Between calls: a compact, breathing state — never a dead void. The pulse
+    // says "the game is live, the next call is on its way" without a countdown
+    // (call pacing is keeper-side; the client can't know the exact moment).
+    return (
+      <div className="lg-call idle">
+        {!over && <div className="lg-pulse"><span /><span /><span /></div>}
+        <div className="lg-idlemsg">{over ? "Full-time…" : "Next call coming…"}</div>
+      </div>
+    );
   }
   const cls = `lg-call${call.phase === "resolving" ? " resolving" : ""}${call.phase === "done" ? " done" : ""}${call.border ? " " + call.border : ""}`;
   const answering = call.phase === "answer";
