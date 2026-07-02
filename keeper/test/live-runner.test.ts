@@ -1223,10 +1223,10 @@ describe("refundVoidedOnBase — INTERLEAVED [entry, player] pairs, len=player_c
   });
 });
 
-describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool → settleWindow → settle", () => {
-  it("runs the FT sequence in the exact documented order", async () => {
-    const order: string[] = [];
-    // Shared er+base spies that log their method name into `order`.
+describe("finalizeFt — probe → endAndUndelegate → pollBase → endLivePool → settleWindow → settle", () => {
+  /** Shared er+base spies that log their method name into `order`.
+   *  `endThrows` makes end_and_undelegate reject with that error message. */
+  function ftSpies(order: string[], endThrows?: string) {
     const er: any = {
       methods: {
         endAndUndelegate: (...a: any[]) => {
@@ -1235,6 +1235,7 @@ describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool 
             remainingAccounts: () => chain,
             rpc: async () => {
               order.push("endAndUndelegate");
+              if (endThrows) throw new Error(endThrows);
               return "sig_end_undeleg";
             },
           };
@@ -1272,14 +1273,18 @@ describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool 
         },
       },
     };
-    const { runner } = makeRunner();
-    (runner as any).er = er;
-    (runner as any).base = base;
-    // baseConn: undelegation flips immediately; clock already past window.
-    (runner as any).baseConn = {
+    return { er, base };
+  }
+
+  /** baseConn whose owner reads follow `owners` in call order (last repeats),
+   *  logging a label per distinct owner so ordering can be asserted. */
+  function scriptedBaseConn(order: string[], owners: any[]) {
+    let i = 0;
+    return {
       getAccountInfo: vi.fn(async () => {
-        order.push("pollBase");
-        return { owner: LIVE_PROGRAM_ID };
+        const owner = owners[Math.min(i++, owners.length - 1)];
+        order.push(owner.equals(LIVE_PROGRAM_ID) ? "pollBase" : "probeDelegated");
+        return { owner };
       }),
       getSlot: vi.fn(async () => 1),
       getBlockTime: vi.fn(async () => {
@@ -1287,22 +1292,90 @@ describe("finalizeFt — ordering endAndUndelegate → pollBase → endLivePool 
         return 999999;
       }),
     };
-    const { seats, calls: callPdas } = seatFixture();
-    await finalizeFt(runner, {
+  }
+
+  function ftInput(seats: any[], callPdas: any[]) {
+    return {
       pool: POOL_PK,
       cursor: CURSOR_PK,
       seats,
       calls: callPdas,
       settleAfterTs: 5000,
       playerCount: seats.length,
-    });
-    // First occurrence order is the contract.
+      pollBase: { intervalMs: 1, timeoutMs: 40 },
+    };
+  }
+
+  it("runs the FT sequence in the exact documented order (probe sees delegated → full ER leg)", async () => {
+    const order: string[] = [];
+    const { er, base } = ftSpies(order);
+    const { runner } = makeRunner();
+    (runner as any).er = er;
+    (runner as any).base = base;
+    // First owner read (the probe) still shows the Delegation Program; every
+    // read after the ER end shows the handback landed.
+    (runner as any).baseConn = scriptedBaseConn(order, [DELEGATION_PROGRAM, LIVE_PROGRAM_ID]);
+    const { seats, calls: callPdas } = seatFixture();
+    await finalizeFt(runner, ftInput(seats, callPdas));
     const firstIdx = (n: string) => order.indexOf(n);
-    expect(firstIdx("endAndUndelegate")).toBeGreaterThanOrEqual(0);
+    expect(firstIdx("probeDelegated")).toBe(0);
+    expect(firstIdx("probeDelegated")).toBeLessThan(firstIdx("endAndUndelegate"));
     expect(firstIdx("endAndUndelegate")).toBeLessThan(firstIdx("pollBase"));
     expect(firstIdx("pollBase")).toBeLessThan(firstIdx("endLivePool"));
     expect(firstIdx("endLivePool")).toBeLessThan(firstIdx("settleWindow"));
     expect(firstIdx("settleWindow")).toBeLessThan(firstIdx("settleLivePool"));
+  });
+
+  it("handback already on base (resume tick) → SKIPS the ER end, goes straight to endLivePool", async () => {
+    const order: string[] = [];
+    const { er, base } = ftSpies(order);
+    const { runner } = makeRunner();
+    (runner as any).er = er;
+    (runner as any).base = base;
+    (runner as any).baseConn = scriptedBaseConn(order, [LIVE_PROGRAM_ID]);
+    const { seats, calls: callPdas } = seatFixture();
+    await finalizeFt(runner, ftInput(seats, callPdas));
+    expect(order).not.toContain("endAndUndelegate");
+    expect(order.indexOf("endLivePool")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("endLivePool")).toBeLessThan(order.indexOf("settleLivePool"));
+  });
+
+  it("handback NEVER lands (MagicBlock outage) → aborts the tick BEFORE end/settle — no 3007 bounce", async () => {
+    const order: string[] = [];
+    const { er, base } = ftSpies(order);
+    const { runner } = makeRunner();
+    (runner as any).er = er;
+    (runner as any).base = base;
+    // Probe AND every poll read: still delegation-owned. Poll times out (40ms).
+    (runner as any).baseConn = scriptedBaseConn(order, [DELEGATION_PROGRAM]);
+    const { seats, calls: callPdas } = seatFixture();
+    await finalizeFt(runner, ftInput(seats, callPdas));
+    // The ER end fired, the wait timed out, and the tail NEVER ran.
+    expect(order).toContain("endAndUndelegate");
+    expect(order).not.toContain("endLivePool");
+    expect(order).not.toContain("settleWindow");
+    expect(order).not.toContain("settleLivePool");
+    expect(runner.report.errors.some((e: any) => e.name === "base_undelegated")).toBe(true);
+  });
+
+  it("retrying end against an ER that already cleared the set is an OK step (sentinel), not an error", async () => {
+    const order: string[] = [];
+    const { er, base } = ftSpies(
+      order,
+      "ScheduleCommit ERR: account VnaH… is required to be writable and delegated in order to be undelegated",
+    );
+    const { runner } = makeRunner();
+    (runner as any).er = er;
+    (runner as any).base = base;
+    // Probe: delegated; polls after: handback lands → the tail proceeds.
+    (runner as any).baseConn = scriptedBaseConn(order, [DELEGATION_PROGRAM, LIVE_PROGRAM_ID]);
+    const { seats, calls: callPdas } = seatFixture();
+    await finalizeFt(runner, ftInput(seats, callPdas));
+    const endStep = runner.report.steps.find((s: any) => s.name === "end_and_undelegate");
+    expect(endStep?.ok).toBe(true);
+    expect(endStep?.sig).toBe("er-already-cleared");
+    expect(runner.report.errors.some((e: any) => e.name === "end_and_undelegate")).toBe(false);
+    expect(order.indexOf("endLivePool")).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -1366,6 +1439,9 @@ interface HarnessOpts {
   seats?: any[];
   /** Base-layer owner of the cursor PDA ('program' | 'delegated'). */
   cursorOwner?: "program" | "delegated";
+  /** Model the MagicBlock outage: the base cursor NEVER returns to PROGRAM_ID
+   *  even after end_and_undelegate lands (default false — handback flips it). */
+  handbackNever?: boolean;
   /** ER cursor state. */
   openSeq?: number;
   nextSeq?: number;
@@ -1458,11 +1534,18 @@ function makeMatchHarness(o: HarnessOpts = {}) {
   };
 
   const baseConn: any = {
-    // cursor-owner read + pollBaseUndelegated: everything reports program-owned
-    // unless the harness says the cursor is delegated.
-    getAccountInfo: vi.fn(async (pk: any) => ({
-      owner: pk.equals(liveCursorPda(POOL_PK)) ? ownerPk : LIVE_PROGRAM_ID,
-    })),
+    // cursor-owner read + finalizeFt's probe/poll: everything reports
+    // program-owned unless the harness says the cursor is delegated. A
+    // delegated cursor models the real handback: it flips back to PROGRAM_ID
+    // once end_and_undelegate has been recorded — unless `handbackNever`
+    // models the MagicBlock outage (the flip never arrives).
+    getAccountInfo: vi.fn(async (pk: any) => {
+      const handbackLanded =
+        !o.handbackNever && calls.some((c) => c.name === "endAndUndelegate");
+      return {
+        owner: pk.equals(liveCursorPda(POOL_PK)) && !handbackLanded ? ownerPk : LIVE_PROGRAM_ID,
+      };
+    }),
     getSlot: vi.fn(async () => 123),
     getBlockTime: vi.fn(async () => (o.chainTime ?? settleAfterTs + 10)),
   };
@@ -1622,8 +1705,8 @@ describe("runLiveMatch — F2: delegate exactly once, then ACTUALLY play", () =>
     // seq 0 → pickCallKind(0) = NextGoal; away scored FIRST → option 2.
     const resolve = h.calls.find((c) => c.name === "resolveCall")!;
     expect(resolve.args[0]).toBe(2);
-    // The answer window was actually waited out: answerSecs(9)+buffer(3) seconds.
-    expect(h.sleepFn).toHaveBeenCalledWith(12_000);
+    // The answer window was actually waited out: answerSecs(20)+buffer(3) seconds.
+    expect(h.sleepFn).toHaveBeenCalledWith(23_000);
   });
 
   it("F6 REGRESSION: both teams scoring in one window resolves to the FIRST scorer, never 'no goal'", async () => {
@@ -1690,6 +1773,26 @@ describe("runLiveMatch — F2: delegate exactly once, then ACTUALLY play", () =>
     await runLiveMatch(POOL_PK, h.opts);
     const n = h.names();
     expect(n).toEqual(["endAndUndelegate", "endLivePool", "settleLivePool"]);
+  });
+
+  // 2026-07-02 MagicBlock outage regression: end_and_undelegate lands ER-side but
+  // the base handback never arrives. The old code fell through to end_live_pool +
+  // settle_live_pool anyway, bouncing AccountOwnedByWrongProgram (3007) into the
+  // report every tick. The hardened finalizeFt stops at the handback gate.
+  it("feed phase 'ft' but the base handback NEVER lands → ER end only, NO end/settle bounce", async () => {
+    const h = makeMatchHarness({
+      seats: twoSeats(),
+      chainTime: 2_500,
+      cursorOwner: "delegated",
+      handbackNever: true,
+      feed: [[liveEv(90, { "1": 1, "2": 0 }, 5)]], // StatusId 5 = FINISHED
+    });
+    await runLiveMatch(POOL_PK, h.opts);
+    expect(h.names()).toEqual(["endAndUndelegate"]);
+    // The wait gate reported the timeout; nothing base-side was fired into 3007.
+    expect(h.runner.report.errors.some((e: any) => e.name === "base_undelegated")).toBe(true);
+    expect(h.runner.report.errors.some((e: any) => e.name === "end_live_pool")).toBe(false);
+    expect(h.runner.report.errors.some((e: any) => e.name === "settle_live_pool")).toBe(false);
   });
 
   // #2 fix (coverage backstop): a straggler that slipped the delegation grace was

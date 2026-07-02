@@ -691,12 +691,40 @@ export interface EndAndUndelegateInput {
 }
 
 /**
+ * ER error signatures that all mean ONE thing: the ER no longer holds the set as
+ * delegated-writable — i.e. a PRIOR `end_and_undelegate` already landed ER-side
+ * and only the base handback is still in flight. Observed live (2026-07-02,
+ * MagicBlock devnet undelegation outage): retrying end forever in this state is
+ * wrong — it can never succeed again; the tail must wait on the BASE owners.
+ */
+const ER_SET_ALREADY_CLEARED = [
+  /ScheduleCommit ERR/i,
+  /required to be writable and delegated/i,
+  /instruction modified data of a read-only account/i,
+  /Provided owner is not allowed/i,
+  /loads a writable account that cannot be written/i,
+];
+
+/** Does this ER error text mean "the set is already ended/cleared ER-side"? */
+export function erSetAlreadyCleared(text: string): boolean {
+  return ER_SET_ALREADY_CLEARED.some((re) => re.test(text));
+}
+
+/** Sig sentinel `end_and_undelegate` reports when the ER had already cleared the set. */
+export const ER_ALREADY_CLEARED_SIG = "er-already-cleared";
+
+/**
  * Final ER→base commit that ALSO returns ownership of the delegated set to the
  * program (proof.ts:236-237). Accounts `{keeper, pool}`; the remaining-account
  * contract is the SAME full writable set as `commit_live`:
  * `[cursor, ...entries, ...calls]` (isSigner:false, isWritable:true), in order.
  * After this lands the accounts flip back to PROGRAM_ID ownership on base (poll
  * with `pollBaseUndelegated`). Flows through `runner.step`.
+ *
+ * IDEMPOTENT across ticks: if a prior tick's end already landed ER-side (base
+ * handback still pending), the retry fails with a known signature
+ * (`erSetAlreadyCleared`) — that is reported as an OK step with the sentinel sig
+ * `ER_ALREADY_CLEARED_SIG`, NOT an error, and the caller proceeds to wait on base.
  */
 export async function endAndUndelegateOnEr(
   runner: LiveRunner,
@@ -712,13 +740,39 @@ export async function endAndUndelegateOnEr(
   }));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const methods = (runner.er as any).methods;
-  return runner.step("end_and_undelegate", () =>
-    methods
-      .endAndUndelegate()
-      .accountsPartial({ keeper, pool })
-      .remainingAccounts(remaining)
-      .rpc(),
-  );
+  return runner.step("end_and_undelegate", async () => {
+    try {
+      return await methods
+        .endAndUndelegate()
+        .accountsPartial({ keeper, pool })
+        .remainingAccounts(remaining)
+        .rpc();
+    } catch (e: unknown) {
+      const err = e as { message?: string; logs?: unknown };
+      const logs = Array.isArray(err?.logs) ? (err.logs as string[]) : [];
+      const text = [err?.message ?? String(e), ...logs].join("\n");
+      if (erSetAlreadyCleared(text)) return ER_ALREADY_CLEARED_SIG;
+      throw e;
+    }
+  });
+}
+
+/**
+ * One-shot base-owner probe: is EVERY account in the set already back under
+ * PROGRAM_ID on base? Unlike `pollBaseUndelegated` this never waits — it is the
+ * cheap resume check that lets a later tick skip the ER end entirely once the
+ * handback has landed. Read errors propagate (caller treats unknown as "not yet").
+ */
+export async function baseSetReturned(
+  runner: LiveRunner,
+  pubkeys: PublicKeyT[],
+): Promise<boolean> {
+  for (const pk of pubkeys) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const info: any = await runner.baseConn.getAccountInfo(pk, "confirmed");
+    if (!(info && info.owner && info.owner.equals(runner.programId))) return false;
+  }
+  return true;
 }
 
 /** Poll cadence for the base-layer undelegation gate (proof.ts:241-243). */
@@ -994,10 +1048,23 @@ export async function seatsFullyScored(
 }
 
 /**
- * The full-time terminal path, in the EXACT documented order (plan S3-T7):
- *   1. end_and_undelegate (ER) — final commit + ownership return
- *   2. pollBaseUndelegated — wait until cursor + every entry flip to PROGRAM_ID on base
- *   3. end_live_pool (base) — flip status to Ended
+ * The full-time terminal path, in the EXACT documented order (plan S3-T7,
+ * hardened after the 2026-07-02 MagicBlock undelegation outage):
+ *   0. baseSetReturned probe — handback already landed on a prior tick? Skip
+ *      straight to 3 (never re-fire the ER end at a set the ER released).
+ *   1. end_and_undelegate (ER) — final commit + ownership return. A retry
+ *      against an ER that already cleared the set reports the sentinel
+ *      `ER_ALREADY_CLEARED_SIG` (OK), not an error.
+ *   2. pollBaseUndelegated — wait until cursor + every entry flip to PROGRAM_ID
+ *      on base. IF THIS TIMES OUT, STOP THE TICK: end_live_pool and
+ *      settle_live_pool both take the cursor, so while the Delegation Program
+ *      still owns it on base they can only bounce AccountOwnedByWrongProgram
+ *      (3007). MagicBlock's handback can land minutes late — or never (their
+ *      devnet outage wedged whole pools). Waiting costs nothing: the step-0
+ *      probe resumes the tail the moment the set returns, and if it NEVER
+ *      returns the operator escape hatch (`void-live-pool.ts`) refunds every
+ *      seat even while delegated.
+ *   3. end_live_pool (base) — flip status to Ended.
  *   4. COVERAGE GATE — every seat scored to resolved_count?
  *        yes → 5a. awaitSettleWindow → settle_live_pool (entries-only, ascending)
  *        no  → 5b. void_live_pool + refund_voided — a straggler that slipped the
@@ -1005,7 +1072,6 @@ export async function seatsFullyScored(
  *              forever (NotAllScored). Refund every seat instead — fair, no funds
  *              stranded. (void_live_pool accepts Ended; refund_voided is owner-
  *              agnostic.)
- * Any thrown poll (undelegation / settle-window timeout) aborts the settle.
  *
  * ROSTER GUARD: if the base scan hasn't yet surfaced every seat
  * (`seats.length < player_count` — a just-confirmed join still indexing), do
@@ -1024,12 +1090,26 @@ export async function finalizeFt(
 
   const entries = seats.map((player) => liveEntryPda(pool, player));
 
-  // 1. ER: final commit + undelegate.
-  await endAndUndelegateOnEr(runner, { pool, cursor, seats, calls });
-  // 2. Base: wait for cursor + entries to return to PROGRAM_ID ownership.
-  await runner.step("base_undelegated", () =>
-    pollBaseUndelegated(runner, [cursor, ...entries], input.pollBase),
-  );
+  // 0. Resume probe: handback already on base → the ER leg is done; skip it.
+  let returned = false;
+  try {
+    returned = await baseSetReturned(runner, [cursor, ...entries]);
+  } catch {
+    // Unknown (RPC blip) → take the gated ER+wait path; it is safe either way.
+  }
+
+  if (!returned) {
+    // 1. ER: final commit + undelegate (idempotent — see fn doc).
+    await endAndUndelegateOnEr(runner, { pool, cursor, seats, calls });
+    // 2. Base: wait for cursor + entries to return to PROGRAM_ID ownership.
+    const handedBack = await runner.step("base_undelegated", () =>
+      pollBaseUndelegated(runner, [cursor, ...entries], input.pollBase),
+    );
+    // Handback still in flight → NOTHING base-side can succeed yet (see doc).
+    // Do NOT fall through to end/settle; retry from the probe next tick.
+    if (!handedBack) return runner.report;
+  }
+
   // 3. Base: end (Ended).
   await endLivePoolOnBase(runner, { pool, cursor });
 
