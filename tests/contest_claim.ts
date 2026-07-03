@@ -105,8 +105,9 @@ describe("parlay v2 — claim_contest", () => {
     });
     await claim(contest, a, 0);
     await claim(contest, b, 0);
-    // distributable was made exactly divisible by perfect_count at settle, so after
-    // both winners claim the contest is back at exactly its rent floor.
+    // Two equal-weight winners split distributable exactly IN THIS CASE (even by
+    // construction), so the contest lands back at its rent floor. In general,
+    // weighted claims floor per-share and the residue stays in the PDA.
     const floor = await contestRentFloor(contest);
     assert.equal(await balance(contest), floor, "contest holds exactly its rent floor after all winners claim");
   });
