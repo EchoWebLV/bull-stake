@@ -346,3 +346,81 @@ export function buildCard(fixtures: Fixture[], odds: Odds[], opts: BuildCardOpts
 
   return { legs, lockTs: outLock, settleAfterTs };
 }
+
+// ── Pearly (all-day, cross-fixture card) ─────────────────────────────────────────
+
+/** A pearly leg carries its own entry lock (its fixture's kickoff). */
+export type PearlyLeg = Leg & { lockTs: number };
+
+export type PearlyCard = {
+  legs: PearlyLeg[];
+  lockTs: number;          // min leg lock (first kickoff)
+  entriesCloseTs: number;  // the (n - MIN_OPEN_LEGS)-th smallest leg lock
+  settleAfterTs: number;   // last kickoff + match buffer
+};
+
+/** Chaos market: Red Card Shown Y/N on the marquee fixture. */
+const M_RED_CARD = 17;
+/** Mirrors the program's MIN_OPEN_LEGS (contest_state.rs). */
+const MIN_OPEN_LEGS = 3;
+
+/**
+ * Compose the Daily Pearly: the WHOLE day's eligible slate (no cluster collapse —
+ * the day IS the game), one Result leg per fixture (up to 4), one Goals leg on the
+ * most competitive fixture, remaining slots from the HT menu, and the final slot
+ * RESERVED for the chaos leg: Red Card Y/N (market 17) on the marquee (top-ranked)
+ * fixture. Per-leg lockTs = the leg's own fixture kickoff; entriesCloseTs is the
+ * (n − MIN_OPEN_LEGS)-th smallest lock so ≥3 legs are always open to a new entry.
+ */
+export function buildPearlyCard(
+  fixtures: Fixture[],
+  odds: Odds[],
+  opts: Omit<BuildCardOpts, "maxSpreadSecs">,
+): PearlyCard {
+  const { lockTs, windowSecs, target, menu, maxImplied } = opts;
+  const eligible = filterEligible(fixtures, lockTs, windowSecs);
+  const ranked = rankMatches(eligible, odds);
+  const byId = new Map(fixtures.map((f) => [f.fixtureId, f]));
+
+  // Reserve one slot for the chaos leg; allocate the rest with a 4-winner cap.
+  // allocateLegs caps Results at floor(target/2); with target-1 == 5 that is 2 —
+  // too few. Run the Result pass manually to 4, then let allocateLegs fill the
+  // remainder from the non-Result menu with the chosen legs excluded.
+  const legs: Leg[] = [];
+  const idx = new Set(odds.map((o) => `${o.fixtureId}:${o.market}`));
+  for (const f of ranked) {
+    if (legs.length >= Math.min(4, target - 2)) break;
+    if (idx.has(`${f.fixtureId}:12`) && menu.includes(12)) {
+      legs.push({ fixtureId: f.fixtureId, marketId: 12 });
+    }
+  }
+  const exclude = new Set(legs.map((l) => `${l.fixtureId}:${l.marketId}`));
+  const fillTarget = target - 1; // one slot reserved for chaos
+  const fill = allocateLegs(ranked, odds, fillTarget - legs.length, menu.filter((m) => m !== 12), exclude);
+  legs.push(...fill);
+
+  const gated = qualityGate(legs, odds, maxImplied);
+
+  // Chaos leg — marquee fixture (top-ranked), market 17, NOT quality-gated (a
+  // red card is never a foregone conclusion) and always priced (Y/N).
+  const out: Leg[] = gated.slice(0, target - 1);
+  if (ranked.length > 0) out.push({ fixtureId: ranked[0].fixtureId, marketId: M_RED_CARD });
+
+  const pearlyLegs: PearlyLeg[] = out.map((l) => ({
+    ...l,
+    lockTs: byId.get(l.fixtureId)?.kickoffTs ?? lockTs,
+  }));
+
+  const locks = pearlyLegs.map((l) => l.lockTs).sort((a, b) => a - b);
+  const first = locks[0] ?? lockTs;
+  const closeIdx = Math.max(0, pearlyLegs.length - MIN_OPEN_LEGS);
+  const entriesCloseTs = locks[closeIdx] ?? first;
+  const last = locks[locks.length - 1] ?? lockTs;
+
+  return {
+    legs: pearlyLegs,
+    lockTs: first,
+    entriesCloseTs,
+    settleAfterTs: last + 2 * 3600,
+  };
+}

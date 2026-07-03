@@ -6,6 +6,7 @@ import {
   allocateLegs,
   qualityGate,
   buildCard,
+  buildPearlyCard,
   DEFAULT_MENU,
   type Fixture,
   type Odds,
@@ -402,5 +403,44 @@ describe("buildCard (orchestrator)", () => {
     // With no selected matches, fall back to the passed-in lockTs and lock+buffer.
     expect(card.lockTs).toBe(lockTs);
     expect(card.settleAfterTs).toBe(lockTs + 2 * HOUR);
+  });
+});
+
+describe("pearly card v2", () => {
+  const fx = (id: number, ko: number) => ({ fixtureId: id, home: `H${id}`, away: `A${id}`, kickoffTs: ko });
+  const neutral = (id: number, market: number, buckets: number) =>
+    ({ fixtureId: id, market, impliedProbs: Array(buckets).fill(1 / buckets) });
+
+  it("buildPearlyCard: 4 fixtures → 4 winners + 1 goals + chaos leg 17 on the marquee, per-leg locks from kickoffs", () => {
+    const t0 = 1_000_000;
+    const fixtures = [fx(1, t0 + 3600), fx(2, t0 + 7200), fx(3, t0 + 10800), fx(4, t0 + 14400)];
+    const odds = fixtures.flatMap((f) => [neutral(f.fixtureId, 12, 3), neutral(f.fixtureId, 11, 2)]);
+    const card = buildPearlyCard(fixtures, odds, {
+      lockTs: t0, windowSecs: 24 * 3600, target: 6, menu: DEFAULT_MENU, maxImplied: 0.82,
+    });
+    expect(card.legs).toHaveLength(6);
+    expect(card.legs.filter((l) => l.marketId === 12)).toHaveLength(4);
+    expect(card.legs.filter((l) => l.marketId === 11)).toHaveLength(1);
+    const chaos = card.legs.find((l) => l.marketId === 17)!;
+    expect(chaos.fixtureId).toBe(1); // marquee = top-ranked (neutral odds → first)
+    // Per-leg locks = each leg's own fixture kickoff.
+    for (const leg of card.legs) {
+      const f = fixtures.find((x) => x.fixtureId === leg.fixtureId)!;
+      expect(leg.lockTs).toBe(f.kickoffTs);
+    }
+    // entriesCloseTs = 4th-smallest leg lock.
+    const sorted = card.legs.map((l) => l.lockTs).sort((a, b) => a - b);
+    expect(card.entriesCloseTs).toBe(sorted[3]);
+    expect(card.lockTs).toBe(sorted[0]);
+  });
+
+  it("buildPearlyCard: no clusterBySpread — a 12h-spread slate keeps all fixtures", () => {
+    const t0 = 2_000_000;
+    const fixtures = [fx(11, t0 + 3600), fx(12, t0 + 12 * 3600)];
+    const odds = fixtures.flatMap((f) => [neutral(f.fixtureId, 12, 3), neutral(f.fixtureId, 11, 2)]);
+    const card = buildPearlyCard(fixtures, odds, {
+      lockTs: t0, windowSecs: 24 * 3600, target: 6, menu: DEFAULT_MENU, maxImplied: 0.82,
+    });
+    expect(new Set(card.legs.map((l) => l.fixtureId)).size).toBe(2);
   });
 });
