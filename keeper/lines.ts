@@ -46,6 +46,8 @@ const OPEN_FRESH_MIN = envNum("LINES_OPEN_FRESH_MIN", 60);
 const STALE_MAX_MIN = envNum("LINES_STALE_MAX_MIN", 30);
 const SEED_LAMPORTS = Math.round(envNum("LINES_SEED_SOL", 0.05) * SOL);
 const SETTLE_BUFFER_MS = envNum("LINES_SETTLE_BUFFER_MIN", 2) * MIN_MS;
+/** How far back a kicked-off fixture stays in the SETTLE/SWEEP candidate set. */
+const SETTLE_LOOKBACK_MS = 36 * 3_600_000;
 
 function i64le(n: number): Buffer { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(n)); return b; }
 function marketPda(pid: PublicKey, fid: number): PublicKey {
@@ -73,8 +75,13 @@ async function main() {
   const acct = program.account as any;
   const now = Date.now();
 
-  const fixtures = (await getFixtures(ctx, auth))
-    .filter((f) => (ONLY_FIXTURE == null ? true : f.FixtureId === ONLY_FIXTURE));
+  // The fixtures snapshot defaults to today-onward, so a finished match drops
+  // out at the UTC day boundary — leaving its still-open line market invisible
+  // to SETTLE/SWEEP forever. Fetch from the epoch day that covers the full
+  // settle lookback instead (e2e finding, 2026-07-03).
+  const fixtures = (await getFixtures(ctx, auth, {
+    startEpochDay: Math.floor((now - SETTLE_LOOKBACK_MS) / 86_400_000),
+  })).filter((f) => (ONLY_FIXTURE == null ? true : f.FixtureId === ONLY_FIXTURE));
 
   // ── ENSURE ──────────────────────────────────────────────────────────────────
   const upcoming = fixtures.filter(
@@ -105,7 +112,7 @@ async function main() {
 
   // ── SEED / SETTLE / SWEEP over every candidate fixture ──────────────────────
   const candidates = fixtures.filter(
-    (f) => f.StartTime > now - 36 * 3_600_000 && f.StartTime <= now + HORIZON_MS,
+    (f) => f.StartTime > now - SETTLE_LOOKBACK_MS && f.StartTime <= now + HORIZON_MS,
   );
   for (const f of candidates) {
     try {
