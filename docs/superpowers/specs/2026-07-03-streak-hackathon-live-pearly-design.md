@@ -52,15 +52,15 @@ Nav: **Live · Pearly · My Bets · Wallet**. Beat the Market tab retires (hidde
 ## 7. Web
 
 - **Pearly tab** (blueprint = mockup 17): picker (6 legs, field splits, weight chips, perfect-or-rollover copy) → day HUD (alive/pot/weight pills, alert ticker, match-window strip, my-card leg rows) → death state (spectate; no buy-back) → on-chain settle sequence → over card (weight-share breakdown, claim, share text) / rollover card.
-- **Live tab roar layer** (blueprint = mockup 15, scoped): goal-moment takeover (flash/shake/confetti, sound + haptics, `prefers-reduced-motion` respected), upgraded verdict flashes, pre-KO countdown, win/share card, emoji reactions (wallet-anonymous). **No usernames/profiles this cycle.**
+- **Live tab roar layer — DEFERRED (user call, 2026-07-03):** the live game's presentation gets a dedicated redesign after the Pearly lands; mockup 15 stays as a reference sketch but is NOT built this cycle. The existing `LiveMatchView` ships as-is for the submission. (Pearly-tab moments per mockup 17 are unaffected — they belong to the Pearly build. No usernames/profiles this cycle.)
 - Cross-links per §1. Port mockup CSS into `App.css` following the mockups→component pattern used for the daily card.
 
 ## 8. Demo video (≤5 min) beats
 
-1. Cold open pitch-side: live game tap → goal roar with real SOL on the line (criterion 2, spectacle).
+1. Cold open pitch-side: live game taps with real SOL on the line, existing Live UI (criterion 2, spectacle).
 2. Morning: fill the Pearly card, enter on-chain (weight chips explain all-day entry).
 3. Day montage: legs resolving, alive counter bleeding, 🔔 card alerts, late entries raising the pot.
-4. Evening: live game with the Pearly strip — one goal, two dopamine hits; red-card roar kills the chaos leg field.
+4. Evening: live game with the Pearly strip — one goal, two dopamine hits; the red card flips the chaos leg on screen (Pearly-tab moment).
 5. Midnight: settle with Merkle proof on Txoracle, weighted split, claim, rollover tease.
 6. 15 s architecture card: TxLINE (SSE) → keeper → Anchor program → `Txoracle.validateStat`.
 
@@ -76,16 +76,17 @@ Nav: **Live · Pearly · My Bets · Wallet**. Beat the Market tab retires (hidde
 
 - **07/04–07:** §4 program change + Anchor tests; composer v2 + `/api/card` v2. R16 runs daily — start capturing b-roll.
 - **07/08–10:** Pearly web e2e on devnet against real QF fixtures.
-- **07/11–13:** Live roar layer + cross-links + notifications v1.
+- **07/11–13:** Pearly web polish + cross-links + notifications v1 (Live roar layer deferred — freed days are buffer).
 - **07/14–16:** SSE migration (stretch), polish, record demo during QF/SF (SF July 14–15).
 - **07/17–18:** docs, public repo, deploy, submit. **07/19 = buffer only** (final is deadline day).
-- **Fallback if §4 slips past 07/09:** ship Pearly with entry-closes-at-first-KO (no weights, program untouched) and keep the roar layer — the two-mode story survives.
+- **Fallback if §4 slips past 07/09:** ship Pearly with entry-closes-at-first-KO (no weights, program untouched) — the two-mode story survives on the existing Live UI.
 
 ## 11. Rejected / non-goals (this cycle)
 
 - **Buy-backs / re-entry** — rejected by design: one card a day; perfect-or-rollover is the drama and the jackpot engine.
 - **Line-movement betting** (Beat the Market as a game) — rejected: pro-trader niche, not consumer excitement; odds survive as field-split context only.
 - **Team-news markets** — rejected: no line-up data in the TxLINE feed; unsettleable trustlessly.
+- **Live roar presentation layer** — deferred 2026-07-03 by user call; the live game's presentation is redesigned after the Pearly lands (mockup 15 = reference sketch only).
 - Usernames/profiles, private rooms/crews, duels, Gauntlet moment-scheduler, session keys, float-yield, mainnet, Seeker MWA — post-hackathon.
 
 ## 12. Open tunables (defaults set, trivially changed)
