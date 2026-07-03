@@ -1,11 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { readFileSync } from "node:fs";
+import { PublicKey } from "@solana/web3.js";
 import { Feed, type Replay } from "./feed.ts";
 import {
   readMarket,
   readLiveContests,
   readJackpot,
   listEntriesForWallet,
+  listRawEntriesForContest,
+  deriveMarketPda,
   readLivePoolByFixture,
   readLivePoolViews,
   readOpenCall,
@@ -19,7 +22,7 @@ import {
 } from "./chain.ts";
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
-import { M0, JOIN_AHEAD_MIN, TEST_FIXTURE_MIN } from "./config.ts";
+import { M0, JOIN_AHEAD_MIN, TEST_FIXTURE_MIN, PROGRAM_ID } from "./config.ts";
 import { testMatchState, testMatchDurationSecs } from "./testMatch.ts";
 import { livePhase, type LiveStore } from "./live.ts";
 import type { LinesStore } from "./lines.ts";
@@ -59,6 +62,54 @@ export function selectTodaysCard(
   if (covering.length > 0) return covering[0];
   // No window covers now → most recent Open card.
   return [...open].sort(byLatest)[0];
+}
+
+/**
+ * Per-leg winning buckets for a card's OWN leg markets — mid-day, a leg settles
+ * (its own Market account) long before the whole Contest does (Contest.winning_buckets
+ * is only written in bulk by settle_contest once every leg is ready). `null` for a
+ * leg whose market isn't settled yet OR whose read failed (best-effort: one flaky
+ * leg read shouldn't blank alive-tracking for the rest of the card).
+ */
+async function readLegWinningBuckets(card: ContestView): Promise<(number | null)[]> {
+  return Promise.all(
+    card.legs.map(async (leg) => {
+      try {
+        const pda = deriveMarketPda(PROGRAM_ID, leg.fixtureId, leg.marketId).toBase58();
+        const m = await readMarket(pda);
+        return m.status === "settled" ? m.winningBucket : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+}
+
+/** One entry's active-leg mask against a card's per-leg locks: leg i is active iff legLockTs[i] > entryTs. */
+function activeMask(legLockTs: number[], entryTs: number): boolean[] {
+  return legLockTs.map((lockTs) => lockTs > entryTs);
+}
+
+/**
+ * Mirrors `claim_contest.rs`'s mid-settle perfect check, generalized to MID-DAY
+ * polling where not every leg has settled yet: an entry is ALIVE iff, for every
+ * ACTIVE leg (legLockTs[i] > entryTs) whose OWN market has already settled, its
+ * pick matches that leg's winning bucket. A leg that hasn't settled yet — or is
+ * inactive for this entry (locked before the entry was placed) — never
+ * disqualifies. Fail-closed on entryTs <= 0 (the chain will never pay it; see
+ * claim_contest.rs's own `entry_ts > 0` guard) — such an entry is never alive.
+ */
+function isEntryAlive(
+  picks: number[], mask: boolean[], winningBuckets: (number | null)[], entryTs: number,
+): boolean {
+  if (entryTs <= 0) return false;
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i]) continue; // inactive leg — outside this entry's card
+    const wb = winningBuckets[i];
+    if (wb === null) continue; // not settled yet — can't disqualify
+    if (picks[i] !== wb) return false;
+  }
+  return true;
 }
 
 /**
@@ -270,26 +321,39 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
   });
 
   /**
-   * GET /api/card
+   * GET /api/card[?wallet=<base58>]
    * TODAY's single 6-leg card — the focused view the new web reads. It reuses
    * `readLiveContests` (same per-leg catalog join as `/api/contest/live`) and
    * `selectTodaysCard` to pick the current day's Open contest, then folds in the
    * standalone jackpot pot.
    *
-   * Shape: `{ contestId, status, lockTs, settleAfterTs, entryPrice, pot, jackpot,
+   * Shape: `{ contestId, status, lockTs, entriesCloseTs, settleAfterTs, entryPrice,
+   *           pot, jackpot, aliveCount, myCard,
    *           legs: [{ fixtureId, home, away, kickoffTs, marketId, label, group,
-   *                    line, buckets }] }`.
+   *                    line, buckets, lockTs }] }`.
    * Every leg is one match (single-match parlay), so home/away/kickoffTs are the
    * same fixture join on each leg — resolved like `/api/contest/live`: live row,
    * then fixture-meta names, then `#<fixtureId>`. `kickoffTs` is SECONDS (the
    * store carries kickoffMs), null when unknown. `buckets` is the catalog bucket
-   * count; `line` is omitted (not null) for an out-of-catalog market.
+   * count; `line` is omitted (not null) for an out-of-catalog market. Each leg's
+   * own `lockTs` (`legLockTs[i]`) is its individual kickoff — Pearly locks legs
+   * one at a time through the day, not all at once at the card's first `lockTs`.
+   *
+   * `aliveCount`: entries whose picks still match every ACTIVE leg that has
+   * ALREADY settled (own Market, not the bulk Contest.winning_buckets — see
+   * `readLegWinningBuckets`) — a running "how many cards are still perfect"
+   * count for the whole card, independent of `?wallet=`.
+   *
+   * `myCard` (only when `?wallet=` parses as a pubkey): that wallet's entry on
+   * this card mapped to `{ picks, entryTs, activeMask, weight, alive }`
+   * (`weight = 2**activeCount`, mirroring `perfect_weight`'s on-chain divisor),
+   * or `null` when the wallet has no entry here.
    *
    * Empty case: when no Open contest exists, responds `{ card: null }` with 200
    * (NOT 404 / not a paused object) so the web can render an "open later" state.
    * A genuine RPC failure still 502s.
    */
-  app.get("/api/card", async (_req, reply) => {
+  app.get("/api/card", async (req, reply) => {
     let contests;
     try {
       contests = await readLiveContests();
@@ -310,13 +374,58 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
       jackpot = "0";
     }
 
+    // Alive-tracking: each leg's OWN market (not Contest.winning_buckets, which
+    // stays unset until the whole contest settles) + every raw entry on this
+    // card. Best-effort — an entry-scan hiccup degrades to 0/[] rather than
+    // 502ing an otherwise-good card (same idiom as the jackpot fold-in above).
+    let winningBuckets: (number | null)[] = card.legs.map(() => null);
+    try {
+      winningBuckets = await readLegWinningBuckets(card);
+    } catch {
+      winningBuckets = card.legs.map(() => null);
+    }
+    let rawEntries: Awaited<ReturnType<typeof listRawEntriesForContest>> = [];
+    try {
+      rawEntries = await listRawEntriesForContest(card.pubkey);
+    } catch {
+      rawEntries = [];
+    }
+    const aliveCount = rawEntries.filter((e) =>
+      isEntryAlive(e.picks, activeMask(card.legLockTs, e.entryTs), winningBuckets, e.entryTs),
+    ).length;
+
+    // myCard: only when ?wallet= parses as a valid pubkey. null when absent or
+    // when the wallet has no entry on this card.
+    const { wallet } = req.query as Record<string, string>;
+    let myCard: {
+      picks: number[]; entryTs: number; activeMask: boolean[]; weight: number; alive: boolean;
+    } | null = null;
+    if (wallet) {
+      try {
+        const walletKey = new PublicKey(wallet).toBase58();
+        const mine = rawEntries.find((e) => e.bettor === walletKey);
+        if (mine) {
+          const mask = activeMask(card.legLockTs, mine.entryTs);
+          myCard = {
+            picks: mine.picks,
+            entryTs: mine.entryTs,
+            activeMask: mask,
+            weight: 2 ** mask.filter(Boolean).length,
+            alive: isEntryAlive(mine.picks, mask, winningBuckets, mine.entryTs),
+          };
+        }
+      } catch {
+        myCard = null; // not a valid pubkey → same as "no wallet given"
+      }
+    }
+
     // Single-match parlay: resolve the one fixture's names/kickoff once, exactly
     // like /api/contest/live (live row → fixture-meta → "#<fixtureId>"), then
     // stamp it onto every leg per the card shape.
     const byId = new Map((store?.getMatches() ?? []).map((m) => [m.fixtureId, m]));
     const names = store?.getFixtureMeta() ?? new Map<number, { home: string; away: string }>();
 
-    const legs = card.legs.map((leg) => {
+    const legs = card.legs.map((leg, i) => {
       const live = byId.get(leg.fixtureId);
       const meta = names.get(leg.fixtureId);
       // markets catalog supplies the O/U `line`; omit the key (not null) for an
@@ -346,6 +455,7 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
         group: leg.group,
         ...(line !== undefined ? { line } : {}),
         buckets: leg.numBuckets,
+        lockTs: card.legLockTs[i],
         ...liveField,
       };
     });
@@ -354,10 +464,13 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
       contestId: card.contestId,
       status: card.status,
       lockTs: card.lockTs,
+      entriesCloseTs: card.entriesCloseTs,
       settleAfterTs: card.settleAfterTs,
       entryPrice: card.entryPrice,
       pot: card.pot,
       jackpot,
+      aliveCount,
+      myCard,
       legs,
     };
   });

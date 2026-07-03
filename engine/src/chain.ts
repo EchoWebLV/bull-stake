@@ -258,12 +258,15 @@ export interface ContestView {
   legs: LegView[];              // length numLegs; per-leg catalog join + winning bucket
   entryPrice: string;
   lockTs: number;
+  legLockTs: number[];          // per-leg entry locks (unix sec), tail zeros trimmed to numLegs
+  entriesCloseTs: number;       // no entries after this
   settleAfterTs: number;
   feeBps: number;
   status: "open" | "settled" | "rolledOver" | "voided";
   winningBuckets: number[];     // length numLegs
   entryCount: number;
   perfectCount: number;
+  perfectWeight: string;        // u64 as string (settled contests) — Σ 2^(active legs)
   pot: string;                  // this contest's own escrow (balance − Contest rent floor)
   distributable: string;
   claimedCount: number;
@@ -280,6 +283,16 @@ export interface EntryView {
   won: boolean;                 // all carded picks match the winning buckets (settled contests only)
   claimable: boolean;          // a claim_contest now would transfer lamports (winner share or void refund)
   payout: string;              // lamports paid if claimed now ("0" if none) — mirrors claim_contest.rs
+}
+
+/** An Entry account as-decoded, contest-scoped only (no wallet filter, no settled-state scoring). */
+export interface RawEntryView {
+  pubkey: string;
+  bettor: string;
+  nonce: number;
+  picks: number[];   // raw [u8; MAX_LEGS]
+  amount: string;
+  entryTs: number;   // unix seconds of the LAST picks write (init or edit)
 }
 
 /** The settled-state fields entryOutcome needs (a subset of ContestView). */
@@ -401,12 +414,15 @@ function toContestView(pubkey: PublicKey, c: any, pot: bigint): ContestView {
     legs,
     entryPrice: c.entryPrice.toString(),
     lockTs: Number(c.lockTs),
+    legLockTs: (c.legLockTs as { toNumber(): number }[]).slice(0, numLegs).map((b) => b.toNumber()),
+    entriesCloseTs: Number(c.entriesCloseTs),
     settleAfterTs: Number(c.settleAfterTs),
     feeBps: Number(c.feeBps),
     status,
     winningBuckets,
     entryCount: Number(c.entryCount),
     perfectCount: Number(c.perfectCount),
+    perfectWeight: String(c.perfectWeight),
     pot: pot.toString(),
     distributable: c.distributable.toString(),
     claimedCount: Number(c.claimedCount),
@@ -1070,6 +1086,31 @@ export async function listEntriesForWallet(wallet: string, contestId?: number): 
   }
   // Stable order: by contest, then ticket nonce within a contest.
   return all.sort((x, y) => (x.contestId - y.contestId) || (x.nonce - y.nonce));
+}
+
+/**
+ * Every Entry account for a single contest, UNSCOPED by wallet — the mid-day
+ * "how many cards are still alive" read (`/api/card`'s `aliveCount`). Same
+ * memcmp idiom as `entriesForContest` (Entry.contest @ offset 40 = 8 disc + 32
+ * bettor), just without the bettor filter and without settled-state scoring
+ * (entryOutcome only applies post-settle; alive-tracking runs mid-day against
+ * each leg's OWN market, not the contest's bulk winning_buckets).
+ */
+export async function listRawEntriesForContest(contestPubkey: string): Promise<RawEntryView[]> {
+  const program = loadProgram();
+  const cPda = new PublicKey(contestPubkey);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accts: any[] = await (program.account as any).entry.all([
+    { memcmp: { offset: 8 + 32, bytes: cPda.toBase58() } }, // contest at offset 40
+  ]);
+  return accts.map((a) => ({
+    pubkey: a.publicKey.toBase58(),
+    bettor: a.account.bettor.toBase58(),
+    nonce: Number(a.account.nonce),
+    picks: (a.account.picks as number[]).map(Number),
+    amount: a.account.amount.toString(),
+    entryTs: Number(a.account.entryTs),
+  }));
 }
 
 export async function readMarket(marketPubkey: string): Promise<MarketView> {

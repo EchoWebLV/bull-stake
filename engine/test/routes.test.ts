@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { buildServer } from "../src/server.ts";
-import { readJackpot, readLiveContests, listEntriesForWallet } from "../src/chain.ts";
+import {
+  readJackpot, readLiveContests, listEntriesForWallet, readMarket, listRawEntriesForContest, deriveMarketPda,
+} from "../src/chain.ts";
+import { PROGRAM_ID } from "../src/config.ts";
 import type { LiveStore } from "../src/live.ts";
 
 vi.mock("../src/chain.ts", async (orig) => {
@@ -24,9 +27,11 @@ vi.mock("../src/chain.ts", async (orig) => {
           { marketId: 12, label: "Match Result",          group: "result",  numBuckets: 3, fixtureId: 101, winningBucket: null },
           { marketId: 13, label: "Total Yellow Cards O/U 3.5", group: "cards", numBuckets: 2, fixtureId: 101, winningBucket: null },
         ],
-        entryPrice: "20000000", lockTs: 9999999999, settleAfterTs: 9999999999,
+        entryPrice: "20000000", lockTs: 9999999999,
+        legLockTs: [9999999999, 9999999999, 9999999999, 0, 0, 0], entriesCloseTs: 9999999999,
+        settleAfterTs: 9999999999,
         feeBps: 500, status: "open", winningBuckets: [0, 0, 0],
-        entryCount: 4, perfectCount: 0, pot: "80000000", distributable: "0",
+        entryCount: 4, perfectCount: 0, perfectWeight: "0", pot: "80000000", distributable: "0",
         claimedCount: 0, claimedTotal: "0", settledTs: 0,
       },
     ]),
@@ -37,6 +42,7 @@ vi.mock("../src/chain.ts", async (orig) => {
       { pubkey: "Entry111", contestId: 20269, nonce: 0, picks: [0, 1, 2, 0, 0], amount: "20000000",
         won: false, claimable: false, payout: "0" },
     ]),
+    listRawEntriesForContest: vi.fn(async () => [] as unknown[]),
   };
 });
 
@@ -414,9 +420,11 @@ describe("GET /api/contest/live", () => {
         legs: [
           { marketId: 99, label: "", group: "", numBuckets: 0, fixtureId: 202, winningBucket: null },
         ],
-        entryPrice: "20000000", lockTs: 9999999999, settleAfterTs: 9999999999,
+        entryPrice: "20000000", lockTs: 9999999999,
+        legLockTs: [9999999999, 0, 0, 0, 0, 0], entriesCloseTs: 9999999999,
+        settleAfterTs: 9999999999,
         feeBps: 500, status: "open", winningBuckets: [0],
-        entryCount: 0, perfectCount: 0, pot: "0", distributable: "0",
+        entryCount: 0, perfectCount: 0, perfectWeight: "0", pot: "0", distributable: "0",
         claimedCount: 0, claimedTotal: "0", settledTs: 0,
       },
     ]);
@@ -457,9 +465,10 @@ describe("selectTodaysCard", () => {
     ({
       pubkey: `C${over.contestId}`, contestId: over.contestId,
       settleAuthority: "", feeRecipient: "", fixtures: [], marketIds: [], numLegs: 0,
-      legs: [], entryPrice: "0", lockTs: over.lockTs, settleAfterTs: over.settleAfterTs,
+      legs: [], entryPrice: "0", lockTs: over.lockTs,
+      legLockTs: [], entriesCloseTs: 0, settleAfterTs: over.settleAfterTs,
       feeBps: 0, status: (over.status ?? "open") as "open", winningBuckets: [],
-      entryCount: 0, perfectCount: 0, pot: "0", distributable: "0",
+      entryCount: 0, perfectCount: 0, perfectWeight: "0", pot: "0", distributable: "0",
       claimedCount: 0, claimedTotal: "0", settledTs: 0,
     });
 
@@ -524,6 +533,7 @@ describe("GET /api/card", () => {
     expect(body.legs[0]).toEqual({
       fixtureId: 101, home: "Brazil", away: "Spain", kickoffTs: 1_700_000_000,
       marketId: 10, label: "Total Corners O/U 9.5", group: "corners", line: 9.5, buckets: 2,
+      lockTs: 9999999999,
       live: { home: 0, away: 0, minute: null, phase: "pre" },
     });
     // Three-way result market (line 0) carries buckets:3.
@@ -605,9 +615,11 @@ describe("GET /api/card", () => {
         feeRecipient: "Fee11111111111111111111111111111111111111111",
         fixtures: [202], marketIds: [99], numLegs: 1,
         legs: [{ marketId: 99, label: "", group: "", numBuckets: 0, fixtureId: 202, winningBucket: null }],
-        entryPrice: "20000000", lockTs: 9999999999, settleAfterTs: 9999999999,
+        entryPrice: "20000000", lockTs: 9999999999,
+        legLockTs: [9999999999, 0, 0, 0, 0, 0], entriesCloseTs: 9999999999,
+        settleAfterTs: 9999999999,
         feeBps: 500, status: "open", winningBuckets: [0],
-        entryCount: 0, perfectCount: 0, pot: "0", distributable: "0",
+        entryCount: 0, perfectCount: 0, perfectWeight: "0", pot: "0", distributable: "0",
         claimedCount: 0, claimedTotal: "0", settledTs: 0,
       },
     ]);
@@ -646,6 +658,97 @@ describe("GET /api/card", () => {
     const res = await app.inject({ url: "/api/card" });
     expect(res.statusCode).toBe(502);
     expect(res.json()).toHaveProperty("error");
+    await app.close();
+  });
+
+  it("returns per-leg locks, entriesCloseTs, aliveCount and myCard for ?wallet=", async () => {
+    const WALLET = "So11111111111111111111111111111111111111112";
+    const OTHER = "CYDxTZVogVUscoWr6Fftz6M6ubnCo98PQDBn2Uo3AquM";
+    const fixtures = [301, 302, 303, 304, 305, 306];
+    const marketIds = [12, 12, 12, 12, 12, 12];
+    const legLockTs = [100, 200, 300, 400, 500, 600];
+
+    // 6-leg Open card; every leg's own catalog join (winningBucket stays null
+    // at the CONTEST level until the whole contest settles — the per-leg
+    // "is it settled yet" answer instead comes from each leg's own Market
+    // account, resolved below via `readMarket`).
+    vi.mocked(readLiveContests).mockResolvedValueOnce([
+      {
+        pubkey: "Contest999", contestId: 40001,
+        settleAuthority: "Keep1111111111111111111111111111111111111111",
+        feeRecipient: "Fee11111111111111111111111111111111111111111",
+        fixtures, marketIds, numLegs: 6,
+        legs: fixtures.map((fixtureId, i) => ({
+          marketId: marketIds[i], label: "Match Result", group: "result",
+          numBuckets: 3, fixtureId, winningBucket: null,
+        })),
+        entryPrice: "20000000", lockTs: 100,
+        legLockTs, entriesCloseTs: 100,
+        settleAfterTs: 9999999999,
+        feeBps: 500, status: "open", winningBuckets: [0, 0, 0, 0, 0, 0],
+        entryCount: 2, perfectCount: 0, perfectWeight: "0", pot: "40000000", distributable: "0",
+        claimedCount: 0, claimedTotal: "0", settledTs: 0,
+      },
+    ]);
+
+    // Leg 0's own Market (fixture 301, marketId 12) is settled with winningBucket 1;
+    // every other leg's market is still open (unsettled → excluded from alive-checking).
+    const settledLegPda = deriveMarketPda(PROGRAM_ID, 301, 12).toBase58();
+    vi.mocked(readMarket).mockImplementation(async (pubkey: string) => {
+      if (pubkey === settledLegPda) {
+        return {
+          pubkey, status: "settled", fixtureId: 301, marketId: 12, numBuckets: 3,
+          bucketTotals: ["0", "0", "0"], totalPool: "0", feeBps: 0, feeCollected: "0",
+          winningBucket: 1, entryCloseTs: 100, settledValue: 0,
+        };
+      }
+      return {
+        pubkey, status: "open", fixtureId: 0, marketId: 12, numBuckets: 3,
+        bucketTotals: ["0", "0", "0"], totalPool: "0", feeBps: 0, feeCollected: "0",
+        winningBucket: null, entryCloseTs: 9999999999, settledValue: 0,
+      };
+    });
+
+    // Two entries, both timed BEFORE every leg_lock_ts (all 6 legs active, weight
+    // 2^6 = 64). The wallet's picks[0] matches the settled leg's winningBucket 1
+    // (alive); the other wallet's picks[0] does not (dead).
+    vi.mocked(listRawEntriesForContest).mockResolvedValueOnce([
+      { pubkey: "EntryW", bettor: WALLET, nonce: 0, picks: [1, 0, 0, 0, 0, 0], amount: "20000000", entryTs: 1 },
+      { pubkey: "EntryO", bettor: OTHER, nonce: 0, picks: [0, 0, 0, 0, 0, 0], amount: "20000000", entryTs: 1 },
+    ]);
+
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${WALLET}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    expect(body.entriesCloseTs).toBeTypeOf("number");
+    expect(body.legs[0].lockTs).toBeTypeOf("number");
+    expect(body.legs.map((l: { lockTs: number }) => l.lockTs)).toEqual(legLockTs);
+    expect(body.aliveCount).toBe(1); // only the wallet's entry still matches the one settled+active leg
+    expect(body.myCard.weight).toBe(64); // entered pre-lock on every leg → 2^6
+    expect(body.myCard.picks).toHaveLength(6);
+    expect(body.myCard.alive).toBe(true);
+    await app.close();
+  });
+
+  it("myCard is null when ?wallet= has no entry on the card", async () => {
+    const WALLET = "So11111111111111111111111111111111111111112";
+    vi.mocked(listRawEntriesForContest).mockResolvedValueOnce([]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${WALLET}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().myCard).toBeNull();
+    await app.close();
+  });
+
+  it("aliveCount is 0 and myCard is omitted-null when no ?wallet= is given", async () => {
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/card" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.aliveCount).toBe(0); // default fixture's listRawEntriesForContest mock is []
+    expect(body.myCard).toBeNull();
     await app.close();
   });
 });

@@ -94,12 +94,15 @@ function contestAcct(over: Record<string, unknown> = {}) {
     numLegs: 4,
     entryPrice: bn(100),
     lockTs: bn(0),
+    legLockTs: [bn(0), bn(0), bn(0), bn(0), bn(0), bn(0)],
+    entriesCloseTs: bn(0),
     settleAfterTs: bn(0),
     feeBps: 500,
     status: { open: {} },
     winningBuckets: [0, 0, 0, 0, 0, 0],
     entryCount: bn(0),
     perfectCount: bn(0),
+    perfectWeight: bn(0),
     distributable: bn(0),
     claimedCount: bn(0),
     claimedTotal: bn(0),
@@ -118,8 +121,9 @@ describe("entryOutcome — mirrors claim_contest.rs payout math", () => {
     pubkey: "C", contestId: 1, settleAuthority: "K", feeRecipient: "F",
     fixtures: [10, 11, 12], marketIds: [16, 15, 12], numLegs: 3,
     legs: [], entryPrice: "100",
-    lockTs: 0, settleAfterTs: 0, feeBps: 500, status: "settled",
-    winningBuckets: [0, 1, 2], entryCount: 5, perfectCount: 2,
+    lockTs: 0, legLockTs: [0, 0, 0, 0, 0, 0], entriesCloseTs: 0,
+    settleAfterTs: 0, feeBps: 500, status: "settled",
+    winningBuckets: [0, 1, 2], entryCount: 5, perfectCount: 2, perfectWeight: "0",
     pot: "1050", distributable: "1000", claimedCount: 0, claimedTotal: "0",
     settledTs: 0,
   };
@@ -344,6 +348,26 @@ describe("readLiveContests — discovery skips undecodable stale v1 accounts", (
     const [c] = await readLiveContests();
 
     expect(c.legs.every((l) => l.winningBucket === null)).toBe(true);
+  });
+
+  it("contest view carries pearly fields (legLockTs, entriesCloseTs, perfectWeight)", async () => {
+    h.getProgramAccounts.mockResolvedValue([
+      { pubkey: { toBase58: () => "CA" }, account: { data: Buffer.alloc(217) } },
+    ]);
+    h.decode.mockReturnValueOnce(contestAcct({
+      numLegs: 6,
+      legLockTs: [bn(1000), bn(2000), bn(3000), bn(4000), bn(5000), bn(6000)],
+      entriesCloseTs: bn(4000),
+      perfectWeight: bn(0),
+    }));
+    h.getBalance.mockResolvedValue(0);
+    h.getMin.mockResolvedValue(0);
+
+    const [view] = await readLiveContests();
+
+    expect(view.legLockTs).toEqual([1000, 2000, 3000, 4000, 5000, 6000]);
+    expect(view.entriesCloseTs).toBe(4000);
+    expect(view.perfectWeight).toBe("0");
   });
 });
 
