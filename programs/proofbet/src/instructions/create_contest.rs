@@ -56,7 +56,7 @@ pub fn handler(
 
     // Per-leg locks: every active leg locks at its own kickoff — no earlier than
     // the global lock_ts (which must be their minimum) and strictly before settle.
-    // Tail entries stay zero (same convention as fixtures/market_ids).
+    // Tail entries stay zero (same convention as fixtures/market_ids, but enforced here).
     let nl = num_legs as usize;
     let mut sorted_locks = [i64::MAX; MAX_LEGS];
     for i in 0..MAX_LEGS {

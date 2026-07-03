@@ -132,4 +132,69 @@ describe("parlay v2 — create_contest", () => {
       "InvalidMarketId",
     );
   });
+
+  // Per-leg lock validation (Task 2, create_contest.rs): each active leg lock must
+  // sit in [lock_ts, settle_after_ts), the tail beyond num_legs must be zero, and
+  // lock_ts must BE the earliest leg lock. Each shape below violates exactly one.
+
+  it("rejects an active leg lock earlier than lock_ts", async () => {
+    const keeper = await freshFunded();
+    const contest = contestPda(130011);
+    const lock = nowSec() + 30;
+    const legLocks = [lock - 10, lock, lock, 0, 0, 0].map((x) => new BN(x));
+    await expectError(
+      program.methods
+        .createContest(new BN(130011), fixtureArray([1, 2, 3]), marketIdArray([12, 12, 12]), 3,
+          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLocks)
+        .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+        .signers([keeper]).rpc(),
+      "InvalidLegLockTs",
+    );
+  });
+
+  it("rejects an active leg lock at/after settle_after_ts", async () => {
+    const keeper = await freshFunded();
+    const contest = contestPda(130012);
+    const lock = nowSec() + 30;
+    const settle = lock + 30;
+    const legLocks = [lock, lock, settle, 0, 0, 0].map((x) => new BN(x)); // leg 2 == settle
+    await expectError(
+      program.methods
+        .createContest(new BN(130012), fixtureArray([1, 2, 3]), marketIdArray([12, 12, 12]), 3,
+          new BN(20_000_000), new BN(lock), new BN(settle), keeper.publicKey, 500, legLocks)
+        .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+        .signers([keeper]).rpc(),
+      "InvalidLegLockTs",
+    );
+  });
+
+  it("rejects a non-zero leg lock beyond num_legs", async () => {
+    const keeper = await freshFunded();
+    const contest = contestPda(130013);
+    const lock = nowSec() + 30;
+    const legLocks = [lock, lock, lock, lock, 0, 0].map((x) => new BN(x)); // tail leg 3 set
+    await expectError(
+      program.methods
+        .createContest(new BN(130013), fixtureArray([1, 2, 3]), marketIdArray([12, 12, 12]), 3,
+          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLocks)
+        .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+        .signers([keeper]).rpc(),
+      "InvalidLegLockTs",
+    );
+  });
+
+  it("rejects leg locks where none equals lock_ts", async () => {
+    const keeper = await freshFunded();
+    const contest = contestPda(130014);
+    const lock = nowSec() + 30;
+    const legLocks = [lock + 5, lock + 5, lock + 5, 0, 0, 0].map((x) => new BN(x)); // all in range, none == lock_ts
+    await expectError(
+      program.methods
+        .createContest(new BN(130014), fixtureArray([1, 2, 3]), marketIdArray([12, 12, 12]), 3,
+          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLocks)
+        .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+        .signers([keeper]).rpc(),
+      "InvalidLegLockTs",
+    );
+  });
 });
