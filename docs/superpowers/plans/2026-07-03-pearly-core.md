@@ -503,6 +503,28 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `programs/proofbet/src/instructions/claim_contest.rs`
 - Test: extend `tests/contest_pearly.ts`
 
+> **AMENDMENT 2026-07-03 (Task 3 code review finding — land as Part 0 of this task, its own commit, BEFORE the claim change):** the edit path as shipped in Task 3 is a free buy-back, violating spec §1/§7 ("no buy-backs", "a dead card spectates"): a bettor whose carried leg already locked-and-lost can re-submit `enter` (same nonce, even identical picks) before `entries_close_ts`; the re-stamp sheds the dead leg and revives the card at reduced weight. Close it with **weight-neutral edits** — once any carried leg has kicked off, the card is immutable:
+>
+> - `programs/proofbet/src/instructions/enter.rs`, edit (else) branch, BEFORE writing picks / re-stamping (the guard must read the OLD `entry_ts`):
+> ```rust
+>         // Weight-neutral edits only: once any carried leg has kicked off, the
+>         // card is immutable — a dead card spectates (spec: no buy-backs). A leg
+>         // left the mask iff old entry_ts < leg_lock <= now.
+>         for i in 0..(ctx.accounts.contest.num_legs as usize) {
+>             let ll = ctx.accounts.contest.leg_lock_ts[i];
+>             require!(
+>                 !(ll > ctx.accounts.entry.entry_ts && ll <= now),
+>                 ProofBetError::CardLocked
+>             );
+>         }
+> ```
+> - `programs/proofbet/src/errors.rs`: append `#[msg("card has a locked leg; picks are immutable")] CardLocked,` at the enum END (ordinal stability).
+> - Tests appended to `tests/contest_pearly.ts` ("pearly — edit freeze" describe): (a) edit after a carried leg locked → rejected `CardLocked` (use the `expectError` idiom, not catch-any); (b) edit before any carried leg locked → accepted and `entryTs` refreshed (assert new > old via fetched values). Legacy contests are unaffected (all locks == lock_ts; the entries-close gate already rejects at that instant — guard unreachable).
+> - Post-guard, the re-stamp is provably mask-preserving (a leg leaves the mask iff old_ts < lock <= now — exactly what the guard forbids).
+> - Riders in the same Part-0 commit: fix stale `contest_state.rs:57` comment (`lock_ts` = "first kickoff (min of leg_lock_ts)" — no longer entry close); tighten the Task-3 pearly test's catch-any rejection to `expectError(..., "EntryClosed")`; drop the unused `legLockArray` import from contest_pearly.ts if still unused; optionally add the drift-immune `assert.isAbove(e2.entryTs.toNumber(), e1.entryTs.toNumber())` hardening.
+> - Part-0 commit message: `fix(program): weight-neutral edits — card freezes once a carried leg kicks off`
+> - ONE full `anchor test` run at the end of the whole task covers Part 0 + the claim change together.
+
 - [ ] **Step 1: Write the failing end-to-end weighted test**
 
 Append to `tests/contest_pearly.ts`:
