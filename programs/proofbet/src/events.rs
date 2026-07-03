@@ -91,6 +91,8 @@ pub struct ContestSettled {
     pub contest_id: u64,
     pub winning_buckets: [u8; crate::contest_state::MAX_LEGS],
     pub perfect_count: u64,
+    /// Σ 2^(active legs) over all perfect entries — the weighted-split divisor.
+    pub perfect_weight: u64,
     /// This contest's own entry pot at settle (contest.lamports - rent_floor).
     pub pot: u64,
     /// Jackpot pool moved INTO the contest on a win (0 on rollover).

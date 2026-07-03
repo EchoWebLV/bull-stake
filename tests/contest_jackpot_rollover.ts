@@ -39,8 +39,8 @@ async function enter(contest: any, player: Keypair, nonce: number, picks: number
     .accountsStrict({ bettor: player.publicKey, contest, entry: entryPda(contest, player.publicKey, nonce), systemProgram: SystemProgram.programId })
     .signers([player]).rpc();
 }
-async function settle(keeper: Keypair, jackpot: any, contest: any, feeRecipient: any, markets: any[], perfectCount: number) {
-  await program.methods.settleContest(new BN(perfectCount))
+async function settle(keeper: Keypair, jackpot: any, contest: any, feeRecipient: any, markets: any[], perfectCount: number, weight: number = 0) {
+  await program.methods.settleContest(new BN(perfectCount), new BN(weight))
     .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient })
     .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
     .signers([keeper]).rpc();
@@ -95,7 +95,8 @@ describe("parlay v2 — jackpot rollover (concurrent)", () => {
     // ── settle B (still Open): winner scoops the WHOLE rolling pool + B's net pot ──
     const poolBeforeB = await jackpotPool(jackpot); // == poolBeforeA + net
     const feeBBefore = await balance(feeB.publicKey);
-    await settle(keeper, jackpot, contestB, feeB.publicKey, marketsB, 1);
+    // 3-leg contest, 1 perfect ticket → weight = 1 * 2^3 = 8.
+    await settle(keeper, jackpot, contestB, feeB.publicKey, marketsB, 1, 8);
     const b = await program.account.contest.fetch(contestB);
     assert.deepEqual(b.status, { settled: {} }, "B settled");
     assert.equal((await balance(feeB.publicKey)) - feeBBefore, rake, "B rake → feeB");

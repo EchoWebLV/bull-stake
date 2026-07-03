@@ -25,7 +25,7 @@ pub struct SettleContest<'info> {
     // remaining_accounts: exactly `num_legs` result-market accounts, leg order.
 }
 
-pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
+pub fn handler(ctx: Context<SettleContest>, perfect_count: u64, perfect_weight: u64) -> Result<()> {
     require!(
         ctx.accounts.contest.status == ContestStatus::Open,
         ProofBetError::ContestNotOpen
@@ -46,6 +46,20 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         perfect_count <= ctx.accounts.contest.entry_count,
         ProofBetError::PerfectCountExceedsEntries
     );
+
+    // Weight sanity: zero iff no winners; otherwise between perfect_count × 2^MIN_OPEN_LEGS
+    // (every winner carried the minimum mask) and perfect_count × 2^MAX_LEGS.
+    if perfect_count == 0 {
+        require!(perfect_weight == 0, ProofBetError::WeightMismatch);
+    } else {
+        let min_w = perfect_count
+            .checked_mul(1u64 << MIN_OPEN_LEGS as u64)
+            .ok_or(ProofBetError::MathOverflow)?;
+        let max_w = perfect_count
+            .checked_mul(1u64 << MAX_LEGS as u64)
+            .ok_or(ProofBetError::MathOverflow)?;
+        require!(perfect_weight >= min_w && perfect_weight <= max_w, ProofBetError::WeightMismatch);
+    }
 
     let nl = ctx.accounts.contest.num_legs as usize;
     require!(
@@ -155,52 +169,22 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
             ProofBetError::VaultInsolvent
         );
     } else {
-        // ── WINNERS ── pay net entries + the whole jackpot pool, split evenly.
-        // raw = (pot - rake) + jpool ; share = floor(raw / perfect_count)
-        // payable = share * perfect_count ; dust = raw - payable (stays in jackpot)
+        // Weighted split: distributable is the FULL raw pool (net entries + the
+        // whole jackpot). Claims pay floor(distributable * w_i / perfect_weight);
+        // flooring residue (< perfect_count lamports) stays in the Contest PDA.
         let raw = (pot_net as u128)
             .checked_add(jpool as u128)
             .ok_or(ProofBetError::MathOverflow)?;
-        let share = raw
-            .checked_div(perfect_count as u128)
-            .ok_or(ProofBetError::MathOverflow)?;
-        let payable = u64::try_from(
-            share
-                .checked_mul(perfect_count as u128)
-                .ok_or(ProofBetError::MathOverflow)?,
-        )
-        .map_err(|_| ProofBetError::MathOverflow)?;
-        let dust = u64::try_from(
-            raw.checked_sub(payable as u128).ok_or(ProofBetError::MathOverflow)?,
-        )
-        .map_err(|_| ProofBetError::MathOverflow)?;
+        let payable = u64::try_from(raw).map_err(|_| ProofBetError::MathOverflow)?;
 
-        // The Contest PDA currently holds (pot - rake); it must end holding exactly
-        // `payable`. The jackpot holds `jpool`; it must end holding `dust`. The net
-        // transfer is the SIGNED delta `payable - pot_net` (== `jpool - dust`):
-        //   - usual case (jpool >= dust): move (payable - pot_net) jackpot → contest.
-        //   - edge case (dust > jpool, possible when pot_net is small and
-        //     perfect_count is large): payable < pot_net, so the contest holds MORE
-        //     than payable; move (pot_net - payable) contest → jackpot instead, which
-        //     leaves the jackpot holding exactly `dust` (> jpool). Either way both
-        //     ledgers land exactly right and total lamports are conserved (= raw).
-        if payable >= pot_net {
-            let need = payable - pot_net; // == jpool - dust, jackpot → contest
-            if need > 0 {
-                ctx.accounts.jackpot.sub_lamports(need)?;
-                ctx.accounts.contest.add_lamports(need)?;
-            }
-            jackpot_in = need;
-        } else {
-            let give = pot_net - payable; // == dust - jpool, contest → jackpot
-            ctx.accounts.contest.sub_lamports(give)?;
-            ctx.accounts.jackpot.add_lamports(give)?;
-            jackpot_out = give;
+        // Contest must end holding floor + payable: pull the whole jackpot in.
+        if jpool > 0 {
+            ctx.accounts.jackpot.sub_lamports(jpool)?;
+            ctx.accounts.contest.add_lamports(jpool)?;
         }
+        jackpot_in = jpool;
         distributable = payable;
 
-        // Solvency (winners): the Contest PDA must hold floor + distributable so every
-        // winner's share is payable; the jackpot must stay above its own rent floor.
         require!(
             ctx.accounts.contest.to_account_info().lamports()
                 >= floor.checked_add(distributable).ok_or(ProofBetError::MathOverflow)?,
@@ -210,12 +194,12 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
             ctx.accounts.jackpot.to_account_info().lamports() >= jackpot_rent_floor()?,
             ProofBetError::VaultInsolvent
         );
-        let _ = dust; // dust is left implicitly in the jackpot (asserted via the floor checks)
     }
 
     let c = &mut ctx.accounts.contest;
     c.winning_buckets = winning;
     c.perfect_count = perfect_count;
+    c.perfect_weight = perfect_weight;
     c.distributable = distributable;
     c.settled_ts = now;
     c.status = if rolled_over { ContestStatus::RolledOver } else { ContestStatus::Settled };
@@ -225,6 +209,7 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64) -> Result<()> {
         contest_id: c.contest_id,
         winning_buckets: winning,
         perfect_count,
+        perfect_weight,
         pot,
         jackpot_in,
         jackpot_out,

@@ -46,9 +46,10 @@ async function enter(contest: any, player: Keypair, nonce: number, picks: number
 }
 
 async function settle(opts: {
-  keeper: Keypair; jackpot: any; contest: any; feeRecipient: any; markets: any[]; perfectCount: number;
+  keeper: Keypair; jackpot: any; contest: any; feeRecipient: any; markets: any[]; perfectCount: number; weight?: number;
 }) {
-  await program.methods.settleContest(new BN(opts.perfectCount))
+  const weight = opts.weight ?? 0;
+  await program.methods.settleContest(new BN(opts.perfectCount), new BN(weight))
     .accountsStrict({ settleAuthority: opts.keeper.publicKey, jackpot: opts.jackpot, contest: opts.contest, feeRecipient: opts.feeRecipient })
     .remainingAccounts(opts.markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
     .signers([opts.keeper]).rpc();
@@ -73,7 +74,8 @@ describe("parlay v2 — settle_contest", () => {
 
     const poolBefore = await jackpotPool(jackpot);
     await sleep(6500);
-    await settle({ keeper, jackpot, contest, feeRecipient: feeRecip.publicKey, markets, perfectCount: 2 });
+    // 4-leg contest, 2 perfect tickets entered before any leg locked → weight = 2 * 2^4 = 32.
+    await settle({ keeper, jackpot, contest, feeRecipient: feeRecip.publicKey, markets, perfectCount: 2, weight: 32 });
 
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} });
@@ -142,7 +144,8 @@ describe("parlay v2 — settle_contest", () => {
     for (let i = 0; i < 4; i++) mB.push(await makeSettledResultMarket(fB[i], resB[i], keeper));
     const poolBeforeB = await jackpotPool(jackpot);
     await sleep(6500);
-    await settle({ keeper, jackpot, contest: cB, feeRecipient: keeper.publicKey, markets: mB, perfectCount: 1 });
+    // 4-leg contest B, 1 perfect ticket → weight = 1 * 2^4 = 16.
+    await settle({ keeper, jackpot, contest: cB, feeRecipient: keeper.publicKey, markets: mB, perfectCount: 1, weight: 16 });
 
     const c = await program.account.contest.fetch(cB);
     // distributable == its_pot(post-rake) + jackpot_pool (perfect_count 1 → no dust).
@@ -173,7 +176,8 @@ describe("parlay v2 — settle_contest", () => {
     const payable = share * 3;
     const expectedDust = raw - payable;
     await sleep(6500);
-    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 3 });
+    // 3-leg contest, 3 perfect tickets → weight = 3 * 2^3 = 24.
+    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 3, weight: 24 });
 
     const c = await program.account.contest.fetch(contest);
     assert.equal(c.distributable.toNumber(), payable, "distributable == share*perfect_count (divisible)");
@@ -197,7 +201,8 @@ describe("parlay v2 — settle_contest", () => {
       markets.push(await makeSettledResultMarket(F, buckets[i], keeper, marketIds[i], numBuckets[i]));
     }
     await sleep(6500);
-    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 });
+    // 4-leg contest, 1 perfect ticket → weight = 1 * 2^4 = 16.
+    await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1, weight: 16 });
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} });
     assert.deepEqual(c.winningBuckets, [2, 1, 0, 0, 0, 0], "each leg's bucket read from its own (fixture, market_id) market");
@@ -215,8 +220,10 @@ describe("parlay v2 — settle_contest", () => {
     const markets = [];
     for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], attacker));
     await sleep(6500);
+    // weight = 1 * 2^4 = 16 (valid/in-band) so the call reaches the per-market check
+    // this test targets, instead of tripping WeightMismatch first.
     await expectError(
-      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 }),
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1, weight: 16 }),
       "ResultMarketMismatch",
     );
     // Teardown so the Entry/Contest don't linger uncleaned.
@@ -247,9 +254,10 @@ describe("parlay v2 — settle_contest", () => {
     const markets = [];
     for (let i = 0; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
     await sleep(6500);
-    // Wrong remaining-account count (3 instead of 4).
+    // Wrong remaining-account count (3 instead of 4). weight = 16 (valid/in-band)
+    // so the call reaches the remaining_accounts.len() check this test targets.
     await expectError(
-      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets: markets.slice(0, 3), perfectCount: 1 }),
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets: markets.slice(0, 3), perfectCount: 1, weight: 16 }),
       "ResultMarketMismatch",
     );
     await program.methods.voidContest()
@@ -270,8 +278,9 @@ describe("parlay v2 — settle_contest", () => {
     markets.push(await makeAbandonedMarket(fixtures[0], keeper));
     for (let i = 1; i < 4; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
     await sleep(6500);
+    // weight = 1 * 2^4 = 16 (valid/in-band) so the call reaches the per-market check.
     await expectError(
-      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 }),
+      settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1, weight: 16 }),
       "ResultMarketNotSettled",
     );
     await program.methods.voidContest()

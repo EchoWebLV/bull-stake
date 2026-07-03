@@ -79,7 +79,8 @@ describe("parlay v2 — 6-leg lifecycle (cap raised to 6)", () => {
 
     await sleep(6500); // pass settle_after_ts
     // perfect_count = 1 (only the winner is perfect) → winner sweeps the whole distributable.
-    await program.methods.settleContest(new BN(1))
+    // weight = 1 * 2^6 = 64 (winner entered before any leg locked, active mask = all 6 legs).
+    await program.methods.settleContest(new BN(1), new BN(64))
       .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
       .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
       .signers([keeper]).rpc();

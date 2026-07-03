@@ -35,8 +35,10 @@ describe("parlay v2 — safety", () => {
     const markets = [];
     for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(wrong[i], 0, keeper));
     await sleep(6500);
+    // perfect_count 0 → weight must be 0 to clear the weight-sanity gate before
+    // reaching the PDA-derivation check this test targets.
     await expectError(
-      program.methods.settleContest(new BN(0))
+      program.methods.settleContest(new BN(0), new BN(0))
         .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
         .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
         .signers([keeper]).rpc(),
@@ -74,7 +76,8 @@ describe("parlay v2 — safety", () => {
     const floor = await contestRentFloor(contest);
     const pot = (await balance(contest)) - floor; // 3 SOL of entries
     const jackBefore = await balance(jackpot);
-    await program.methods.settleContest(new BN(3))
+    // 3-leg contest, 3 perfect tickets → weight = 3 * 2^3 = 24.
+    await program.methods.settleContest(new BN(3), new BN(24))
       .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
       .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
       .signers([keeper]).rpc();
@@ -124,7 +127,8 @@ describe("parlay v2 — safety", () => {
       await makeZeroWinnerResultMarket(fixtures[2], results[2], keeper),
     ];
     await sleep(6500);
-    await program.methods.settleContest(new BN(1))
+    // 3-leg contest, 1 perfect ticket → weight = 1 * 2^3 = 8.
+    await program.methods.settleContest(new BN(1), new BN(8))
       .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
       .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
       .signers([keeper]).rpc();
@@ -161,7 +165,8 @@ describe("parlay v2 — safety", () => {
     for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
     await sleep(6500);
     // Under-report: declare only 1 winner though both are perfect.
-    await program.methods.settleContest(new BN(1))
+    // 3-leg contest, 1 (declared) perfect ticket → weight = 1 * 2^3 = 8.
+    await program.methods.settleContest(new BN(1), new BN(8))
       .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
       .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
       .signers([keeper]).rpc();
@@ -239,8 +244,9 @@ describe("parlay v2 — safety", () => {
     for (let i = 0; i < 3; i++) marketsA.push(await makeSettledResultMarket(fixturesA[i], results[i], keeper));
     for (let i = 0; i < 3; i++) marketsB.push(await makeSettledResultMarket(fixturesB[i], results[i], keeper));
     await sleep(6500);
-    for (const [contest, markets, pc] of [[contestA, marketsA, 2], [contestB, marketsB, 1]] as const) {
-      await program.methods.settleContest(new BN(pc))
+    // Both are 3-leg contests: A has 2 perfect tickets → weight 2*2^3=16; B has 1 → weight 8.
+    for (const [contest, markets, pc, w] of [[contestA, marketsA, 2, 16], [contestB, marketsB, 1, 8]] as const) {
+      await program.methods.settleContest(new BN(pc), new BN(w))
         .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
         .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
         .signers([keeper]).rpc();
@@ -289,16 +295,18 @@ describe("parlay v2 — safety", () => {
     for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
     await sleep(6500);
     // Over-report (perfect_count 2 > entry_count 1) → must revert BEFORE any jackpot
-    // is pulled into the contest (the brick the audit caught).
+    // is pulled into the contest (the brick the audit caught). PerfectCountExceedsEntries
+    // fires before the weight-sanity check, so the weight value here is unreached.
     await expectError(
-      program.methods.settleContest(new BN(2))
+      program.methods.settleContest(new BN(2), new BN(16))
         .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
         .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
         .signers([keeper]).rpc(),
       "PerfectCountExceedsEntries",
     );
     // The honest count (1 <= entry_count) settles fine — the guard only blocks over-reports.
-    await program.methods.settleContest(new BN(1))
+    // 3-leg contest, 1 perfect ticket → weight = 1 * 2^3 = 8.
+    await program.methods.settleContest(new BN(1), new BN(8))
       .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
       .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
       .signers([keeper]).rpc();

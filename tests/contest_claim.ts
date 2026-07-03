@@ -18,7 +18,7 @@ async function contestRentFloor(contest: any): Promise<number> {
 // settled by the KEEPER (oracle binding requires market.settle_authority == keeper).
 async function runContest(opts: {
   contestId: number; fixtures: number[]; results: number[];
-  entries: { player: Keypair; nonce: number; picks: number[] }[]; perfectCount: number;
+  entries: { player: Keypair; nonce: number; picks: number[] }[]; perfectCount: number; weight?: number;
 }) {
   const jackpot = await ensureJackpot();
   const keeper = await freshFunded();
@@ -41,7 +41,8 @@ async function runContest(opts: {
     markets.push(await makeSettledResultMarket(opts.fixtures[i], opts.results[i], keeper));
   }
   await sleep(6500);
-  await program.methods.settleContest(new BN(opts.perfectCount))
+  const weight = opts.weight ?? 0;
+  await program.methods.settleContest(new BN(opts.perfectCount), new BN(weight))
     .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
     .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
     .signers([keeper]).rpc();
@@ -61,7 +62,8 @@ describe("parlay v2 — claim_contest", () => {
     const fixtures = [160010, 160011, 160012];
     const results = [0, 1, 2];
     const { contest } = await runContest({
-      contestId: 160001, fixtures, results, perfectCount: 1,
+      // 3-leg contest, 1 perfect ticket → weight = 1 * 2^3 = 8.
+      contestId: 160001, fixtures, results, perfectCount: 1, weight: 8,
       entries: [
         { player: winner, nonce: 0, picks: [0, 1, 2] },
         { player: loser, nonce: 0, picks: [1, 1, 1] },
@@ -94,7 +96,8 @@ describe("parlay v2 — claim_contest", () => {
     const fixtures = [160020, 160021, 160022];
     const results = [2, 0, 1];
     const { contest } = await runContest({
-      contestId: 160002, fixtures, results, perfectCount: 2,
+      // 3-leg contest, 2 perfect tickets → weight = 2 * 2^3 = 16.
+      contestId: 160002, fixtures, results, perfectCount: 2, weight: 16,
       entries: [
         { player: a, nonce: 0, picks: [2, 0, 1] },
         { player: b, nonce: 0, picks: [2, 0, 1] },
@@ -117,7 +120,8 @@ describe("parlay v2 — claim_contest", () => {
     const fixtures = [160030, 160031, 160032];
     const results = [0, 1, 2];
     const { contest } = await runContest({
-      contestId: 160003, fixtures, results, perfectCount: 1,
+      // 3-leg contest, 1 (declared) perfect ticket → weight = 1 * 2^3 = 8.
+      contestId: 160003, fixtures, results, perfectCount: 1, weight: 8,
       entries: [
         { player: w1, nonce: 0, picks: [0, 1, 2] },
         { player: w2, nonce: 0, picks: [0, 1, 2] },
