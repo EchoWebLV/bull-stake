@@ -442,9 +442,14 @@ export async function createDailyCard(
 
   // create_contest (NO vault). Arg order MUST match the IDL:
   //   contest_id, fixtures[6], market_ids[6], num_legs, entry_price, lock_ts,
-  //   settle_after_ts, fee_recipient, fee_bps.
+  //   settle_after_ts, fee_recipient, fee_bps, leg_lock_ts[6].
   const fixturesArr = pad(legs.map((l) => l.fixtureId), 0);
   const marketIdsArr = pad(legs.map((l) => l.marketId), 0);
+  // Legacy semantics: this driver has no per-leg lock timing, so every active
+  // leg locks at the single contest lock_ts (zero-padded past num_legs) —
+  // the program derives entries_close_ts = lock_ts when all locks are equal,
+  // preserving the pre-existing single-lock behavior exactly.
+  const legLockTsArr = pad(Array(numLegs).fill(new BN(card.lockTs)), new BN(0));
   const sig = await proofbet.methods
     .createContest(
       new BN(contestId),
@@ -456,6 +461,7 @@ export async function createDailyCard(
       new BN(card.settleAfterTs),
       feeRecipient,
       opts.feeBps,
+      legLockTsArr,
     )
     .accountsStrict({ keeper, contest, systemProgram: SystemProgram.programId })
     .rpc();

@@ -12,11 +12,14 @@
  * no wallet load.
  *
  * WHY the wire-arg tests are this picky: create_contest serializes fixed-size
- * borsh arrays ([i64;6] fixtures, [u8;6] market_ids) and mixed BN/number
- * scalars. Passing a BN where borsh expects a raw u8 (or an unpadded array)
- * under-serializes SILENTLY — the same bug class caught elsewhere in this repo —
- * so we assert the exact 9-arg order and the exact JS type of every slot
- * against the DEPLOYED IDL (target/idl/proofbet.json).
+ * borsh arrays ([i64;6] fixtures, [u8;6] market_ids, [i64;6] leg_lock_ts) and
+ * mixed BN/number scalars. Passing a BN where borsh expects a raw u8 (or an
+ * unpadded array) under-serializes SILENTLY — the same bug class caught
+ * elsewhere in this repo — so we assert the exact 10-arg order and the exact
+ * JS type of every slot against the DEPLOYED IDL (target/idl/proofbet.json).
+ * The trailing leg_lock_ts is per-leg entries-close timing; these legacy
+ * drivers preserve pre-existing behavior by locking every active leg at the
+ * single contest lock_ts (zero-padded past num_legs, same as the other arrays).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -151,14 +154,14 @@ const drive = (
 // ── deployed-IDL spec pin ─────────────────────────────────────────────────────
 
 describe("deployed IDL — create_contest wire spec", () => {
-  it("takes exactly these 9 args in this order", () => {
+  it("takes exactly these 10 args in this order", () => {
     expect(CREATE_CONTEST.args.map((a) => a.name)).toEqual([
       "contest_id", "fixtures", "market_ids", "num_legs", "entry_price",
-      "lock_ts", "settle_after_ts", "fee_recipient", "fee_bps",
+      "lock_ts", "settle_after_ts", "fee_recipient", "fee_bps", "leg_lock_ts",
     ]);
   });
 
-  it("arg types: u64 id, [i64;6] fixtures, [u8;6] market_ids, u8/u64/i64/i64/pubkey/u16", () => {
+  it("arg types: u64 id, [i64;6] fixtures, [u8;6] market_ids, u8/u64/i64/i64/pubkey/u16, [i64;6] leg_lock_ts", () => {
     expect(CREATE_CONTEST.args.map((a) => a.type)).toEqual([
       "u64",
       { array: ["i64", 6] },
@@ -169,6 +172,7 @@ describe("deployed IDL — create_contest wire spec", () => {
       "i64",
       "pubkey",
       "u16",
+      { array: ["i64", 6] },
     ]);
   });
 
@@ -251,13 +255,27 @@ describe("createDailyCard driver", () => {
 
   // (a) the 9 createContest args in deployed-IDL order with exact wire types
 
-  it("emits exactly one createContest with the 9 args in deployed-IDL order", async () => {
+  it("emits exactly one createContest with the 10 args in deployed-IDL order", async () => {
     const spy = makeProgramSpy();
     const res = await drive(spy);
     expect(res.action).toBe("created");
     const create = createContestCalls(spy.calls);
     expect(create).toHaveLength(1);
-    expect(create[0].args).toHaveLength(CREATE_CONTEST.args.length); // 9
+    expect(create[0].args).toHaveLength(CREATE_CONTEST.args.length); // 10
+  });
+
+  it("leg_lock_ts (10th arg) is a [i64;6] BN array: every active leg locks at card.lockTs, zero tail", async () => {
+    const spy = makeProgramSpy();
+    await drive(spy);
+    const a = createContestCalls(spy.calls)[0].args;
+    const legLockTs = a[9] as unknown[];
+    expect(legLockTs).toHaveLength(IDL_LEGS);
+    expect(legLockTs.every((t) => BN.isBN(t))).toBe(true);
+    // CARD has 4 legs — first 4 slots == lock_ts, tail zero-padded (legacy
+    // semantics: every leg locks at the single contest lock_ts).
+    expect(legLockTs.map((t) => (t as BNLike).toString())).toEqual([
+      String(CARD.lockTs), String(CARD.lockTs), String(CARD.lockTs), String(CARD.lockTs), "0", "0",
+    ]);
   });
 
   it("u64/i64 slots (contest_id, entry_price, lock_ts, settle_after_ts) are BN with the right values", async () => {

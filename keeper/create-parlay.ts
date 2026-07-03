@@ -130,13 +130,19 @@ async function main() {
 
     // 2. create_contest (NO vault). Arg order MUST match the IDL:
     //    contest_id, fixtures, market_ids, num_legs, entry_price, lock_ts,
-    //    settle_after_ts, fee_recipient, fee_bps.
+    //    settle_after_ts, fee_recipient, fee_bps, leg_lock_ts.
     // Inline the contest PDA derivation (seed [b"contest", u64le(contestId)]) so
     // this file doesn't import engine/src/chain.ts — matches settle-all.ts.
     const contest = PublicKey.findProgramAddressSync(
       [Buffer.from("contest"), u64le(args.contestId)], programId,
     )[0];
     if (dryRun) { console.log(`would create_contest ${contest.toBase58()}`); continue; }
+    // Single-match parlay: every leg is on the same fixture, so all legs
+    // already share the match kickoff lock — every active leg locks at
+    // args.lockTs (zero-padded tail past numLegs), same array length as
+    // fixtures/marketIds ([i64; MAX_LEGS] = 6).
+    const legLockTs = Array(args.numLegs).fill(new BN(args.lockTs));
+    while (legLockTs.length < args.fixtures.length) legLockTs.push(new BN(0));
     const sig = await proofbet.methods
       .createContest(
         new BN(args.contestId),
@@ -148,6 +154,7 @@ async function main() {
         new BN(args.settleAfterTs),
         keeper,
         feeBps,
+        legLockTs,
       )
       .accountsStrict({ keeper, contest, systemProgram: SystemProgram.programId })
       .rpc();
