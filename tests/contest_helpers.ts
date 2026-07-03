@@ -52,6 +52,13 @@ export function pickArray(picks: number[]): number[] {
   return out;
 }
 
+/** [lockTs; n legs] padded with 0 — every leg locks at the global lock (legacy shape). */
+export function legLockArray(lockTs: number, numLegs: number): BN[] {
+  const out: BN[] = [];
+  for (let i = 0; i < MAX_LEGS; i++) out.push(new BN(i < numLegs ? lockTs : 0));
+  return out;
+}
+
 /**
  * Create a per-fixture result market on (fixtureId, marketId) and settle it to
  * `winningBucket`, so settle_contest can read it. `numBuckets` (2 or 3) lets a leg

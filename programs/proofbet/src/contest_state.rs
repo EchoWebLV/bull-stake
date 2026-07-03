@@ -58,9 +58,10 @@ pub struct Contest {
     /// Per-leg entry lock (the leg's own kickoff). Indices >= num_legs stay 0.
     /// An entry's ACTIVE legs are those with leg_lock_ts[i] > entry.entry_ts.
     pub leg_lock_ts: [i64; MAX_LEGS],
-    /// The moment open legs would drop below MIN_OPEN_LEGS — no entries after
-    /// this. Derived at create: the (num_legs - MIN_OPEN_LEGS)-th smallest
-    /// active leg_lock_ts (0-indexed). For num_legs == 3 this equals lock_ts.
+    /// The moment open legs would drop below MIN_OPEN_LEGS — no entries at or
+    /// after this. Derived at create: the (num_legs - MIN_OPEN_LEGS)-th smallest
+    /// of the first num_legs lock times (zero tail excluded), 0-indexed. For
+    /// num_legs == 3 this equals lock_ts.
     pub entries_close_ts: i64,
     pub settle_after_ts: i64,     // earliest settle (latest kickoff + buffer)
     pub fee_bps: u16,             // 500 = 5%

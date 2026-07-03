@@ -4,7 +4,7 @@ import {
 } from "./helpers";
 import {
   jackpotPda, ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
-  makeSettledResultMarket, makeAbandonedMarket,
+  makeSettledResultMarket, makeAbandonedMarket, legLockArray,
 } from "./contest_helpers";
 
 // Task 5: settle_contest v2 — per-leg market_id resolution + the jackpot mechanic
@@ -31,7 +31,7 @@ async function open(opts: {
     .createContest(
       new BN(opts.contestId), fixtureArray(opts.fixtures), marketIdArray(opts.marketIds), opts.fixtures.length,
       new BN(opts.price ?? 1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6),
-      (opts.feeRecipient as any), opts.feeBps ?? 500,
+      (opts.feeRecipient as any), opts.feeBps ?? 500, legLockArray(lock, opts.fixtures.length),
     )
     .accountsStrict({ keeper: opts.keeper.publicKey, contest, systemProgram: SystemProgram.programId })
     .signers([opts.keeper]).rpc();

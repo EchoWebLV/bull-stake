@@ -2,7 +2,7 @@ import {
   program, freshFunded, SystemProgram, assert, balance, Keypair, expectError,
   BN, nowSec, LAMPORTS_PER_SOL, connection,
 } from "./helpers";
-import { contestPda, entryPda, fixtureArray, marketIdArray, pickArray } from "./contest_helpers";
+import { contestPda, entryPda, fixtureArray, marketIdArray, pickArray, legLockArray } from "./contest_helpers";
 
 // Task 7: void_contest v2 — status transition only; refunds flow through
 // claim_contest's Voided branch, paid from the Contest PDA.
@@ -18,7 +18,7 @@ async function openWith(opts: { contestId: number; keeper: Keypair; lockInSec?: 
   await program.methods
     .createContest(
       new BN(opts.contestId), fixtureArray([70010, 70011, 70012]), marketIdArray([12, 12, 12]), 3,
-      new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), opts.keeper.publicKey, 500,
+      new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), opts.keeper.publicKey, 500, legLockArray(lock, 3),
     )
     .accountsStrict({ keeper: opts.keeper.publicKey, contest, systemProgram: SystemProgram.programId })
     .signers([opts.keeper]).rpc();

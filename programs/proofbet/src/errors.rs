@@ -113,7 +113,7 @@ pub enum ProofBetError {
     PoolNotVoided,
     #[msg("this voided pool's seats have already been refunded")]
     AlreadyRefunded,
-    #[msg("Per-leg lock timestamps are inconsistent with lock_ts/settle_after_ts")]
+    #[msg("per-leg lock timestamps are inconsistent with lock_ts/settle_after_ts")]
     InvalidLegLockTs,
     #[msg("perfect_weight is inconsistent with perfect_count")]
     WeightMismatch,

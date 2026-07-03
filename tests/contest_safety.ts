@@ -4,7 +4,7 @@ import {
 } from "./helpers";
 import {
   jackpotPda, ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
-  makeSettledResultMarket, makeZeroWinnerResultMarket,
+  makeSettledResultMarket, makeZeroWinnerResultMarket, legLockArray,
 } from "./contest_helpers";
 
 // Task 9 (NEXT subagent) expands this file. For Tasks 1–7 this is a MINIMAL v2
@@ -26,7 +26,7 @@ describe("parlay v2 — safety", () => {
     const lock = nowSec() + 5;
     await program.methods
       .createContest(new BN(180001), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
 
@@ -56,7 +56,7 @@ describe("parlay v2 — safety", () => {
     const lock = nowSec() + 5;
     await program.methods
       .createContest(new BN(180002), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
 
@@ -109,7 +109,7 @@ describe("parlay v2 — safety", () => {
     const lock = nowSec() + 5;
     await program.methods
       .createContest(new BN(180007), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
     const winner = await freshFunded();
@@ -147,7 +147,7 @@ describe("parlay v2 — safety", () => {
     const lock = nowSec() + 5;
     await program.methods
       .createContest(new BN(180009), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
     const w1 = await freshFunded();
@@ -187,7 +187,7 @@ describe("parlay v2 — safety", () => {
     const lock = nowSec() + 30;
     await program.methods
       .createContest(new BN(180008), fixtureArray([180080, 180081, 180082]), marketIdArray([12, 12, 12]), 3,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
     const stranger = await freshFunded();
@@ -217,7 +217,7 @@ describe("parlay v2 — safety", () => {
     for (const [id, contest, fixtures] of [[181001, contestA, fixturesA], [181002, contestB, fixturesB]] as const) {
       await program.methods
         .createContest(new BN(id), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
-          new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+          new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
         .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
         .signers([keeper]).rpc();
     }
@@ -277,7 +277,7 @@ describe("parlay v2 — safety", () => {
     const contest = contestPda(182001);
     await program.methods
       .createContest(new BN(182001), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
-        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500)
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
     // Exactly ONE ticket entered.

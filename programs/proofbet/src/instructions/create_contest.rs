@@ -36,6 +36,7 @@ pub fn handler(
     settle_after_ts: i64,
     fee_recipient: Pubkey,
     fee_bps: u16,
+    leg_lock_ts: [i64; MAX_LEGS],
 ) -> Result<()> {
     require!(contest_id != 0, ProofBetError::InvalidContestId);
     require!(
@@ -53,6 +54,33 @@ pub fn handler(
         require!(market_ids[i] != 0, ProofBetError::InvalidMarketId);
     }
 
+    // Per-leg locks: every active leg locks at its own kickoff — no earlier than
+    // the global lock_ts (which must be their minimum) and strictly before settle.
+    // Tail entries stay zero (same convention as fixtures/market_ids).
+    let nl = num_legs as usize;
+    let mut sorted_locks = [i64::MAX; MAX_LEGS];
+    for i in 0..MAX_LEGS {
+        if i < nl {
+            require!(
+                leg_lock_ts[i] >= lock_ts && leg_lock_ts[i] < settle_after_ts,
+                ProofBetError::InvalidLegLockTs
+            );
+            sorted_locks[i] = leg_lock_ts[i];
+        } else {
+            require!(leg_lock_ts[i] == 0, ProofBetError::InvalidLegLockTs);
+        }
+    }
+    require!(
+        (0..nl).any(|i| leg_lock_ts[i] == lock_ts),
+        ProofBetError::InvalidLegLockTs // lock_ts must BE the earliest leg lock
+    );
+    sorted_locks[..nl].sort_unstable();
+    // Entries close when open legs would drop below MIN_OPEN_LEGS: the
+    // (nl - MIN_OPEN_LEGS)-th smallest lock (0-indexed). nl >= 3 is already
+    // guaranteed by the num_legs range check above.
+    let close_idx = nl.saturating_sub(MIN_OPEN_LEGS);
+    let entries_close_ts = sorted_locks[close_idx];
+
     let keeper_key = ctx.accounts.keeper.key();
     let c = &mut ctx.accounts.contest;
     c.contest_id = contest_id;
@@ -63,12 +91,15 @@ pub fn handler(
     c.num_legs = num_legs;
     c.entry_price = entry_price;
     c.lock_ts = lock_ts;
+    c.leg_lock_ts = leg_lock_ts;
+    c.entries_close_ts = entries_close_ts;
     c.settle_after_ts = settle_after_ts;
     c.fee_bps = fee_bps;
     c.status = ContestStatus::Open;
     c.winning_buckets = [0; MAX_LEGS];
     c.entry_count = 0;
     c.perfect_count = 0;
+    c.perfect_weight = 0;
     c.distributable = 0;
     c.claimed_count = 0;
     c.claimed_total = 0;

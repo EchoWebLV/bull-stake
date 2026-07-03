@@ -2,7 +2,7 @@ import {
   program, freshFunded, SystemProgram, assert, expectError, balance,
   BN, nowSec, sleep,
 } from "./helpers";
-import { contestPda, entryPda, fixtureArray, marketIdArray, pickArray } from "./contest_helpers";
+import { contestPda, entryPda, fixtureArray, marketIdArray, pickArray, legLockArray } from "./contest_helpers";
 
 // Task 4: enter v2 — deposits straight into the Contest PDA (no JackpotVault).
 
@@ -13,7 +13,7 @@ async function openContest(contestId: number, lockInSec = 6) {
   await program.methods
     .createContest(
       new BN(contestId), fixtureArray([9001, 9002, 9003, 9004]), marketIdArray([12, 12, 12, 12]), 4,
-      new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500,
+      new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 4),
     )
     .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
     .signers([keeper]).rpc();

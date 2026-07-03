@@ -4,7 +4,7 @@ import {
 } from "./helpers";
 import {
   ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
-  makeSettledResultMarket,
+  makeSettledResultMarket, legLockArray,
 } from "./contest_helpers";
 
 // Task 8: jackpot rollover integration — two contests created OVERLAPPING (both
@@ -28,7 +28,7 @@ async function createContest(id: number, keeper: Keypair, fixtures: number[], fe
   await program.methods
     .createContest(
       new BN(id), fixtureArray(fixtures), marketIdArray(fixtures.map(() => 12)), fixtures.length,
-      new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), feeRecipient, 500,
+      new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), feeRecipient, 500, legLockArray(lock, fixtures.length),
     )
     .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
     .signers([keeper]).rpc();

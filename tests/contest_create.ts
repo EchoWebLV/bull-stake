@@ -2,7 +2,7 @@ import {
   program, freshFunded, SystemProgram, assert, expectError,
   BN, nowSec,
 } from "./helpers";
-import { contestPda, fixtureArray, marketIdArray } from "./contest_helpers";
+import { contestPda, fixtureArray, marketIdArray, legLockArray } from "./contest_helpers";
 
 // Task 3: create_contest v2 — concurrent (no JackpotVault, no one-live guard),
 // per-contest pot held by the Contest PDA, per-leg market_ids.
@@ -25,6 +25,7 @@ describe("parlay v2 — create_contest", () => {
         new BN(lock + 30),
         keeper.publicKey,
         500,
+        legLockArray(lock, 4),
       )
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
@@ -47,7 +48,7 @@ describe("parlay v2 — create_contest", () => {
     const c1 = contestPda(id1);
     await program.methods
       .createContest(new BN(id1), fixtureArray([1300201, 1300202, 1300203]), marketIdArray([12, 12, 12]), 3,
-        new BN(10_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500)
+        new BN(10_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest: c1, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
     // Second contest with a DIFFERENT id succeeds while the first is Open (no ContestStillLive).
@@ -55,7 +56,7 @@ describe("parlay v2 — create_contest", () => {
     const c2 = contestPda(id2);
     await program.methods
       .createContest(new BN(id2), fixtureArray([1300301, 1300302, 1300303]), marketIdArray([12, 12, 12]), 3,
-        new BN(10_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500)
+        new BN(10_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 3))
       .accountsStrict({ keeper: keeper.publicKey, contest: c2, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
     assert.deepEqual((await program.account.contest.fetch(c1)).status, { open: {} }, "first stays Open");
@@ -69,7 +70,7 @@ describe("parlay v2 — create_contest", () => {
     await expectError(
       program.methods
         .createContest(new BN(130004), fixtureArray([1, 2]), marketIdArray([12, 12]), 2,
-          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500)
+          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 2))
         .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
         .signers([keeper]).rpc(),
       "InvalidMatchCount",
@@ -83,7 +84,7 @@ describe("parlay v2 — create_contest", () => {
     await expectError(
       program.methods
         .createContest(new BN(130005), fixtureArray([1, 2, 3]), marketIdArray([12, 12, 12]), 3,
-          new BN(0), new BN(lock), new BN(lock + 30), keeper.publicKey, 500)
+          new BN(0), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 3))
         .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
         .signers([keeper]).rpc(),
       "ZeroAmount",
@@ -97,7 +98,7 @@ describe("parlay v2 — create_contest", () => {
     await expectError(
       program.methods
         .createContest(new BN(130006), fixtureArray([1, 2, 3]), marketIdArray([12, 12, 12]), 3,
-          new BN(20_000_000), new BN(lock), new BN(lock), keeper.publicKey, 500) // settle == lock
+          new BN(20_000_000), new BN(lock), new BN(lock), keeper.publicKey, 500, legLockArray(lock, 3)) // settle == lock
         .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
         .signers([keeper]).rpc(),
       "EntryCloseInPast",
@@ -111,7 +112,7 @@ describe("parlay v2 — create_contest", () => {
     await expectError(
       program.methods
         .createContest(new BN(130007), fixtureArray([1, 0, 3]), marketIdArray([12, 12, 12]), 3,
-          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500)
+          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 3))
         .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
         .signers([keeper]).rpc(),
       "InvalidFixtureId",
@@ -125,7 +126,7 @@ describe("parlay v2 — create_contest", () => {
     await expectError(
       program.methods
         .createContest(new BN(130008), fixtureArray([1, 2, 3]), marketIdArray([12, 0, 12]), 3,
-          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500)
+          new BN(20_000_000), new BN(lock), new BN(lock + 30), keeper.publicKey, 500, legLockArray(lock, 3))
         .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
         .signers([keeper]).rpc(),
       "InvalidMarketId",

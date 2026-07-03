@@ -64,9 +64,11 @@ pub mod proofbet {
         settle_after_ts: i64,
         fee_recipient: Pubkey,
         fee_bps: u16,
+        leg_lock_ts: [i64; crate::contest_state::MAX_LEGS],
     ) -> Result<()> {
         instructions::create_contest::handler(
             ctx, contest_id, fixtures, market_ids, num_legs, entry_price, lock_ts, settle_after_ts, fee_recipient, fee_bps,
+            leg_lock_ts,
         )
     }
 

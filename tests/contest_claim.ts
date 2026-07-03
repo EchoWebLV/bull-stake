@@ -4,7 +4,7 @@ import {
 } from "./helpers";
 import {
   jackpotPda, ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
-  makeSettledResultMarket,
+  makeSettledResultMarket, legLockArray,
 } from "./contest_helpers";
 
 // Task 6: claim_contest v2 — pays win shares / void refunds from the Contest PDA.
@@ -27,7 +27,7 @@ async function runContest(opts: {
   await program.methods
     .createContest(
       new BN(opts.contestId), fixtureArray(opts.fixtures), marketIdArray(opts.fixtures.map(() => 12)), opts.fixtures.length,
-      new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500,
+      new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 6), keeper.publicKey, 500, legLockArray(lock, opts.fixtures.length),
     )
     .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
     .signers([keeper]).rpc();

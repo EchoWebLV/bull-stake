@@ -4,7 +4,7 @@ import {
 } from "./helpers";
 import {
   ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
-  makeSettledResultMarket, MAX_LEGS,
+  makeSettledResultMarket, MAX_LEGS, legLockArray,
 } from "./contest_helpers";
 
 // Phase 1: lift the per-card leg cap 5 → 6 so the daily card holds exactly 6 legs.
@@ -49,6 +49,7 @@ describe("parlay v2 — 6-leg lifecycle (cap raised to 6)", () => {
         new BN(lock + 6),
         keeper.publicKey,
         500,
+        legLockArray(lock, 6),
       )
       .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
       .signers([keeper]).rpc();
