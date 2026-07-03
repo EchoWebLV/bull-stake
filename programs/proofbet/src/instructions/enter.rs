@@ -34,7 +34,12 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_LEGS]) -> Result
         ProofBetError::ContestNotOpen
     );
     let now = Clock::get()?.unix_timestamp;
-    require!(now < ctx.accounts.contest.lock_ts, ProofBetError::EntryClosed);
+    // Rolling entry: open until entries_close_ts (the instant fewer than
+    // MIN_OPEN_LEGS legs remain open) — NOT the first kickoff.
+    require!(
+        now < ctx.accounts.contest.entries_close_ts,
+        ProofBetError::EntryClosed
+    );
 
     // Validate picks: a valid bucket (< MAX_BUCKETS) within num_legs, and exactly 0
     // beyond it (tail guard). MAX_BUCKETS (3) is the maximum outcome space; we do
@@ -74,6 +79,7 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_LEGS]) -> Result
         entry.nonce = nonce;
         entry.amount = price;
         entry.picks = picks;
+        entry.entry_ts = now;
         entry.bump = ctx.bumps.entry;
 
         let c = &mut ctx.accounts.contest;
@@ -90,6 +96,9 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_LEGS]) -> Result
     } else {
         require_keys_eq!(ctx.accounts.entry.bettor, bettor_key, ProofBetError::Unauthorized);
         ctx.accounts.entry.picks = picks;
+        // Editing re-times the card: the mask is computed from the LAST write, so
+        // re-picking after a leg locked shrinks the mask instead of cheating it.
+        ctx.accounts.entry.entry_ts = now;
         emit!(EnteredContest {
             contest: ctx.accounts.contest.key(),
             bettor: bettor_key,
