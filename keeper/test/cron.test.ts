@@ -15,7 +15,7 @@ import {
   liveIntervalMs,
   makeTickLive,
   linesIntervalMs,
-  dailyCardCreateEnabled,
+  pearlyCreateEnabled,
   poolScheduleEnabled,
 } from "../cron.js";
 
@@ -274,11 +274,11 @@ describe("linesIntervalMs", () => {
   });
 });
 
-describe("dailyCardCreateEnabled", () => {
-  it("is on by default and off only at the explicit '0'", () => {
-    expect(dailyCardCreateEnabled({} as NodeJS.ProcessEnv)).toBe(true);
-    expect(dailyCardCreateEnabled({ DAILY_CARD_CREATE: "1" } as unknown as NodeJS.ProcessEnv)).toBe(true);
-    expect(dailyCardCreateEnabled({ DAILY_CARD_CREATE: "0" } as unknown as NodeJS.ProcessEnv)).toBe(false);
+describe("pearlyCreateEnabled", () => {
+  it("is off by default and on only at the explicit '1'", () => {
+    expect(pearlyCreateEnabled({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(pearlyCreateEnabled({ PEARLY_CREATE: "1" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+    expect(pearlyCreateEnabled({ PEARLY_CREATE: "0" } as unknown as NodeJS.ProcessEnv)).toBe(false);
   });
 });
 

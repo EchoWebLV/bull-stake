@@ -4,13 +4,15 @@
  * Five jobs, one process, ZERO new dependencies (plain `setInterval`, the same
  * convention engine/src/server.ts uses):
  *
- *   1. CREATE  — once per UTC day at 08:00 UTC, run `create-daily-card.ts` to
- *                compose + open that day's ONE 6-leg card. Idempotent on the
- *                create side (create-daily-card skips if today's Contest PDA
- *                already exists), so a missed/duplicated tick is harmless.
- *                Can be paused entirely with DAILY_CARD_CREATE=0 (settle/live/
- *                pool-schedule/lines jobs are unaffected) — see
- *                `dailyCardCreateEnabled`.
+ *   1. CREATE  — once per UTC day at 08:00 UTC, run `create-daily-pearly.ts` to
+ *                compose + open that day's ONE all-slate perfect-parlay Pearly
+ *                card. Idempotent on the create side (create-daily-pearly skips
+ *                if today's Contest PDA already exists), so a missed/duplicated
+ *                tick is harmless. OFF by default — opt in with PEARLY_CREATE=1
+ *                (settle/live/pool-schedule/lines jobs are unaffected either
+ *                way) — see `pearlyCreateEnabled`. (Supersedes the old
+ *                DAILY_CARD_CREATE-gated create-daily-card.ts job — daily card
+ *                is paused; see git history for that gate.)
  *
  *   2. SETTLE  — every SETTLE_INTERVAL_MIN minutes, run `settle-contest.ts` with
  *                NO --contest-id (its built-in "enumerate Open contests due"
@@ -52,7 +54,7 @@
  * The scheduler does NOT touch Anchor/RPC/TxLINE itself for the CLI-spawned jobs.
  * It spawns the existing CLIs as child processes (inheriting this process's cwd +
  * .env), so the money path lives in exactly one place per job (settle-contest.ts,
- * lines.ts, schedule-pools.ts, create-daily-card.ts) and this file is just the
+ * lines.ts, schedule-pools.ts, create-daily-pearly.ts) and this file is just the
  * clock. That also means --dry-run here simply forwards --dry-run to each spawned
  * child: you get the full PREVIEW (pot/rake/jackpot/perfect-count for settle; the
  * analogous preview for lines) for everything due, with no transaction sent.
@@ -70,7 +72,7 @@
  * Env (all optional; sensible defaults):
  *   SETTLE_INTERVAL_MIN   minutes between settle passes        (default 10)
  *   DAILY_CREATE_HOUR_UTC hour-of-day UTC to run create        (default 8)
- *   DAILY_CARD_CREATE=0   pause the daily card create job      (default on)
+ *   PEARLY_CREATE=1       enable the daily Pearly create job   (default OFF)
  *   LIVE_INTERVAL_SEC     seconds between fast live job ticks  (default 30)
  *   SCHEDULE_INTERVAL_SEC seconds between pool-scheduler ticks (default 300)
  *   LINES_INTERVAL_MIN    minutes between lines-pass ticks     (default 5)
@@ -83,8 +85,8 @@
  * `import "dotenv/config"` finds keeper/.env. Adjust the absolute paths:
  *
  *   CRON_TZ=UTC
- *   # 1. compose + open the daily 6-leg card at 08:00 UTC
- *   0 8 * * *      cd /ABS/PATH/ProofBet/keeper && npx tsx create-daily-card.ts  >> /var/log/streak-create.log 2>&1
+ *   # 1. compose + open the daily Pearly card at 08:00 UTC
+ *   0 8 * * *      cd /ABS/PATH/ProofBet/keeper && npx tsx create-daily-pearly.ts  >> /var/log/streak-create.log 2>&1
  *   # 2. settle pass every 10 minutes (enumerates Open contests due; idempotent)
  *   [slash]10 * * * *  cd /ABS/PATH/ProofBet/keeper && npx tsx settle-contest.ts >> /var/log/streak-settle.log 2>&1
  *
@@ -181,15 +183,17 @@ export function linesIntervalMs(env: NodeJS.ProcessEnv): number {
   return Math.max(1 / 60, min) * MINUTE_MS;
 }
 
-/** Daily-card create toggle: `DAILY_CARD_CREATE=0` pauses the 08:00Z card
- *  create (the Parlay tab is hidden); anything else leaves it on. Pure. */
-export function dailyCardCreateEnabled(env: NodeJS.ProcessEnv): boolean {
-  return env.DAILY_CARD_CREATE !== "0";
+/** Daily-Pearly create toggle: `PEARLY_CREATE=1` enables the 08:00Z Pearly
+ *  create job; OFF by default (opt-in, unlike the superseded daily-card gate,
+ *  which defaulted on). Pure. */
+export function pearlyCreateEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env.PEARLY_CREATE === "1";
 }
 
 /** Pool auto-scheduler toggle: `POOL_SCHEDULE=0` pauses job (4) — live-pool
  *  creation spends real rent per match, so a lines-only keeper can opt out.
- *  Anything else leaves it on. Pure; mirrors dailyCardCreateEnabled. */
+ *  Anything else leaves it on. Pure; same opt-out shape as the old daily-card
+ *  gate (contrast pearlyCreateEnabled, which is opt-IN). */
 export function poolScheduleEnabled(env: NodeJS.ProcessEnv): boolean {
   return env.POOL_SCHEDULE !== "0";
 }
@@ -197,7 +201,7 @@ export function poolScheduleEnabled(env: NodeJS.ProcessEnv): boolean {
 // ── child-process runner ──────────────────────────────────────────────────────────
 
 /**
- * Run one of the sibling keeper CLIs (create-daily-card.ts / settle-contest.ts)
+ * Run one of the sibling keeper CLIs (create-daily-pearly.ts / settle-contest.ts)
  * as a child `tsx` process. Inherits stdio so its logs stream straight through,
  * and inherits cwd (= keeper/) + env so `import "dotenv/config"` loads keeper/.env
  * exactly as a manual run would. Resolves with the child's exit code; NEVER
@@ -219,13 +223,17 @@ function runKeeperScript(script: string, args: string[]): Promise<number> {
   });
 }
 
-/** Run the daily-card composer/creator once. */
+/** Run the daily-Pearly composer/creator once. Its create guards (thin-slate /
+ *  duplicate-leg / leg-cap) and its PDA-exists idempotency check both log a
+ *  loud line themselves (`# SKIPPING create: ...` / `... already exists —
+ *  nothing to do.`) before returning — inherited stdio (see runKeeperScript)
+ *  surfaces that in this cron log with no extra plumbing here. */
 async function runDailyCreate(dryRun: boolean): Promise<void> {
   const args = dryRun ? ["--dry-run"] : [];
   const ts = new Date().toISOString();
-  console.log(`[cron ${ts}] === create-daily-card${dryRun ? " (DRY RUN)" : ""} ===`);
-  const code = await runKeeperScript("create-daily-card.ts", args);
-  console.log(`[cron] create-daily-card exited ${code}`);
+  console.log(`[cron ${ts}] === create-daily-pearly${dryRun ? " (DRY RUN)" : ""} ===`);
+  const code = await runKeeperScript("create-daily-pearly.ts", args);
+  console.log(`[cron] create-daily-pearly exited ${code}`);
 }
 
 /** Run one pool-scheduler pass (auto-line-up live pools inside the join window). */
@@ -392,7 +400,7 @@ async function main() {
   }
 
   // ── Long-running scheduler. ──
-  const dailyCreateOn = dailyCardCreateEnabled(process.env);
+  const dailyCreateOn = pearlyCreateEnabled(process.env);
   console.log(
     `[cron] scheduler up · settle every ${settleIntervalMin}m · ` +
     `create ${dailyCreateOn ? `at ${String(createHourUtc).padStart(2, "0")}:00 UTC` : "PAUSED"} · ` +
@@ -405,8 +413,8 @@ async function main() {
   // (1) Daily create, wall-clock aligned to HH:00 UTC. We self-schedule with
   //     setTimeout each day (vs a fixed setInterval) so it stays pinned to the
   //     wall clock across DST-free UTC and process uptime drift. A per-day guard
-  //     (lastCreateMs) makes a stray double-fire a no-op on top of create-daily-card's
-  //     own PDA-exists idempotency.
+  //     (lastCreateMs) makes a stray double-fire a no-op on top of
+  //     create-daily-pearly's own PDA-exists idempotency.
   let lastCreateMs = 0;
   const scheduleDailyCreate = () => {
     const wait = msUntilNextUtcHour(Date.now(), createHourUtc);
@@ -423,10 +431,10 @@ async function main() {
       scheduleDailyCreate(); // re-arm for the next day
     }, wait);
   };
-  if (dailyCardCreateEnabled(process.env)) {
+  if (pearlyCreateEnabled(process.env)) {
     scheduleDailyCreate();
   } else {
-    console.log("[cron] daily-card create PAUSED (DAILY_CARD_CREATE=0) — settle loop unaffected");
+    console.log("[cron] daily-Pearly create PAUSED (set PEARLY_CREATE=1 to enable) — settle loop unaffected");
   }
 
   // (2) Settle pass on a fixed interval. Run one immediately on boot so a freshly
