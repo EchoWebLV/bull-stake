@@ -1104,3 +1104,135 @@ input:focus { outline: none; border-color: var(--accent); }
 .ml-boost { color: #5C6473; }
 .ml-empty { text-align: center; color: #5C6473; font-size: 12.5px; padding: 26px 12px; }
 .ml-hint { text-align: center; font-size: 10.5px; color: #5C6473; margin-top: 13px; line-height: 1.6; }
+
+/* ── 🃏 The Daily Pearly (Pearly tab) — ported from mockups/17-pearly.html ─── */
+.pearly { padding: 4px 4px 84px; }
+
+/* Picker lobby hero — orange/gold gradient card (mockup 17 .lobby) */
+.pearly-lobby {
+  background: linear-gradient(165deg, #1a1109 0%, var(--card) 55%);
+  border: 1px solid rgba(255, 106, 26, 0.35);
+  border-radius: 20px;
+  padding: 18px 14px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.pl-tag { font-size: 11px; letter-spacing: 3px; color: var(--accent-2); text-transform: uppercase; font-weight: 800; }
+.pl-h { font-family: var(--font-display); font-size: 25px; font-weight: 900; margin: 6px 0 2px; line-height: 1.15; }
+.pl-sub { font-size: 12px; color: var(--text-2); margin-bottom: 10px; }
+.pl-gold { color: var(--gold); }
+.pl-acc { color: var(--accent-2); }
+.pl-weightrow { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; flex-wrap: wrap; }
+.pl-schip {
+  font-size: 10px; color: var(--text-2); border: 1px solid var(--border);
+  background: var(--card-2); border-radius: 999px; padding: 4px 9px;
+}
+.pl-schip b { color: var(--accent-2); }
+.pl-schip.pl-now { border-color: rgba(255, 211, 107, 0.5); color: var(--gold); }
+/* The one multiplier explainer line under the weight-preview chip. */
+.pl-explainer { font-size: 10.5px; color: var(--text-2); text-align: center; margin: 2px 0 8px; line-height: 1.5; }
+.pl-fine { font-size: 10px; color: var(--text-3); line-height: 1.7; }
+
+.pearly-closed-note {
+  text-align: center; font-size: 11.5px; color: var(--text-2);
+  background: var(--card-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px; margin-bottom: 10px;
+}
+
+/* Leg picker rows */
+.pleg {
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 11px 12px; margin-bottom: 8px; transition: opacity 0.2s;
+}
+.pleg.pleg-locked { opacity: 0.45; }
+.pleg-h1 { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; flex-wrap: wrap; }
+.pleg-m { font-size: 12.5px; font-weight: 800; }
+.pleg-ko { font-size: 10px; color: var(--text-3); font-family: var(--mono); }
+.pleg-st {
+  margin-left: auto; font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px;
+  padding: 3px 8px; border-radius: 999px; text-transform: uppercase; white-space: nowrap;
+}
+.pleg-st.tone-neutral { background: rgba(255, 255, 255, 0.05); color: var(--text-3); }
+.pleg-st.tone-warn { background: rgba(255, 178, 62, 0.14); color: var(--accent-2); }
+.pleg-st.tone-good { background: rgba(61, 224, 138, 0.14); color: var(--green); }
+.pleg-st.tone-bad { background: rgba(255, 59, 59, 0.13); color: var(--red); }
+.pleg-q { font-size: 11px; color: var(--text-2); margin-bottom: 8px; }
+.pleg-opts { display: flex; gap: 6px; }
+.plopt {
+  flex: 1; background: var(--card-3); border: 1px solid var(--border); border-radius: 11px;
+  padding: 10px 4px; text-align: center; font-size: 12px; font-weight: 700; color: var(--text);
+  cursor: pointer; font-family: inherit; transition: transform 0.08s, border-color 0.2s, box-shadow 0.2s;
+}
+.plopt:active { transform: scale(0.96); }
+.plopt.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow), 0 0 12px rgba(255, 106, 26, 0.3); }
+.plopt:disabled { cursor: default; opacity: 0.5; }
+
+.pearly-enterbar { position: sticky; bottom: 0; z-index: 8; padding-top: 6px; background: linear-gradient(transparent, var(--bg) 30%); }
+
+/* Day HUD — pills + strip (mockup 17 .gpills / .elimtick) */
+.pl-gpills { display: flex; gap: 8px; margin-bottom: 10px; }
+.pl-pill { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px 6px; text-align: center; }
+.pl-v { font-size: 16px; font-weight: 800; font-family: var(--mono); }
+.pl-k { font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.7px; margin-top: 2px; }
+.pl-pill.pl-alive .pl-v { color: var(--red); }
+.pl-pill.pl-pot .pl-v { color: var(--gold); }
+.pl-pill.pl-wt .pl-v { color: var(--green); }
+
+.pearly-strip {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  background: var(--card-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 10px; margin-bottom: 10px; font-size: 11px; color: var(--text-2);
+}
+
+/* Degraded-poll notice — softens the alive/dead claim while the engine's
+ * chain reads are re-syncing (engine commit 3246a98's `degraded` flag). */
+.pearly-provisional {
+  text-align: center; font-size: 10.5px; color: var(--accent-2);
+  background: rgba(255, 178, 62, 0.08); border: 1px solid rgba(255, 178, 62, 0.25);
+  border-radius: 10px; padding: 6px 10px; margin-bottom: 8px;
+}
+
+.pl-hint { text-align: center; font-size: 10.5px; color: var(--text-3); margin-top: 11px; line-height: 1.6; }
+
+/* Dead / spectate banner — no buy-back affordance, mockup 17 #death */
+.pearly-death {
+  background: linear-gradient(165deg, #1c0f0f, var(--card) 60%);
+  border: 1px solid rgba(255, 59, 59, 0.4); border-radius: 18px;
+  padding: 16px 14px; margin-bottom: 12px; text-align: center;
+}
+.pd-h { font-family: var(--font-display); font-weight: 900; font-size: 19px; color: var(--red); }
+.pd-sub { font-size: 12px; color: var(--text-2); margin-top: 6px; line-height: 1.5; }
+.pd-note { font-size: 10px; color: var(--text-3); margin-top: 10px; }
+
+/* My-card rows — status chip per leg (⏳/🔒/✓/✗) */
+.pleg.pleg-mine { display: block; }
+.pleg.pleg-notcarried { opacity: 0.4; }
+.pleg-score { margin-left: auto; font-family: var(--font-display); font-weight: 800; font-size: 13px; display: inline-flex; align-items: baseline; gap: 5px; }
+.pleg-min { font-family: var(--mono); font-size: 9px; color: var(--text-3); text-transform: uppercase; }
+.pleg-chip {
+  margin-left: auto; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+}
+.pleg-chip.tone-neutral { background: rgba(255, 255, 255, 0.05); color: var(--text-3); }
+.pleg-chip.tone-warn { background: rgba(255, 178, 62, 0.14); color: var(--accent-2); }
+.pleg-chip.tone-good { background: rgba(61, 224, 138, 0.14); color: var(--green); }
+.pleg-chip.tone-bad { background: rgba(255, 59, 59, 0.13); color: var(--red); }
+.pleg-mypick { font-size: 10.5px; color: var(--text-3); }
+.pleg-mypick b { color: var(--text-2); }
+
+/* Settled — win / rollover cards (mockup 17 #over) */
+.pearly-win {
+  text-align: center; padding: 22px 14px;
+  background: linear-gradient(165deg, #1c2230, #101319 60%);
+  border: 1px solid rgba(255, 211, 107, 0.35); border-radius: 22px; margin-bottom: 12px;
+}
+.pw-trophy { font-size: 30px; }
+.pw-h { font-family: var(--font-display); font-weight: 900; font-size: 22px; color: var(--gold); margin-top: 6px; }
+.pw-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.pw-amt { font-size: 30px; font-weight: 900; color: var(--green); margin-top: 8px; }
+
+.pearly-rollover {
+  text-align: center; padding: 20px 14px;
+  background: var(--card-2); border: 1px solid var(--border); border-radius: 18px; margin-bottom: 12px;
+}
+.pearly-roll-h { font-family: var(--font-display); font-weight: 800; font-size: 17px; }
+.pearly-roll-sub { font-size: 12px; color: var(--text-2); margin-top: 6px; line-height: 1.5; }

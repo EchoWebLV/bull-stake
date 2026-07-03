@@ -4,7 +4,7 @@ import { LoginBar } from "./components/LoginBar.tsx";
 import { BetsView } from "./components/BetsView.tsx";
 import { WalletView } from "./components/WalletView.tsx";
 import { BottomNav, type Tab } from "./components/BottomNav.tsx";
-import { SweepstakeView } from "./components/SweepstakeView.tsx";
+import { PearlyView } from "./components/PearlyView.tsx";
 import { LiveMatchView } from "./components/LiveMatchView.tsx";
 import { MarketLinesView } from "./components/MarketLinesView.tsx";
 
@@ -41,6 +41,7 @@ export default function App() {
       <LoginBar />
 
       {tab === "live" && <LiveMatchView test={IS_TEST_PAGE} />}
+      {tab === "sweepstake" && <PearlyView />}
       {tab === "markets" && <MarketLinesView />}
       {tab === "bets" && <BetsView />}
       {tab === "wallet" && <WalletView />}

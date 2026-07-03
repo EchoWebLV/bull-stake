@@ -132,22 +132,72 @@ export interface CardLeg {
   line?: number;           // catalog O/U line; omitted (not null) for an unknown market
   buckets: number;         // catalog bucket count (2 = O/U, 3 = three-way; 0 if unknown)
   live?: CardLegLive;      // in-play score/minute/phase (present once kicked off)
+  /** This leg's OWN kickoff lock (seconds) — Pearly (v2) locks legs one at a
+   *  time through the day rather than all at once. OPTIONAL: absent on a v1
+   *  engine response, which locked every leg together at `Card.lockTs`. */
+  lockTs?: number;
+}
+/** `GET /api/card?wallet=` — the wallet's own entry on today's card. Present
+ *  fields mirror the on-chain Entry (see routes.ts's route doc for the full
+ *  three-state `Card.myCard` contract this type participates in). */
+export interface MyCard {
+  picks: number[];          // per-leg bucket picks, length == card.legs.length (padded)
+  entryTs: number;          // seconds — when this wallet entered
+  activeMask: boolean[];    // leg i is CARRIED iff activeMask[i] (legLockTs[i] > entryTs)
+  weight: number;           // 2 ** (carried leg count) — mirrors on-chain perfect_weight divisor
+  alive: boolean;           // still perfect against every ACTIVE + already-settled leg (see
+                             // `Card.degraded` — this is OPTIMISTIC on a degraded response,
+                             // since it's computed against whatever leg outcomes DID read).
 }
 /** TODAY's single card. `getCard()` resolves to `{ card: null }` when none is open yet. */
 export interface Card {
   contestId: number;
   status: "open" | "settled" | "rolledOver" | "voided";
-  lockTs: number;          // entries close (seconds)
+  lockTs: number;          // entries close (seconds) — v1: the single all-legs lock
   settleAfterTs: number;   // earliest settle (seconds)
   entryPrice: string;      // lamports
   pot: string;             // this contest's own escrow (lamports)
   jackpot: string;         // standalone jackpot pot (lamports; "0" pre-launch)
   legs: CardLeg[];
+  /** v2 (Pearly): true entries-close time — the KO that leaves only 2 legs open.
+   *  OPTIONAL: falls back to `lockTs` against a v1 engine response. */
+  entriesCloseTs?: number;
+  /** v2: entries whose picks still match every settled+active leg — "cards still
+   *  perfect" for the WHOLE card, independent of `?wallet=`.
+   *    - a number       → healthy read, trust it.
+   *    - null            → `degraded: true` this poll: "couldn't compute" —
+   *                        NEVER render as "0 cards alive" (misreads as everyone
+   *                        eliminated).
+   *    - undefined (key absent) → a v1 (pre-Pearly) engine response.
+   */
+  aliveCount?: number | null;
+  /** Present ONLY when the entry scan and/or ≥1 leg-market read failed THIS
+   *  poll (routes.ts, engine/src/routes.ts's `/api/card` doc comment) — omitted
+   *  entirely on a healthy response. When true: `aliveCount` is null, and if
+   *  `myCard` IS present its `.alive` is optimistic (computed against only the
+   *  leg outcomes that read OK) — soften any alive/dead claim in the UI.
+   *  Absent on a v1 engine response too (same "unknown, don't over-claim" idea,
+   *  just for a different reason — v1 never had this concept). */
+  degraded?: true;
+  /** THREE-STATE, driven by `?wallet=` (routes.ts's `/api/card` doc comment is
+   *  the source of truth):
+   *    - `MyCard` object → the wallet's lowest-nonce entry (web always enters
+   *      nonce 0, so this is simply "the" entry in practice).
+   *    - `null`          → CONFIRMED no entry: the scan succeeded and found
+   *      none, OR no/invalid `wallet` was given — safe to show the picker/empty
+   *      state.
+   *    - `undefined` (key omitted) → UNKNOWN: either a valid wallet was given
+   *      but the entry scan failed this poll (degraded), OR a v1 engine that
+   *      predates `myCard` entirely. Never render "you haven't entered" for
+   *      this case — show a retry/loading affordance instead.
+   */
+  myCard?: MyCard | null;
 }
 
-/** Today's card, or null when no card is open for today yet (engine returns `{ card: null }`). */
-export const getCard = (): Promise<Card | null> =>
-  fetch(`${ENGINE}/api/card`).then(json).then((r: Card | { card: null }) =>
+/** Today's card, or null when no card is open for today yet (engine returns `{ card: null }`).
+ *  Pass `wallet` to also fetch `myCard` (v2 engines only — see `Card.myCard`). */
+export const getCard = (wallet?: string | null): Promise<Card | null> =>
+  fetch(`${ENGINE}/api/card${wallet ? `?wallet=${wallet}` : ""}`).then(json).then((r: Card | { card: null }) =>
     "card" in r ? r.card : r,
   );
 
