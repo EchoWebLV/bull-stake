@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Streak — Tonight, Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07090d; --accent:#FF6A1A; --accent-2:#FFB23E; --green:#3DE08A; --red:#FF3B3B;
+    --text:#F4F6FA; --text-2:#9AA2B1; --text-3:#5C6473;
+    --card:#11141b; --card-2:#181d27; --card-3:#1c222d;
+    --b:rgba(255,255,255,.06); --b2:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box; margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;}
+  body{
+    background:radial-gradient(130% 90% at 50% -10%,#11151d 0%,#090b10 50%,#050608 100%);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    font-family:'Inter',system-ui,sans-serif; color:var(--text);
+  }
+  .phone{
+    position:relative; width:390px; min-height:840px;
+    background:linear-gradient(180deg,#0b0e13,#080a0e);
+    border:1px solid var(--b2); border-radius:42px; padding:22px 18px 26px; overflow:hidden;
+    box-shadow:0 40px 120px rgba(0,0,0,.6);
+  }
+  .phone::before{content:""; position:absolute; top:-70px; left:50%; transform:translateX(-50%);
+    width:380px; height:250px; background:var(--green); opacity:.13; filter:blur(80px); border-radius:50%; pointer-events:none;}
+  .phone>*{position:relative; z-index:1;}
+
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  .brand{font-family:'Archivo'; font-weight:800; font-size:26px; letter-spacing:-1px;}
+  .brand b{color:var(--accent);}
+  .livepill{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:var(--red);
+    background:rgba(255,59,59,.12); border:1px solid rgba(255,59,59,.3); padding:6px 11px; border-radius:999px; letter-spacing:.5px;}
+  .livepill .b{width:7px; height:7px; border-radius:50%; background:var(--red); animation:blip 1.3s infinite;}
+  @keyframes blip{0%,100%{opacity:1; transform:scale(1);}50%{opacity:.3; transform:scale(.7);}}
+
+  .daystrip{display:flex; align-items:center; justify-content:space-between; margin-top:14px;
+    background:var(--card); border:1px solid var(--b2); border-radius:13px; padding:9px 13px;}
+  .daystrip .l{font-size:12px; font-weight:700;}
+  .daystrip .r{font-family:'JetBrains Mono'; font-size:12px; color:var(--text-2);}
+
+  /* alive banner */
+  .alive{position:relative; background:linear-gradient(180deg,#10211a,#0d1410);
+    border:1px solid rgba(61,224,138,.3); border-radius:24px; padding:20px 18px 18px; text-align:center; margin-top:12px; overflow:hidden;}
+  .alive::after{content:""; position:absolute; inset:0; background:radial-gradient(80% 60% at 50% 0%,rgba(61,224,138,.16),transparent 70%);}
+  .alive>*{position:relative;}
+  .alive .lab{font-size:11px; letter-spacing:2px; color:var(--green); font-weight:800; text-transform:uppercase;}
+  .alive .score{font-family:'Archivo'; font-weight:800; font-size:52px; line-height:1; margin-top:6px; letter-spacing:-2px;}
+  .alive .score b{color:var(--green);}
+  .alive .score small{font-size:26px; color:var(--text-3); font-weight:700;}
+  .alive .sub{font-size:12.5px; color:var(--text-2); margin-top:8px;}
+  .alive .cut{display:inline-block; margin-top:12px; font-size:12px; color:var(--accent-2); font-weight:600;
+    background:rgba(255,106,26,.1); border:1px solid rgba(255,106,26,.22); padding:6px 13px; border-radius:999px;}
+  .alive .cut b{font-family:'Archivo'; color:var(--accent-2);}
+
+  .sec{display:flex; align-items:baseline; justify-content:space-between; margin:18px 4px 0;}
+  .sec h3{font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-2); font-weight:700;}
+  .sec .cnt{font-size:11px; color:var(--text-3);}
+
+  .card{background:var(--card); border:1px solid var(--b); border-radius:18px; padding:4px 15px 8px; margin-top:8px;}
+  .leg{display:flex; align-items:center; gap:11px; padding:12px 0; border-top:1px solid var(--b);}
+  .leg:first-child{border-top:0;}
+  .ic{width:24px; height:24px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800;}
+  .ic.hit{background:var(--green); color:#07120d;}
+  .ic.live{background:rgba(255,178,62,.14); color:var(--accent-2); border:1px solid rgba(255,178,62,.45);}
+  .ic.miss{background:rgba(255,59,59,.14); color:var(--red); border:1px solid rgba(255,59,59,.4);}
+  .m{flex:1; min-width:0;}
+  .mt{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .mp{font-size:10.5px; color:var(--text-3); margin-top:2px;}
+  .mp b{color:var(--text-2); font-weight:600;}
+  .sc{text-align:right; white-space:nowrap;}
+  .sc .v{font-size:13px; font-weight:800; font-variant-numeric:tabular-nums;}
+  .sc .t{font-size:9px; text-transform:uppercase; letter-spacing:.5px; margin-top:2px; font-weight:700;}
+  .sc.hit .v, .sc.hit .t{color:var(--green);}
+  .sc.live .v{color:var(--text);} .sc.live .t{color:var(--accent-2);}
+  .sc.live .v::before{content:"● "; color:var(--accent-2); font-size:9px; vertical-align:middle; animation:blip 1.3s infinite;}
+
+  .tension{text-align:center; font-size:13px; color:var(--text); font-weight:600; margin-top:14px;}
+  .tension b{color:var(--accent-2);}
+  .watch{margin-top:10px; width:100%; border:0; border-radius:15px; padding:16px;
+    font-family:'Inter'; font-weight:800; font-size:15px; color:#0a0a0a; cursor:pointer;
+    background:linear-gradient(180deg,#FF9244,#FF6A1A); box-shadow:0 12px 30px rgba(255,106,26,.3);}
+  .locked{margin-top:9px; text-align:center; font-size:11px; color:var(--text-3);}
+  .foot{display:flex; align-items:center; justify-content:center; gap:7px; margin-top:13px; font-size:11px; color:var(--text-3);}
+  .foot .dia{color:var(--green);}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="top">
+      <div class="brand">Strea<b>k</b></div>
+      <div class="livepill"><span class="b"></span> LIVE</div>
+    </div>
+
+    <div class="daystrip">
+      <span class="l">Tonight's card · settling</span>
+      <span class="r">2 matches left · final ~50m</span>
+    </div>
+
+    <div class="alive">
+      <div class="lab">★ Still alive</div>
+      <div class="score"><b>4</b> hit <small>·</small> 2 live <small>·</small> 0 missed</div>
+      <div class="sub">Both your last picks land → you split tonight's pot.</div>
+      <div class="cut">your cut if you win ≈ <b>$3,120</b></div>
+    </div>
+
+    <div class="sec"><h3>Your card</h3><span class="cnt">tonight's pot $12,480</span></div>
+    <div class="card">
+      <div class="leg"><span class="ic hit">✓</span><div class="m"><div class="mt">France v Senegal</div><div class="mp">your pick: <b>France</b></div></div><div class="sc hit"><div class="v">2–0</div><div class="t">FT · hit</div></div></div>
+      <div class="leg"><span class="ic hit">✓</span><div class="m"><div class="mt">France v Senegal</div><div class="mp">your pick: <b>Over 2.5</b></div></div><div class="sc hit"><div class="v">3 gls</div><div class="t">FT · hit</div></div></div>
+      <div class="leg"><span class="ic live">◷</span><div class="m"><div class="mt">Brazil v Japan</div><div class="mp">your pick: <b>Draw</b></div></div><div class="sc live"><div class="v">1–1</div><div class="t">78' · on track</div></div></div>
+      <div class="leg"><span class="ic hit">✓</span><div class="m"><div class="mt">Brazil v Japan</div><div class="mp">your pick: <b>Both score</b></div></div><div class="sc hit"><div class="v">Yes</div><div class="t">hit</div></div></div>
+      <div class="leg"><span class="ic hit">✓</span><div class="m"><div class="mt">England v Congo DR</div><div class="mp">your pick: <b>England</b></div></div><div class="sc hit"><div class="v">3–0</div><div class="t">FT · hit</div></div></div>
+      <div class="leg"><span class="ic live">◷</span><div class="m"><div class="mt">Argentina v Croatia</div><div class="mp">your pick: <b>Argentina</b></div></div><div class="sc live"><div class="v">0–0</div><div class="t">34' · needs a goal</div></div></div>
+    </div>
+
+    <div class="tension">2 results from splitting <b>$12,480</b>.</div>
+    <button class="watch">Watch live ▸</button>
+    <div class="locked">🔒 Card locked at 19:00 · no more changes</div>
+    <div class="foot"><span class="dia">◆</span> Every result verified on-chain · TxLINE proofs</div>
+  </div>
+</body>
+</html>

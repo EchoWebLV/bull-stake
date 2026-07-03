@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Streak — After game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07090d; --accent:#FF6A1A; --accent-2:#FFB23E; --green:#3DE08A; --red:#FF3B3B;
+    --text:#F4F6FA; --text-2:#9AA2B1; --text-3:#5C6473;
+    --card:#11141b; --card-2:#181d27; --card-3:#1c222d;
+    --b:rgba(255,255,255,.06); --b2:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box; margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;}
+  body{
+    background:radial-gradient(130% 90% at 50% -10%,#0e1620 0%,#080d0b 50%,#050608 100%);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    font-family:'Inter',system-ui,sans-serif; color:var(--text);
+  }
+  .phone{
+    position:relative; width:390px; min-height:860px;
+    background:linear-gradient(180deg,#0a0f0d,#080a0e);
+    border:1px solid var(--b2); border-radius:42px; padding:22px 18px 26px; overflow:hidden;
+    box-shadow:0 40px 120px rgba(0,0,0,.6);
+  }
+  .phone::before{content:""; position:absolute; top:-70px; left:50%; transform:translateX(-50%);
+    width:400px; height:260px; background:var(--green); opacity:.16; filter:blur(80px); border-radius:50%; pointer-events:none;}
+  .phone>*{position:relative; z-index:1;}
+
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  .brand{font-family:'Archivo'; font-weight:800; font-size:26px; letter-spacing:-1px;}
+  .brand b{color:var(--accent);}
+  .chip{font-family:'JetBrains Mono'; font-size:11px; color:var(--text-2); background:var(--card-3);
+    border:1px solid var(--b2); padding:7px 11px; border-radius:10px;}
+
+  .daystrip{display:flex; align-items:center; justify-content:space-between; margin-top:14px;
+    background:var(--card); border:1px solid var(--b2); border-radius:13px; padding:9px 13px;}
+  .daystrip .l{font-size:12px; font-weight:700;}
+  .daystrip .r{font-family:'JetBrains Mono'; font-size:12px; color:var(--accent-2);}
+
+  .win{position:relative; text-align:center; background:linear-gradient(180deg,#10231a,#0b130f);
+    border:1px solid rgba(61,224,138,.38); border-radius:24px; padding:22px 18px 20px; margin-top:12px; overflow:hidden;}
+  .win::after{content:""; position:absolute; inset:0; background:radial-gradient(80% 70% at 50% 0%,rgba(61,224,138,.20),transparent 70%);}
+  .win>*{position:relative;}
+  .win .trophy{font-size:30px; line-height:1;}
+  .win .perfect{font-family:'Archivo'; font-weight:800; font-size:24px; letter-spacing:.5px; margin-top:6px; color:var(--green);}
+  .win .won{font-size:12px; color:var(--text-2); margin-top:10px; text-transform:uppercase; letter-spacing:1.5px;}
+  .win .amt{font-family:'Archivo'; font-weight:800; font-size:56px; line-height:1; margin-top:4px; letter-spacing:-2.5px;
+    background:linear-gradient(180deg,#BFF7DA,#3DE08A); -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-variant-numeric:tabular-nums;}
+  .win .split{font-size:11.5px; color:var(--text-3); margin-top:8px;}
+
+  .sec{display:flex; align-items:baseline; justify-content:space-between; margin:18px 4px 0;}
+  .sec h3{font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-2); font-weight:700;}
+  .sec .cnt{font-size:11px; color:var(--green); font-weight:700;}
+
+  .card{background:var(--card); border:1px solid var(--b); border-radius:18px; padding:4px 15px 8px; margin-top:8px;}
+  .mg{padding:12px 0; border-top:1px solid var(--b);}
+  .mg:first-child{border-top:0;}
+  .mg .mgh{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px;}
+  .mg .tm{font-size:13.5px; font-weight:700; display:flex; align-items:center; gap:8px;}
+  .mg .tm .kx{width:14px; height:14px; border-radius:5px; background:var(--green); color:#07120d; font-size:9px; font-weight:800;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .mg .ft{font-family:'JetBrains Mono'; font-size:11px; color:var(--text-2);}
+  .mg .ft b{color:var(--text); font-weight:600;}
+  .mgpicks{margin-left:3px; padding-left:13px; border-left:2px solid rgba(61,224,138,.25); display:flex; flex-direction:column; gap:5px;}
+  .pr{display:flex; align-items:center; justify-content:space-between; padding:3px 0;}
+  .pr .lt{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-2); min-width:0;}
+  .pr .lt .ic{color:var(--green); font-weight:800; font-size:12px;}
+  .pr .lt b{color:var(--text); font-weight:600;}
+  .pr .rt{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--green); white-space:nowrap;}
+
+  .cta{margin-top:14px; width:100%; border:0; border-radius:15px; padding:17px;
+    font-family:'Inter'; font-weight:800; font-size:15.5px; color:#07120d; cursor:pointer;
+    background:linear-gradient(180deg,#5BEAA0,#3DE08A); box-shadow:0 12px 32px rgba(61,224,138,.3);}
+  .cta:active{transform:translateY(1px);}
+  .next{text-align:center; font-size:11.5px; color:var(--text-3); margin-top:11px;}
+  .next b{color:var(--accent-2); font-family:'JetBrains Mono';}
+  .foot{display:flex; align-items:center; justify-content:center; gap:7px; margin-top:13px; font-size:11px; color:var(--text-3);}
+  .foot .dia{color:var(--green);}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="top">
+      <div class="brand">Strea<b>k</b></div>
+      <div class="chip">J7yZ…zxu7</div>
+    </div>
+
+    <div class="daystrip">
+      <span class="l">Tonight's result · final</span>
+      <span class="r">next card in 9h 40m</span>
+    </div>
+
+    <div class="win">
+      <div class="trophy">🏆</div>
+      <div class="perfect">PERFECT CARD · 6 / 6</div>
+      <div class="won">You won</div>
+      <div class="amt">$3,120</div>
+      <div class="split">split 4 ways · tonight's pot was $12,480</div>
+    </div>
+
+    <div class="sec"><h3>Your card · settled</h3><span class="cnt">6 / 6 hit</span></div>
+    <div class="card">
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx">✓</span>France v Senegal</span><span class="ft"><b>3–1</b> FT</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lt"><span class="ic">✓</span>Result · <b>France</b></span><span class="rt">hit</span></div>
+          <div class="pr"><span class="lt"><span class="ic">✓</span>O/U 2.5 · <b>Over</b></span><span class="rt">hit · 4 gls</span></div>
+        </div>
+      </div>
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx">✓</span>Brazil v Japan</span><span class="ft"><b>1–1</b> FT</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lt"><span class="ic">✓</span>Result · <b>Draw</b></span><span class="rt">hit</span></div>
+          <div class="pr"><span class="lt"><span class="ic">✓</span>Both score · <b>Yes</b></span><span class="rt">hit</span></div>
+        </div>
+      </div>
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx">✓</span>England v Congo DR</span><span class="ft"><b>3–0</b> FT</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lt"><span class="ic">✓</span>Result · <b>England</b></span><span class="rt">hit</span></div>
+        </div>
+      </div>
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx">✓</span>Argentina v Croatia</span><span class="ft"><b>1–0</b> FT</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lt"><span class="ic">✓</span>Result · <b>Argentina</b></span><span class="rt">hit</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <button class="cta">Claim $3,120 →</button>
+    <div class="next">New card drops in <b>9h 40m</b> — come back tomorrow.</div>
+    <div class="foot"><span class="dia">◆</span> Every result verified on-chain · TxLINE proofs</div>
+  </div>
+</body>
+</html>

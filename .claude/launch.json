@@ -10,6 +10,13 @@
       "autoPort": false
     },
     {
+      "name": "mockups",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "mockups"],
+      "port": 4173,
+      "autoPort": false
+    },
+    {
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5180", "--strictPort"],

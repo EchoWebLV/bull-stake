@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Streak — Pre-game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07090d; --accent:#FF6A1A; --accent-2:#FFB23E; --green:#3DE08A; --red:#FF3B3B;
+    --text:#F4F6FA; --text-2:#9AA2B1; --text-3:#5C6473;
+    --card:#11141b; --card-2:#181d27; --card-3:#1c222d;
+    --b:rgba(255,255,255,.06); --b2:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box; margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;}
+  body{
+    background:radial-gradient(130% 90% at 50% -10%,#11151d 0%,#090b10 50%,#050608 100%);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    font-family:'Inter',system-ui,sans-serif; color:var(--text);
+  }
+  .phone{
+    position:relative; width:390px; min-height:860px;
+    background:linear-gradient(180deg,#0b0e13,#080a0e);
+    border:1px solid var(--b2); border-radius:42px; padding:22px 18px 26px; overflow:hidden;
+    box-shadow:0 40px 120px rgba(0,0,0,.6);
+  }
+  .phone::before{content:""; position:absolute; top:-70px; left:50%; transform:translateX(-50%);
+    width:380px; height:250px; background:var(--accent); opacity:.20; filter:blur(80px); border-radius:50%; pointer-events:none;}
+  .phone>*{position:relative; z-index:1;}
+
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  .brand{font-family:'Archivo'; font-weight:800; font-size:26px; letter-spacing:-1px;}
+  .brand b{color:var(--accent);}
+  .chip{font-family:'JetBrains Mono'; font-size:11px; color:var(--text-2); background:var(--card-3);
+    border:1px solid var(--b2); padding:7px 11px; border-radius:10px;}
+
+  .daystrip{display:flex; align-items:center; justify-content:space-between; margin-top:14px;
+    background:var(--card); border:1px solid var(--b2); border-radius:13px; padding:9px 13px;}
+  .daystrip .l{display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:700;}
+  .daystrip .l .dot{width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green);}
+  .daystrip .r{font-family:'JetBrains Mono'; font-size:12px; color:var(--accent-2); font-weight:500;}
+
+  .pot{position:relative; background:linear-gradient(180deg,#1a130b,#0d0b08);
+    border:1px solid rgba(255,106,26,.28); border-radius:24px; padding:22px 18px 18px;
+    text-align:center; margin-top:12px; overflow:hidden;}
+  .pot::after{content:""; position:absolute; inset:0; background:radial-gradient(80% 60% at 50% 0%,rgba(255,106,26,.18),transparent 70%);}
+  .pot>*{position:relative;}
+  .pot .lab{font-size:11px; letter-spacing:2.5px; color:var(--accent-2); font-weight:700; text-transform:uppercase;}
+  .pot .big{font-family:'Archivo'; font-weight:800; font-size:56px; line-height:1; margin-top:6px; letter-spacing:-2.5px;
+    background:linear-gradient(180deg,#FFE2B0,#FF7A24); -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-variant-numeric:tabular-nums;}
+  .pot .sub{font-size:12.5px; color:var(--text-2); margin-top:9px; line-height:1.4;}
+  .pot .cyc{font-size:10.5px; color:var(--text-3); margin-top:8px; font-family:'JetBrains Mono';}
+  .pot .row{display:flex; gap:9px; margin-top:15px;}
+  .pot .st{flex:1; background:rgba(0,0,0,.32); border-radius:12px; padding:9px 6px;}
+  .pot .st .v{font-family:'Archivo'; font-weight:700; font-size:15px; font-variant-numeric:tabular-nums;}
+  .pot .st .k{font-size:9px; color:var(--text-3); text-transform:uppercase; letter-spacing:.5px; margin-top:3px;}
+
+  .sec{display:flex; align-items:baseline; justify-content:space-between; margin:18px 4px 0;}
+  .sec h3{font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-2); font-weight:700;}
+  .sec .cnt{font-size:11px; color:var(--accent-2); font-weight:700; font-variant-numeric:tabular-nums;}
+
+  .card{background:var(--card); border:1px solid var(--b); border-radius:18px; padding:13px 15px 14px; margin-top:8px;}
+  .prog{height:6px; border-radius:999px; background:var(--card-3); overflow:hidden;}
+  .prog .f{height:100%; width:83.3%; background:linear-gradient(90deg,#FF6A1A,#FFB23E);}
+  .cap{font-size:11px; color:var(--text-3); margin:9px 0 4px;}
+
+  .mg{padding:12px 0; border-top:1px solid var(--b);}
+  .mg .mgh{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px;}
+  .mg .tm{font-size:13.5px; font-weight:700; display:flex; align-items:center; gap:8px;}
+  .mg .tm .kx{width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:.7; flex-shrink:0;}
+  .mg .ko{font-family:'JetBrains Mono'; font-size:11px; color:var(--text-3);}
+  .mgpicks{margin-left:3px; padding-left:13px; border-left:2px solid var(--b2); display:flex; flex-direction:column; gap:3px;}
+  .pr{display:flex; align-items:center; justify-content:space-between; padding:5px 0;}
+  .pr .lab{font-size:12px; color:var(--text-2);}
+  .pick{font-size:12.5px; font-weight:700; padding:7px 12px; border-radius:10px; white-space:nowrap;
+    background:rgba(255,106,26,.12); color:var(--accent); border:1px solid rgba(255,106,26,.32);}
+  .pick.draw{background:var(--card-3); color:var(--text-2); border-color:var(--b2);}
+  .pick.yes{background:rgba(61,224,138,.12); color:var(--green); border-color:rgba(61,224,138,.32);}
+  .pick.tap{background:transparent; color:var(--accent); border:1.5px solid var(--accent); animation:pulse 1.8s infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,106,26,.45);}50%{box-shadow:0 0 0 7px rgba(255,106,26,0);}}
+  .mg.todo .tm{color:var(--accent-2);}
+
+  .equal{text-align:center; font-size:11px; color:var(--text-3); margin-top:12px;}
+  .cta{margin-top:9px; width:100%; border:0; border-radius:15px; padding:17px;
+    font-family:'Inter'; font-weight:800; font-size:15.5px; color:#0a0a0a; cursor:pointer;
+    background:linear-gradient(180deg,#FF9244,#FF6A1A); box-shadow:0 12px 34px rgba(255,106,26,.34);}
+  .cta:active{transform:translateY(1px);}
+  .ctasub{text-align:center; font-size:11px; color:var(--text-3); margin-top:9px;}
+  .foot{display:flex; align-items:center; justify-content:center; gap:7px; margin-top:13px; font-size:11px; color:var(--text-3);}
+  .foot .dia{color:var(--green);}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="top">
+      <div class="brand">Strea<b>k</b></div>
+      <div class="chip">J7yZ…zxu7</div>
+    </div>
+
+    <div class="daystrip">
+      <span class="l"><span class="dot"></span> Today's card</span>
+      <span class="r">locks in 4h 12m</span>
+    </div>
+
+    <div class="pot">
+      <div class="lab">Tonight's pot</div>
+      <div class="big">$12,480</div>
+      <div class="sub">Get all 6 right across today's matches.<br/>Perfect cards split the pot — tonight.</div>
+      <div class="cyc">locks 19:00 · settles when the last match ends · fresh card every 24h</div>
+      <div class="row">
+        <div class="st"><div class="v">12,480</div><div class="k">playing today</div></div>
+        <div class="st"><div class="v">4</div><div class="k">matches</div></div>
+        <div class="st"><div class="v">$1</div><div class="k">to enter</div></div>
+      </div>
+    </div>
+
+    <div class="sec"><h3>Fill your card</h3><span class="cnt">5 / 6</span></div>
+    <div class="card">
+      <div class="prog"><div class="f"></div></div>
+      <div class="cap">Today's 4 matches · 6 picks · all kick off tonight.</div>
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx"></span>France v Senegal</span><span class="ko">19:00</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lab">Result</span><span class="pick">France</span></div>
+          <div class="pr"><span class="lab">Goals O/U 2.5</span><span class="pick">Over</span></div>
+        </div>
+      </div>
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx"></span>Brazil v Japan</span><span class="ko">19:00</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lab">Result</span><span class="pick draw">Draw</span></div>
+          <div class="pr"><span class="lab">Both teams score</span><span class="pick yes">Yes</span></div>
+        </div>
+      </div>
+
+      <div class="mg">
+        <div class="mgh"><span class="tm"><span class="kx"></span>England v Congo DR</span><span class="ko">21:00</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lab">Result</span><span class="pick">England</span></div>
+        </div>
+      </div>
+
+      <div class="mg todo">
+        <div class="mgh"><span class="tm"><span class="kx"></span>Argentina v Croatia</span><span class="ko">21:00</span></div>
+        <div class="mgpicks">
+          <div class="pr"><span class="lab">Result</span><span class="pick tap">Tap to pick</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="equal">Everyone starts fresh today — no streak, no catch-up. Just tonight.</div>
+    <button class="cta">Lock in tonight's card · $1</button>
+    <div class="ctasub">Win or lose by bedtime. New card drops tomorrow.</div>
+    <div class="foot"><span class="dia">◆</span> Settled on-chain · TxLINE proofs</div>
+  </div>
+</body>
+</html>

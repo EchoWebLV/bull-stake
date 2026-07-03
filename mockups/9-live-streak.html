@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Streak — Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07090d; --accent:#FF6A1A; --accent-2:#FFB23E; --green:#3DE08A; --red:#FF3B3B;
+    --text:#F4F6FA; --text-2:#9AA2B1; --text-3:#5C6473;
+    --card:#11141b; --card-2:#181d27; --card-3:#1c222d;
+    --b:rgba(255,255,255,.06); --b2:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box; margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;}
+  body{
+    background:radial-gradient(130% 90% at 50% -10%,#1a1410 0%,#0b0907 45%,#050608 100%);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    font-family:'Inter',system-ui,sans-serif; color:var(--text);
+  }
+  .phone{
+    position:relative; width:390px; min-height:844px;
+    background:linear-gradient(180deg,#0c0a08,#080a0e);
+    border:1px solid var(--b2); border-radius:42px; padding:20px 16px 24px; overflow:hidden;
+    box-shadow:0 40px 120px rgba(0,0,0,.6);
+  }
+  .phone::before{content:""; position:absolute; top:-90px; left:50%; transform:translateX(-50%);
+    width:440px; height:300px; background:var(--accent); opacity:.22; filter:blur(80px); border-radius:50%; pointer-events:none;}
+  .phone>*{position:relative; z-index:1;}
+
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  .brand{font-family:'Archivo'; font-weight:800; font-size:24px; letter-spacing:-1px;}
+  .brand b{color:var(--accent);}
+  .live-pill{display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:800; color:var(--red);
+    background:rgba(255,59,59,.12); border:1px solid rgba(255,59,59,.3); padding:5px 10px; border-radius:999px; letter-spacing:.6px;}
+  .blip{width:7px;height:7px;border-radius:50%;background:var(--red);animation:blip 1.3s infinite;}
+  @keyframes blip{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.65);}}
+
+  /* live match strip */
+  .match{display:flex; align-items:center; justify-content:space-between; margin-top:14px;
+    background:linear-gradient(180deg,#151921,#0d1017); border:1px solid var(--b2); border-radius:16px; padding:12px 14px;}
+  .side{display:flex; align-items:center; gap:9px; width:112px;}
+  .side.away{justify-content:flex-end;}
+  .crest{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-family:'Archivo';font-weight:800;font-size:11px;color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.15);}
+  .cn{font-family:'Archivo';font-weight:700;font-size:13px;}
+  .mid{text-align:center;}
+  .sc{font-family:'Archivo';font-weight:800;font-size:26px;letter-spacing:1px;line-height:1;font-variant-numeric:tabular-nums;}
+  .min{font-family:'JetBrains Mono';font-size:10.5px;color:var(--red);margin-top:3px;font-weight:600;}
+
+  /* streak hero */
+  .hero{text-align:center; margin-top:16px;}
+  .flame{font-size:40px;line-height:1;filter:drop-shadow(0 4px 18px rgba(255,106,26,.55));animation:flick 1.6s ease-in-out infinite;}
+  @keyframes flick{0%,100%{transform:scale(1) rotate(-1deg);}50%{transform:scale(1.08) rotate(1deg);}}
+  .snum{font-family:'Archivo';font-weight:800;font-size:66px;line-height:.9;letter-spacing:-3px;margin-top:2px;
+    background:linear-gradient(180deg,#FFE2B0,#FF6A1A);-webkit-background-clip:text;background-clip:text;color:transparent;font-variant-numeric:tabular-nums;}
+  .slab{font-size:11px;letter-spacing:2.5px;color:var(--accent-2);text-transform:uppercase;font-weight:700;margin-top:2px;}
+  .meta{display:inline-flex;gap:8px;margin-top:12px;font-size:11px;color:var(--text-2);}
+  .meta .chip{background:var(--card);border:1px solid var(--b2);padding:5px 11px;border-radius:999px;}
+  .meta .chip b{color:var(--text);}
+  .meta .chip.prize b{color:var(--accent-2);font-family:'Archivo';}
+
+  /* recent run */
+  .run{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:14px;}
+  .rc{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
+  .rc.hit{background:var(--green);color:#07120d;}
+  .rc.miss{background:rgba(255,59,59,.15);color:var(--red);border:1px solid rgba(255,59,59,.35);}
+  .rc.now{background:transparent;border:1.5px dashed var(--accent);color:var(--accent);animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,106,26,.4);}50%{box-shadow:0 0 0 6px rgba(255,106,26,0);}}
+
+  /* the call */
+  .call{position:relative;margin-top:16px;background:linear-gradient(180deg,#1a130b,#0d0b08);
+    border:1.5px solid rgba(255,106,26,.4);border-radius:20px;padding:16px 15px 15px;overflow:hidden;
+    box-shadow:0 0 34px rgba(255,106,26,.14);}
+  .call .lab{display:flex;align-items:center;justify-content:space-between;font-size:10.5px;letter-spacing:1.5px;
+    color:var(--accent-2);font-weight:800;text-transform:uppercase;}
+  .call .timer{font-family:'JetBrains Mono';color:var(--text);font-weight:600;letter-spacing:0;}
+  .call .q{font-family:'Archivo';font-weight:800;font-size:20px;margin-top:9px;line-height:1.15;}
+  .call .q .em{color:var(--accent-2);}
+  .bar{height:5px;border-radius:999px;background:var(--card-3);overflow:hidden;margin-top:12px;}
+  .bar-f{height:100%;width:70%;background:linear-gradient(90deg,#FF6A1A,#FFB23E);transition:width 1s linear;}
+  .opts{display:flex;gap:8px;margin-top:13px;}
+  .opt{flex:1;background:var(--card-2);border:1px solid var(--b2);border-radius:13px;padding:12px 6px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--text);transition:.12s;}
+  .opt:active{transform:translateY(1px);}
+  .opt .oc{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-family:'Archivo';font-weight:800;font-size:10px;color:#fff;}
+  .opt .ot{font-size:12.5px;font-weight:700;}
+  .opt .os{font-size:9.5px;color:var(--text-3);}
+  .opt.sel{border-color:var(--accent);background:rgba(255,106,26,.12);box-shadow:0 0 0 3px var(--accent-glow,rgba(255,106,26,.18));}
+  .call.locked .opt:not(.sel){opacity:.4;}
+  .locked-tag{display:none;margin-top:11px;text-align:center;font-size:12px;color:var(--green);font-weight:700;}
+  .call.locked .locked-tag{display:block;}
+  .call.locked .bar,.call.locked .timer{opacity:.4;}
+
+  /* leaderboard strip */
+  .lb{display:flex;align-items:center;gap:10px;margin-top:14px;background:var(--card);border:1px solid var(--b);border-radius:14px;padding:10px 13px;}
+  .lb .fire{font-size:15px;}
+  .lb .txt{flex:1;font-size:12px;color:var(--text-2);}
+  .lb .txt b{color:var(--text);}
+  .lb .you{color:var(--accent);font-weight:700;}
+
+  /* toast */
+  .toast{position:absolute;left:16px;right:16px;top:16px;z-index:5;background:linear-gradient(180deg,#123024,#0d1f18);
+    border:1px solid rgba(61,224,138,.5);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;
+    box-shadow:0 12px 30px rgba(0,0,0,.5);animation:drop .4s ease, fade .5s ease 2.6s forwards;}
+  .toast .ic{font-size:20px;}
+  .toast .m{font-size:13px;font-weight:700;}
+  .toast .s{font-size:11px;color:var(--text-2);}
+  @keyframes drop{from{transform:translateY(-16px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+  @keyframes fade{to{opacity:0;visibility:hidden;}}
+
+  /* bottom nav */
+  .nav{display:flex;justify-content:space-around;margin-top:18px;padding-top:12px;border-top:1px solid var(--b);}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--text-3);font-size:10px;font-weight:600;}
+  .ni.on{color:var(--accent);}
+  .ni .i{font-size:17px;}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="toast" id="toast">
+      <span class="ic">🎉</span>
+      <div><div class="m">+1 — you called the corner!</div><div class="s">Streak now 5 · keep it alive</div></div>
+    </div>
+
+    <div class="top">
+      <div class="brand">Strea<b>k</b></div>
+      <div class="live-pill"><span class="blip"></span> LIVE</div>
+    </div>
+
+    <div class="match">
+      <div class="side"><span class="crest" style="background:#0b6bcb">ENG</span><span class="cn">England</span></div>
+      <div class="mid"><div class="sc">1&nbsp;–&nbsp;0</div><div class="min" id="clock">67'</div></div>
+      <div class="side away"><span class="cn">Congo</span><span class="crest" style="background:#c62b2b">CGO</span></div>
+    </div>
+
+    <div class="hero">
+      <div class="flame">🔥</div>
+      <div class="snum" id="streak">5</div>
+      <div class="slab">on a streak</div>
+      <div class="meta">
+        <span class="chip">best today <b>8</b></span>
+        <span class="chip prize">🏆 top streak wins <b>◎312</b></span>
+      </div>
+    </div>
+
+    <div class="run">
+      <span class="rc hit">✓</span><span class="rc hit">✓</span><span class="rc hit">✓</span>
+      <span class="rc hit">✓</span><span class="rc hit">✓</span><span class="rc now">?</span>
+    </div>
+
+    <div class="call" id="call">
+      <div class="lab"><span>⚡ Your call</span><span class="timer">lock in <span id="t">0:14</span></span></div>
+      <div class="q">Next goal — <span class="em">who scores next?</span></div>
+      <div class="bar"><div class="bar-f" id="barf"></div></div>
+      <div class="opts">
+        <button class="opt" data-o>
+          <span class="oc" style="background:#0b6bcb">ENG</span><span class="ot">England</span><span class="os">2.1×</span>
+        </button>
+        <button class="opt" data-o>
+          <span class="oc" style="background:#2b3340">—</span><span class="ot">No goal</span><span class="os">in 10 min</span>
+        </button>
+        <button class="opt" data-o>
+          <span class="oc" style="background:#c62b2b">CGO</span><span class="ot">Congo</span><span class="os">4.4×</span>
+        </button>
+      </div>
+      <div class="locked-tag">✓ Locked — resolves live from the pitch</div>
+    </div>
+
+    <div class="lb">
+      <span class="fire">🔥</span>
+      <span class="txt"><b>1,204</b> alive · top <b class="you">you 5</b> · zk_marco <b>9</b> · ana <b>5</b></span>
+    </div>
+
+    <div class="nav">
+      <div class="ni on"><span class="i">⚡</span>Live</div>
+      <div class="ni"><span class="i">⚽</span>Matches</div>
+      <div class="ni"><span class="i">🔥</span>Streak</div>
+      <div class="ni"><span class="i">👛</span>Wallet</div>
+    </div>
+  </div>
+
+  <script>
+    // ── ticking countdown (urgency) ──
+    let t = 14;
+    const tEl = document.getElementById('t'), bar = document.getElementById('barf');
+    function render(){
+      const m = Math.floor(t/60), s = String(t%60).padStart(2,'0');
+      tEl.textContent = `${m}:${s}`;
+      bar.style.width = `${(t/14)*100}%`;
+    }
+    render();
+    const iv = setInterval(()=>{ t = t>0 ? t-1 : 14; render(); }, 1000);
+
+    // ── tap to lock your call ──
+    const call = document.getElementById('call');
+    document.querySelectorAll('.opt').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(call.classList.contains('locked')) return;
+        document.querySelectorAll('.opt').forEach(b=>b.classList.remove('sel'));
+        btn.classList.add('sel');
+        call.classList.add('locked');
+        clearInterval(iv);
+        tEl.textContent = 'locked';
+      });
+    });
+  </script>
+</body>
+</html>

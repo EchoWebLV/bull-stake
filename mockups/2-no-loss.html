@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Streak — No-Loss</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07090d; --accent:#FF6A1A; --accent-2:#FFB23E; --green:#3DE08A; --green-2:#7CF0B4; --red:#FF3B3B;
+    --text:#F4F6FA; --text-2:#9AA2B1; --text-3:#5C6473;
+    --card:#11141b; --card-2:#181d27; --card-3:#1c222d;
+    --b:rgba(255,255,255,.06); --b2:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box; margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;}
+  body{
+    background:radial-gradient(130% 90% at 50% -10%,#0e1620 0%,#080d0b 50%,#050608 100%);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    font-family:'Inter',system-ui,sans-serif; color:var(--text);
+  }
+  .phone{
+    position:relative; width:390px; min-height:812px;
+    background:linear-gradient(180deg,#0a0f0d,#080a0e);
+    border:1px solid var(--b2); border-radius:42px; padding:22px 18px 26px; overflow:hidden;
+    box-shadow:0 40px 120px rgba(0,0,0,.6);
+  }
+  .phone::before{content:""; position:absolute; top:-70px; left:50%; transform:translateX(-50%);
+    width:380px; height:250px; background:var(--green); opacity:.14; filter:blur(85px); border-radius:50%; pointer-events:none;}
+  .phone>*{position:relative; z-index:1;}
+
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  .brand{font-family:'Archivo'; font-weight:800; font-size:26px; letter-spacing:-1px;}
+  .brand b{color:var(--accent);}
+  .chip{font-family:'JetBrains Mono'; font-size:11px; color:var(--text-2); background:var(--card-3);
+    border:1px solid var(--b2); padding:7px 11px; border-radius:10px;}
+  .kick{display:inline-flex; align-items:center; gap:7px; margin-top:14px;
+    font-family:'JetBrains Mono'; font-size:10px; letter-spacing:1.6px; color:var(--text-2);
+    text-transform:uppercase; border:1px solid var(--b2); padding:5px 11px; border-radius:999px;}
+  .kick .d{width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green);}
+
+  /* Vault / balance */
+  .vault{background:linear-gradient(165deg,#10211a,#0b110f); border:1px solid rgba(61,224,138,.22);
+    border-radius:22px; padding:18px; margin-top:16px;}
+  .vault .vr{display:flex; align-items:center; justify-content:space-between;}
+  .vault .vk{font-size:10.5px; letter-spacing:1px; color:var(--text-3); text-transform:uppercase;}
+  .safe{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; color:var(--green);
+    background:rgba(61,224,138,.12); border:1px solid rgba(61,224,138,.25); padding:4px 10px; border-radius:999px;}
+  .vault .vbal{font-family:'Archivo'; font-weight:800; font-size:46px; letter-spacing:-1.5px; margin-top:10px; font-variant-numeric:tabular-nums;}
+  .vault .vbal small{font-size:18px; color:var(--text-3); font-weight:700;}
+  .vault .vnote{font-size:12px; color:var(--text-2); margin-top:6px;}
+  .vault .wbtn{margin-top:14px; width:100%; background:var(--card-3); color:var(--text); border:1px solid var(--b2);
+    border-radius:12px; padding:11px; font-family:'Inter'; font-weight:700; font-size:13px; cursor:pointer;}
+
+  /* Prize */
+  .prize{text-align:center; margin-top:14px; background:linear-gradient(180deg,#0f1a16,#0a0e0c);
+    border:1px solid var(--b); border-radius:22px; padding:20px 16px;}
+  .prize .lab{font-size:11px; letter-spacing:2px; color:var(--green-2); font-weight:700; text-transform:uppercase;}
+  .prize .big{font-family:'Archivo'; font-weight:800; font-size:52px; line-height:1; margin-top:6px; letter-spacing:-2px;
+    background:linear-gradient(180deg,#BFF7DA,#3DE08A); -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-variant-numeric:tabular-nums;}
+  .prize .sub{font-size:12px; color:var(--text-2); margin-top:9px;}
+
+  .explain{display:flex; gap:9px; align-items:flex-start; margin-top:12px; background:var(--card);
+    border:1px solid var(--b); border-radius:14px; padding:13px;}
+  .explain .ic{font-size:18px; line-height:1;}
+  .explain p{font-size:12px; color:var(--text-2); line-height:1.45;}
+  .explain b{color:var(--text);}
+
+  .sec{display:flex; align-items:baseline; justify-content:space-between; margin:20px 4px 0;}
+  .sec h3{font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-2); font-weight:700;}
+  .sec .cnt{font-size:11px; color:var(--green); font-weight:600;}
+
+  .picks{background:var(--card); border:1px solid var(--b); border-radius:16px; padding:4px 14px 12px; margin-top:8px;}
+  .leg{display:flex; align-items:center; gap:11px; padding:10px 0; border-top:1px solid var(--b);}
+  .leg:first-child{border-top:0;}
+  .leg .m{flex:1; min-width:0;}
+  .leg .mt{font-size:12.5px; font-weight:600;}
+  .leg .ms{font-size:10px; color:var(--text-3); margin-top:2px; text-transform:uppercase; letter-spacing:.4px;}
+  .pick{font-size:12px; font-weight:700; padding:6px 11px; border-radius:9px; white-space:nowrap;
+    background:rgba(61,224,138,.1); color:var(--green); border:1px solid rgba(61,224,138,.28);}
+  .pick.empty{background:transparent; color:var(--text-3); border:1px dashed var(--b2); font-weight:600;}
+  .more{font-size:11.5px; color:var(--text-3); padding:10px 0 2px; border-top:1px solid var(--b);}
+
+  .cta{margin-top:14px; width:100%; border:0; border-radius:15px; padding:16px;
+    font-family:'Inter'; font-weight:800; font-size:15px; color:#07120d; cursor:pointer;
+    background:linear-gradient(180deg,#5BEAA0,#3DE08A); box-shadow:0 12px 30px rgba(61,224,138,.26);}
+  .cta:active{transform:translateY(1px);}
+  .foot{display:flex; align-items:center; justify-content:center; gap:7px; margin-top:14px; font-size:11px; color:var(--text-3);}
+  .foot .dia{color:var(--green);}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="top">
+      <div class="brand">Strea<b>k</b></div>
+      <div class="chip">J7yZ…zxu7</div>
+    </div>
+    <div class="kick"><span class="d"></span> Prize savings · World Cup</div>
+
+    <div class="vault">
+      <div class="vr">
+        <span class="vk">Your balance</span>
+        <span class="safe">🔒 always safe</span>
+      </div>
+      <div class="vbal">$5.00</div>
+      <div class="vnote">Staked, never spent. Withdraw your $5 whenever you want.</div>
+      <button class="wbtn">Withdraw</button>
+    </div>
+
+    <div class="prize">
+      <div class="lab">This week's prize</div>
+      <div class="big">$1,920</div>
+      <div class="sub">grown from the pool's staking yield · 1,204 savers in</div>
+    </div>
+
+    <div class="explain">
+      <span class="ic">✨</span>
+      <p><b>You can't lose.</b> Everyone's deposits earn interest together — go perfect on the week's picks and you win <b>the interest</b>, not anyone's money.</p>
+    </div>
+
+    <div class="sec"><h3>Today's picks</h3><span class="cnt">5 / 6 · go perfect to enter</span></div>
+    <div class="picks">
+      <div class="leg"><div class="m"><div class="mt">France v Senegal</div><div class="ms">Result</div></div><span class="pick">France</span></div>
+      <div class="leg"><div class="m"><div class="mt">Brazil v Japan</div><div class="ms">Result</div></div><span class="pick">Draw</span></div>
+      <div class="leg"><div class="m"><div class="mt">England v Congo DR</div><div class="ms">Result</div></div><span class="pick">England</span></div>
+      <div class="leg"><div class="m"><div class="mt">Argentina v Croatia</div><div class="ms">Result</div></div><span class="pick empty">Tap to pick</span></div>
+      <div class="more">+ 2 more picks today</div>
+    </div>
+
+    <button class="cta">Make today's picks</button>
+    <div class="foot"><span class="dia">◆</span> Principal-protected · on-chain &amp; withdrawable anytime</div>
+  </div>
+</body>
+</html>

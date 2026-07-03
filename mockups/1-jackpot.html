@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Streak — Jackpot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#07090d; --accent:#FF6A1A; --accent-2:#FFB23E; --green:#3DE08A; --red:#FF3B3B;
+    --text:#F4F6FA; --text-2:#9AA2B1; --text-3:#5C6473;
+    --card:#11141b; --card-2:#181d27; --card-3:#1c222d;
+    --b:rgba(255,255,255,.06); --b2:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box; margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;}
+  body{
+    background:radial-gradient(130% 90% at 50% -10%,#11151d 0%,#090b10 50%,#050608 100%);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    font-family:'Inter',system-ui,sans-serif; color:var(--text);
+  }
+  .phone{
+    position:relative; width:390px; min-height:812px;
+    background:linear-gradient(180deg,#0b0e13,#080a0e);
+    border:1px solid var(--b2); border-radius:42px; padding:22px 18px 26px; overflow:hidden;
+    box-shadow:0 40px 120px rgba(0,0,0,.6);
+  }
+  .phone::before{content:""; position:absolute; top:-70px; left:50%; transform:translateX(-50%);
+    width:380px; height:250px; background:var(--accent); opacity:.20; filter:blur(80px); border-radius:50%; pointer-events:none;}
+  .phone>*{position:relative; z-index:1;}
+
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  .brand{font-family:'Archivo'; font-weight:800; font-size:26px; letter-spacing:-1px;}
+  .brand b{color:var(--accent);}
+  .chip{font-family:'JetBrains Mono'; font-size:11px; color:var(--text-2); background:var(--card-3);
+    border:1px solid var(--b2); padding:7px 11px; border-radius:10px;}
+  .kick{display:inline-flex; align-items:center; gap:7px; margin-top:14px;
+    font-family:'JetBrains Mono'; font-size:10px; letter-spacing:1.6px; color:var(--text-2);
+    text-transform:uppercase; border:1px solid var(--b2); padding:5px 11px; border-radius:999px;}
+  .kick .d{width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent);}
+
+  .jp{position:relative; background:linear-gradient(180deg,#1a130b,#0d0b08);
+    border:1px solid rgba(255,106,26,.28); border-radius:24px; padding:24px 18px 20px;
+    text-align:center; margin-top:16px; overflow:hidden;}
+  .jp::after{content:""; position:absolute; inset:0; background:radial-gradient(80% 60% at 50% 0%,rgba(255,106,26,.18),transparent 70%);}
+  .jp>*{position:relative;}
+  .jp .lab{font-size:11px; letter-spacing:2.5px; color:var(--accent-2); font-weight:700; text-transform:uppercase;}
+  .jp .big{font-family:'Archivo'; font-weight:800; font-size:60px; line-height:1; margin-top:8px; letter-spacing:-2.5px;
+    background:linear-gradient(180deg,#FFE2B0,#FF7A24); -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-variant-numeric:tabular-nums;}
+  .jp .roll{display:inline-flex; align-items:center; gap:6px; margin-top:12px; font-size:12px; color:var(--accent-2);
+    background:rgba(255,106,26,.1); border:1px solid rgba(255,106,26,.2); padding:5px 11px; border-radius:999px;}
+  .jp .sub{font-size:12px; color:var(--text-2); margin-top:10px; line-height:1.4;}
+  .jp .row{display:flex; gap:10px; margin-top:16px;}
+  .jp .st{flex:1; background:rgba(0,0,0,.32); border-radius:13px; padding:10px 8px;}
+  .jp .st .v{font-family:'Archivo'; font-weight:700; font-size:16px; font-variant-numeric:tabular-nums;}
+  .jp .st .k{font-size:9.5px; color:var(--text-3); text-transform:uppercase; letter-spacing:.6px; margin-top:3px;}
+
+  .sec{display:flex; align-items:baseline; justify-content:space-between; margin:20px 4px 0;}
+  .sec h3{font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-2); font-weight:700;}
+  .sec .cnt{font-size:11px; color:var(--accent-2); font-weight:600; font-variant-numeric:tabular-nums;}
+
+  .slip{background:var(--card); border:1px solid var(--b); border-radius:18px; padding:2px 15px 14px; margin-top:8px;}
+  .slip .cap{font-size:11.5px; color:var(--text-3); padding:12px 0 4px;}
+  .leg{display:flex; align-items:center; gap:11px; padding:11px 0; border-top:1px solid var(--b);}
+  .leg .num{width:18px; height:18px; border-radius:6px; background:var(--card-3); color:var(--text-3);
+    font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-family:'JetBrains Mono';}
+  .leg.done .num{background:rgba(255,106,26,.15); color:var(--accent);}
+  .leg .m{flex:1; min-width:0;}
+  .leg .mt{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .leg .ms{font-size:10.5px; color:var(--text-3); margin-top:2px; text-transform:uppercase; letter-spacing:.4px;}
+  .pick{font-size:12.5px; font-weight:700; padding:8px 13px; border-radius:10px; white-space:nowrap;
+    background:rgba(255,106,26,.12); color:var(--accent); border:1px solid rgba(255,106,26,.32);}
+  .pick.draw{background:var(--card-3); color:var(--text-2); border-color:var(--b2);}
+  .pick.yes{background:rgba(61,224,138,.12); color:var(--green); border-color:rgba(61,224,138,.32);}
+  .pick.empty{background:transparent; color:var(--text-3); border:1px dashed var(--b2); font-weight:600;}
+
+  .cta{margin-top:16px; width:100%; border:0; border-radius:15px; padding:17px;
+    font-family:'Inter'; font-weight:800; font-size:15.5px; color:#0a0a0a; cursor:pointer;
+    background:linear-gradient(180deg,#FF9244,#FF6A1A); box-shadow:0 12px 34px rgba(255,106,26,.34);}
+  .cta:active{transform:translateY(1px);}
+  .ctasub{text-align:center; font-size:11px; color:var(--text-3); margin-top:9px;}
+  .foot{display:flex; align-items:center; justify-content:center; gap:7px; margin-top:14px; font-size:11px; color:var(--text-3);}
+  .foot .dia{color:var(--green);}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="top">
+      <div class="brand">Strea<b>k</b></div>
+      <div class="chip">J7yZ…zxu7</div>
+    </div>
+    <div class="kick"><span class="d"></span> World Cup · Day 14</div>
+
+    <div class="jp">
+      <div class="lab">Today's Jackpot</div>
+      <div class="big">$48,250</div>
+      <div class="roll">↑ rolled over 6 days — nobody's gone perfect</div>
+      <div class="sub">Get all 6 of today's picks right.<br/>Perfect tickets split the whole pot.</div>
+      <div class="row">
+        <div class="st"><div class="v">1,204</div><div class="k">tickets in</div></div>
+        <div class="st"><div class="v">2h 14m</div><div class="k">to kickoff</div></div>
+        <div class="st"><div class="v">$1</div><div class="k">to enter</div></div>
+      </div>
+    </div>
+
+    <div class="sec"><h3>Your ticket</h3><span class="cnt">5 / 6 picked</span></div>
+    <div class="slip">
+      <div class="cap">Tap a pick to change it.</div>
+      <div class="leg done"><span class="num">1</span><div class="m"><div class="mt">France v Senegal</div><div class="ms">Result</div></div><span class="pick">France</span></div>
+      <div class="leg done"><span class="num">2</span><div class="m"><div class="mt">France v Senegal</div><div class="ms">Goals O/U 2.5</div></div><span class="pick">Over</span></div>
+      <div class="leg done"><span class="num">3</span><div class="m"><div class="mt">Brazil v Japan</div><div class="ms">Result</div></div><span class="pick draw">Draw</span></div>
+      <div class="leg done"><span class="num">4</span><div class="m"><div class="mt">Brazil v Japan</div><div class="ms">Both teams score</div></div><span class="pick yes">Yes</span></div>
+      <div class="leg done"><span class="num">5</span><div class="m"><div class="mt">England v Congo DR</div><div class="ms">Result</div></div><span class="pick">England</span></div>
+      <div class="leg"><span class="num">6</span><div class="m"><div class="mt">Argentina v Croatia</div><div class="ms">Result</div></div><span class="pick empty">Tap to pick</span></div>
+    </div>
+
+    <button class="cta">Lock in ticket · $1</button>
+    <div class="ctasub">Wrong on any leg and you're out — but it's just a dollar.</div>
+    <div class="foot"><span class="dia">◆</span> Settled on-chain · TxLINE proofs</div>
+  </div>
+</body>
+</html>
