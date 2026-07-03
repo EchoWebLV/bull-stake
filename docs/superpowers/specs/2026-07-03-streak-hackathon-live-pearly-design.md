@@ -29,7 +29,7 @@ Nav: **Live · Pearly · My Bets · Wallet**. Beat the Market tab retires (hidde
 
 - `weight_i = 2^(count of legs with leg.lock_ts > entry.entry_ts)`. Entry permitted iff that count ≥ 3 (entries effectively close at the KO that leaves only 2 open legs).
 - `perfect_i` = every counted leg correct. **Unresolvable legs** (postponed/abandoned fixture with no proof-determined bucket): the keeper voids the whole contest → every entry refunds (existing `void_contest` path). No per-leg void exclusion this cycle.
-- `payout_i = (pot − rake) × weight_i / Σ weight_perfect`, u64 floor math; dust → jackpot sweep (existing). Zero perfect (or zero entries) → full pot → jackpot PDA rollover. `fee_bps` configurable, **0 for the demo**.
+- `payout_i = distributable × weight_i / Σ weight_perfect`, u64 floor math, where **distributable = (pot − rake) + the whole jackpot** (winners settle pulls the jackpot in); flooring residue (< perfect_count lamports) stays in the Contest PDA. Zero perfect (or zero entries) → full pot → jackpot PDA rollover. `fee_bps` configurable, **0 for the demo**.
 
 ## 4. On-chain changes (one focused set; redeploy in place, same program id)
 
