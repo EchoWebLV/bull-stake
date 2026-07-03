@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   countPerfect,
+  countPerfectWeighted,
   selectParlayMatches,
   parlayParams,
   previewSettle,
@@ -48,6 +49,57 @@ describe("countPerfect", () => {
   });
   it("returns 0 when nobody is perfect", () => {
     expect(countPerfect([{ picks: [1, 1, 1, 0, 0] }], winning, 3)).toBe(0);
+  });
+});
+
+describe("countPerfectWeighted", () => {
+  const legLockTs = [100, 200, 300, 400, 500, 600];
+  const winning = [0, 1, 2, 0, 1, 2];
+  it("full-mask early entry counts weight 64; late 5-leg entry (leg0 locked, leg0 pick wrong) counts weight 32", () => {
+    const entries = [
+      { picks: [0, 1, 2, 0, 1, 2], entryTs: 50 },   // perfect, 6 active → 64
+      { picks: [9, 1, 2, 0, 1, 2], entryTs: 150 },  // leg0 locked at entry → masked out → perfect on 5 → 32
+      { picks: [0, 1, 2, 0, 1, 9], entryTs: 50 },   // active leg 5 wrong → imperfect
+    ];
+    const r = countPerfectWeighted(entries, winning, legLockTs, 6);
+    expect(r).toEqual({ perfectCount: 2, perfectWeight: 96 });
+  });
+  it("rollover: nobody perfect → 0/0", () => {
+    const r = countPerfectWeighted([{ picks: [9, 9, 9, 9, 9, 9], entryTs: 50 }], winning, legLockTs, 6);
+    expect(r).toEqual({ perfectCount: 0, perfectWeight: 0 });
+  });
+  // RIDER A: mirrors claim_contest.rs's fail-closed seed `perfect = entry_ts > 0` —
+  // an entry_ts <= 0 is impossible for a legitimate entry (real clocks are always
+  // positive), so the chain refuses to ever pay it. The keeper must not count or
+  // weight an entry the chain will never honor.
+  it("entryTs <= 0 is fail-closed (mirrors claim_contest.rs `entry_ts > 0` seed): excluded even with all-correct picks", () => {
+    const entries = [
+      { picks: [0, 1, 2, 0, 1, 2], entryTs: 0 }, // all-correct picks but entryTs 0 → excluded
+    ];
+    const r = countPerfectWeighted(entries, winning, legLockTs, 6);
+    expect(r).toEqual({ perfectCount: 0, perfectWeight: 0 });
+  });
+  it("entryTs <= 0 exclusion doesn't disturb other perfect entries", () => {
+    const entries = [
+      { picks: [0, 1, 2, 0, 1, 2], entryTs: 0 },  // excluded (fail-closed)
+      { picks: [0, 1, 2, 0, 1, 2], entryTs: 50 }, // perfect, 6 active → 64
+    ];
+    const r = countPerfectWeighted(entries, winning, legLockTs, 6);
+    expect(r).toEqual({ perfectCount: 1, perfectWeight: 64 });
+  });
+  // RIDER A boundary: pins strict inequality `leg_lock_ts[i] > entry_ts` — an
+  // entryTs exactly equal to a leg's lock means that leg is NOT active (the
+  // chain's `>` is strict, not `>=`).
+  it("entryTs exactly equal to a leg's lock: that leg is NOT active (strict >, not >=)", () => {
+    const entries = [
+      // leg0 lock is 100; entryTs 100 → 100 > 100 is false → leg0 NOT active.
+      // Other 5 legs (locks 200..600) are all > 100 → active. leg0 pick is wrong
+      // (9 vs winning 0) but since leg0 is inactive it's ignored → still perfect
+      // on the other 5 → weight 2^5 = 32.
+      { picks: [9, 1, 2, 0, 1, 2], entryTs: 100 },
+    ];
+    const r = countPerfectWeighted(entries, winning, legLockTs, 6);
+    expect(r).toEqual({ perfectCount: 1, perfectWeight: 32 });
   });
 });
 
@@ -130,7 +182,7 @@ describe("parlayParams", () => {
   });
 });
 
-describe("previewSettle (v2, jackpot-aware) — mirrors settle_contest.rs line-by-line", () => {
+describe("previewSettle (v2, jackpot-aware, weighted-claim era) — mirrors settle_contest.rs line-by-line (commit 542d57c)", () => {
   // Contest holds 1_000_000; rent floor 890_880 → pot 109_120.
   // 5 entries × 20_000 = 100_000 new stakes; 5% rake = 5_000 → potNet 104_120.
   // Jackpot rent floor 890_880 throughout.
@@ -144,17 +196,14 @@ describe("previewSettle (v2, jackpot-aware) — mirrors settle_contest.rs line-b
     feeBps: 500,
   };
 
-  it("winners, jpool=0: distributable == pot−rake, share == distributable/perfectCount, no jackpot movement", () => {
+  it("winners, jpool=0: distributable == pot−rake, no jackpot movement", () => {
     const p = previewSettle({ ...base, jackpotLamports: JFLOOR, perfectCount: 2n });
     expect(p.pot).toBe(109_120n);
     expect(p.rake).toBe(5_000n);             // (5 × 20_000 × 500) / 10_000
     expect(p.jpool).toBe(0n);
-    expect(p.distributable).toBe(104_120n);  // pot − rake
-    expect(p.share).toBe(52_060n);           // floor(104_120 / 2)
-    expect(p.payable).toBe(104_120n);
-    expect(p.dust).toBe(0n);
-    expect(p.jackpotIn).toBe(0n);            // payable == potNet → no movement
-    expect(p.jackpotOut).toBe(0n);
+    expect(p.distributable).toBe(104_120n);  // potNet + jpool(0) — the FULL raw pool, undivided
+    expect(p.jackpotIn).toBe(0n);            // jpool is 0 → nothing to pull in
+    expect(p.jackpotOut).toBe(0n);           // winners branch never sweeps back out
     expect(p.rolledOver).toBe(false);
   });
 
@@ -163,93 +212,39 @@ describe("previewSettle (v2, jackpot-aware) — mirrors settle_contest.rs line-b
     expect(p.rolledOver).toBe(true);
     expect(p.rake).toBe(5_000n);             // rake still taken on new stakes
     expect(p.distributable).toBe(0n);
-    expect(p.share).toBe(0n);
-    expect(p.payable).toBe(0n);
-    expect(p.dust).toBe(0n);
     expect(p.jackpotIn).toBe(0n);
     expect(p.jackpotOut).toBe(104_120n);     // potNet swept contest → jackpot
   });
 
-  it("scoop (jpool>0, single winner): distributable==(pot−rake)+jpool, jackpotIn==jpool, jackpot left at dust(==0)", () => {
+  it("scoop (jpool>0): distributable==(pot−rake)+jpool, jackpotIn==jpool (whole pool pulled in), jackpotOut==0", () => {
     const jpool = 500_000n;
     const p = previewSettle({ ...base, jackpotLamports: JFLOOR + jpool, perfectCount: 1n });
     expect(p.pot).toBe(109_120n);
     expect(p.rake).toBe(5_000n);
     expect(p.jpool).toBe(jpool);
-    // raw = potNet(104_120) + jpool(500_000) = 604_120; 1 winner → share = raw, dust 0
-    expect(p.distributable).toBe(604_120n);  // (pot − rake) + jpool
-    expect(p.share).toBe(604_120n);
-    expect(p.payable).toBe(604_120n);
-    expect(p.dust).toBe(0n);                  // divides evenly with 1 winner
-    expect(p.jackpotIn).toBe(jpool);         // whole pool pulled into contest
+    // distributable = potNet(104_120) + jpool(500_000) — no division/floor at settle.
+    expect(p.distributable).toBe(604_120n);
+    expect(p.jackpotIn).toBe(jpool);         // whole pool pulled into contest, unconditionally
     expect(p.jackpotOut).toBe(0n);
     expect(p.rolledOver).toBe(false);
   });
 
-  it("dust case: payable==share*perfectCount, dust==raw−payable (stays in jackpot)", () => {
-    // jpool=0, 3 winners on potNet 104_120 → share floor(104_120/3)=34_706,
-    // payable 104_118, dust 2.
-    const p = previewSettle({ ...base, jackpotLamports: JFLOOR, perfectCount: 3n });
-    expect(p.jpool).toBe(0n);
-    const raw = p.pot - p.rake + p.jpool; // 104_120
-    expect(p.share).toBe(34_706n);           // floor(104_120 / 3)
-    expect(p.payable).toBe(34_706n * 3n);    // 104_118
-    expect(p.payable).toBe(p.share * 3n);
-    expect(p.dust).toBe(raw - p.payable);    // 2
-    expect(p.dust).toBe(2n);
-    expect(p.distributable).toBe(p.payable);
-    // payable(104_118) < potNet(104_120) → contest → jackpot (signed-delta DOWN)
-    expect(p.jackpotIn).toBe(0n);
-    expect(p.jackpotOut).toBe(2n);           // potNet − payable == dust − jpool
-  });
-
-  it("signed-delta UP (jackpot → contest): payable > potNet pulls lamports IN", () => {
-    // jpool large, 3 winners. raw = 104_120 + 1_000_000 = 1_104_120.
-    // share = floor(1_104_120 / 3) = 368_040; payable = 1_104_120; dust = 0.
+  it("distributable/jackpotIn/jackpotOut are INDEPENDENT of perfectCount (no more floor-by-count at settle)", () => {
+    // Same pot + jpool, three different perfectCounts (was 2/3/7 pre-542d57c and used
+    // to produce different share/dust/signed-jackpot-delta outputs). Post-542d57c
+    // settle no longer divides by perfect_count at all — division-by-weight moved to
+    // claim_contest.rs — so every one of these must report IDENTICAL money movement;
+    // only `rolledOver` (driven off perfectCount==0) can differ.
     const jpool = 1_000_000n;
-    const p = previewSettle({ ...base, jackpotLamports: JFLOOR + jpool, perfectCount: 3n });
-    expect(p.jpool).toBe(jpool);
-    const raw = p.pot - p.rake + jpool; // 1_104_120
-    expect(p.share).toBe(raw / 3n);          // 368_040
-    expect(p.payable).toBe(p.share * 3n);    // 1_104_120
-    expect(p.dust).toBe(raw - p.payable);    // 0
-    expect(p.distributable).toBe(p.payable);
-    const potNet = p.pot - p.rake;           // 104_120
-    expect(p.payable).toBeGreaterThan(potNet);
-    expect(p.jackpotIn).toBe(p.payable - potNet); // jackpot → contest
-    expect(p.jackpotOut).toBe(0n);
-  });
-
-  it("signed-delta DOWN edge (dust > jpool): small pot, many winners, tiny jpool", () => {
-    // potNet small, perfectCount large, jpool tiny → payable < potNet, dust > jpool.
-    // pot = 100; rake on stakes (entryCount 0 → rake 0) so potNet = 100.
-    // jpool = 1. raw = 101. perfectCount = 7 → share = floor(101/7)=14,
-    // payable = 98, dust = 3 (> jpool 1).
-    const p = previewSettle({
-      contestLamports: 890_880n + 100n, // pot = 100
-      contestRentFloor: 890_880n,
-      jackpotLamports: JFLOOR + 1n,     // jpool = 1
-      jackpotRentFloor: JFLOOR,
-      entryCount: 0n,
-      entryPrice: 0n,
-      feeBps: 500,
-      perfectCount: 7n,
-    });
-    expect(p.pot).toBe(100n);
-    expect(p.rake).toBe(0n);
-    expect(p.jpool).toBe(1n);
-    const raw = 101n;
-    expect(p.share).toBe(raw / 7n);          // 14
-    expect(p.payable).toBe(14n * 7n);        // 98
-    expect(p.dust).toBe(raw - p.payable);    // 3
-    expect(p.dust).toBeGreaterThan(p.jpool); // dust(3) > jpool(1)
-    const potNet = 100n;
-    expect(p.payable).toBeLessThan(potNet);
-    expect(p.jackpotOut).toBe(potNet - p.payable); // contest → jackpot == 2
-    expect(p.jackpotOut).toBe(2n);
-    expect(p.jackpotIn).toBe(0n);
-    // conservation: jackpot ends with jpool + jackpotOut == dust
-    expect(p.jpool + p.jackpotOut).toBe(p.dust);
+    const p2 = previewSettle({ ...base, jackpotLamports: JFLOOR + jpool, perfectCount: 2n });
+    const p3 = previewSettle({ ...base, jackpotLamports: JFLOOR + jpool, perfectCount: 3n });
+    const p7 = previewSettle({ ...base, jackpotLamports: JFLOOR + jpool, perfectCount: 7n });
+    for (const p of [p2, p3, p7]) {
+      expect(p.distributable).toBe(1_104_120n); // potNet(104_120) + jpool(1_000_000)
+      expect(p.jackpotIn).toBe(jpool);
+      expect(p.jackpotOut).toBe(0n);
+      expect(p.rolledOver).toBe(false);
+    }
   });
 
   it("rake capped at pot when nominal fees exceed the pot", () => {
@@ -261,10 +256,8 @@ describe("previewSettle (v2, jackpot-aware) — mirrors settle_contest.rs line-b
     });
     expect(p.pot).toBe(1_000n);
     expect(p.rake).toBe(1_000n);             // min(100_000, 1_000)
-    // potNet 0, jpool 0, 1 winner → distributable 0
+    // potNet 0, jpool 0 → distributable 0
     expect(p.distributable).toBe(0n);
-    expect(p.share).toBe(0n);
-    expect(p.dust).toBe(0n);
     expect(p.jackpotIn).toBe(0n);
     expect(p.jackpotOut).toBe(0n);
   });

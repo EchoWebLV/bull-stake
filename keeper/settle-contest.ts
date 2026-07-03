@@ -23,12 +23,18 @@
  *                    and tell the operator to WAIT and re-run later; do NOT void.
  *      - "abandoned" (every bucketless leg is Voided) → ABORT and direct the
  *                    operator to `void-contest` to refund.
- *   4. Count perfect entries off-chain (entry.all memcmp on contest @ offset 40).
+ *   4. Count perfect entries off-chain, WEIGHTED (entry.all memcmp on contest @
+ *      offset 40; countPerfectWeighted masks each entry's picks to the legs still
+ *      open at its entry_ts and weights a perfect entry by 2^active — mirrors
+ *      claim_contest.rs's masked-perfect + 2^active share).
  *   5. AUDIT (always, dry-run + live): v2 previewSettle from the CONTEST + JACKPOT
- *      PDA balances — print pot/rake/jpool/distributable/share/dust/jackpotIn/
- *      jackpotOut/rolledOver + the perfect_count.
+ *      PDA balances — print pot/rake/jpool/distributable/jackpotIn/jackpotOut/
+ *      rolledOver + the perfect_count/perfect_weight. distributable is now the FULL
+ *      raw pool handed to winners undivided (commit 542d57c) — no share/dust at
+ *      settle; per-claim division by perfect_weight happens in claim_contest.rs.
  *   6. Enforce perfect_count <= entry_count (mirrors on-chain PerfectCountExceedsEntries).
- *   7. If not --dry-run: settle_contest(perfect_count) with jackpot + leg markets.
+ *   7. If not --dry-run: settle_contest(perfect_count, perfect_weight) with jackpot +
+ *      leg markets.
  */
 import "dotenv/config";
 import { PublicKey } from "@solana/web3.js";
@@ -40,7 +46,7 @@ import { marketById } from "../engine/src/markets.js";
 import { loadProofbetProgram, settleMarketByPubkey } from "./settle.js";
 import { marketsToSettle } from "./settle-all.js";
 import {
-  countPerfect,
+  countPerfectWeighted,
   previewSettle,
   legMarketsInOrder,
   classifyLegReadiness,
@@ -231,14 +237,21 @@ async function settleOneContest(
     return "aborted-void";
   }
 
-  // 4. Count perfect entries off-chain (entry.contest is at offset 8 + 32 = 40).
+  // 4. Count perfect entries off-chain, WEIGHTED (entry.contest is at offset 8 + 32 = 40).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const entries: any[] = await (proofbet.account as any).entry.all([
     { memcmp: { offset: 8 + 32, bytes: contest.toBase58() } },
   ]);
   const entryCount = Number(c.entryCount);
-  const perfectCount = countPerfect(
-    entries.map((e) => ({ picks: e.account.picks as number[] })), winningBuckets, numLegs,
+  const legLockTs: number[] = (c.legLockTs as { toString(): string }[]).map((b) => Number(b.toString()));
+  const { perfectCount, perfectWeight } = countPerfectWeighted(
+    entries.map((e) => ({
+      picks: e.account.picks as number[],
+      entryTs: Number(e.account.entryTs),
+    })),
+    winningBuckets,
+    legLockTs,
+    numLegs,
   );
 
   // 5. AUDIT (always — dry-run AND live): mirror settle_contest exactly so the
@@ -264,12 +277,11 @@ async function settleOneContest(
 
   console.log(JSON.stringify({
     action: "settle_contest", contestId, fixtures, marketIds, winningBuckets,
-    entries: entries.length, entryCount, perfectCount,
+    entries: entries.length, entryCount, perfectCount, perfectWeight,
     preview: {
       pot: preview.pot.toString(), rake: preview.rake.toString(),
       jpool: preview.jpool.toString(), distributable: preview.distributable.toString(),
-      share: preview.share.toString(), payable: preview.payable.toString(),
-      dust: preview.dust.toString(), jackpotIn: preview.jackpotIn.toString(),
+      jackpotIn: preview.jackpotIn.toString(),
       jackpotOut: preview.jackpotOut.toString(), rolledOver: preview.rolledOver,
     },
     dryRun,
@@ -277,10 +289,10 @@ async function settleOneContest(
   console.log(
     `settle preview · pot ${sol(preview.pot)} ◎ · rake ${sol(preview.rake)} ◎ · ` +
     `jpool ${sol(preview.jpool)} ◎ · distributable ${sol(preview.distributable)} ◎ · ` +
-    `${perfectCount}/${entryCount} winner(s) → ${sol(preview.share)} ◎ each` +
+    `${perfectCount} winner(s), total weight ${perfectWeight}` +
     (preview.rolledOver
       ? ` · ROLLOVER (no winners; ${sol(preview.jackpotOut)} ◎ rolls into jackpot)`
-      : ` · dust ${sol(preview.dust)} ◎ · jackpotIn ${sol(preview.jackpotIn)} ◎ · jackpotOut ${sol(preview.jackpotOut)} ◎`),
+      : ` · jackpotIn ${sol(preview.jackpotIn)} ◎ · jackpotOut ${sol(preview.jackpotOut)} ◎`),
   );
 
   // 6. Enforce perfect_count <= entry_count (mirror on-chain PerfectCountExceedsEntries).
@@ -294,9 +306,11 @@ async function settleOneContest(
 
   if (dryRun) { console.log("dry-run: not sending settle_contest"); return "dry-run"; }
 
-  // 7. settle_contest(perfect_count) — jackpot REPLACES vault; leg markets in LEG ORDER.
+  // 7. settle_contest(perfect_count, perfect_weight) — jackpot REPLACES vault; leg
+  //    markets in LEG ORDER. perfect_weight is the Pearly's 2^active-weighted tally
+  //    (countPerfectWeighted); claim_contest.rs divides each winner's share by it.
   const sig = await proofbet.methods
-    .settleContest(new BN(perfectCount))
+    .settleContest(new BN(perfectCount), new BN(perfectWeight))
     .accountsStrict({
       settleAuthority: keeper,
       jackpot: jackpotPda,

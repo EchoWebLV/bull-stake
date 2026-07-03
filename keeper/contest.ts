@@ -99,6 +99,39 @@ export function countPerfect(
   }).length;
 }
 
+/** Weighted perfect tally for the Pearly: an entry's ACTIVE legs are those whose
+ * leg lock is strictly after its entryTs; perfect = all active picks match; each
+ * perfect entry contributes 2^active to the weight. Mirrors claim_contest.rs. */
+export function countPerfectWeighted(
+  entries: { picks: number[]; entryTs: number }[],
+  winningBuckets: number[],
+  legLockTs: number[],
+  numLegs: number,
+): { perfectCount: number; perfectWeight: number } {
+  let perfectCount = 0;
+  let perfectWeight = 0;
+  for (const e of entries) {
+    // Fail-closed on an impossible entry_ts <= 0 (mirrors claim_contest.rs's
+    // `perfect = entry_ts > 0` seed): a legitimate entry always stamps a positive
+    // clock time, so entry_ts <= 0 marks an entry the chain will never pay — the
+    // keeper must not let it inflate count/weight.
+    if (e.entryTs <= 0) continue;
+    let active = 0;
+    let perfect = true;
+    for (let i = 0; i < numLegs; i++) {
+      if (legLockTs[i] > e.entryTs) {
+        active++;
+        if (e.picks[i] !== winningBuckets[i]) perfect = false;
+      }
+    }
+    if (perfect && active > 0) {
+      perfectCount++;
+      perfectWeight += 2 ** active;
+    }
+  }
+  return { perfectCount, perfectWeight };
+}
+
 export interface SlateMatch {
   fixtureId: number;
   home: string;
@@ -199,17 +232,20 @@ export interface SettlePreview {
   pot: bigint;           // contest escrow above its rent floor
   rake: bigint;          // fee taken to fee_recipient (on NEW stakes, capped at pot)
   jpool: bigint;         // rolling jackpot above its rent floor
-  distributable: bigint; // paid out to winners (== payable; 0 on rollover)
-  share: bigint;         // per-winner payout (floor division of raw)
-  payable: bigint;       // share * perfectCount
-  dust: bigint;          // raw − payable — left implicitly in the jackpot
-  jackpotIn: bigint;     // lamports moved jackpot → contest (payable >= potNet)
-  jackpotOut: bigint;    // lamports moved contest → jackpot (rollover, or payable < potNet)
-  rolledOver: boolean;   // perfectCount == 0 → no winners, potNet rolls into jackpot
+  distributable: bigint; // the FULL raw pool credited to winners (pot_net + jpool);
+                          // 0 on rollover. No flooring here — per-claim division
+                          // (floor(distributable * weight / perfect_weight)) happens
+                          // in claim_contest.rs; the flooring residue (< perfect_count
+                          // lamports) stays in the Contest PDA, untouched by settle.
+  jackpotIn: bigint;      // lamports moved jackpot → contest (winners: ALWAYS the
+                          // whole jpool, unconditionally — no signed-delta compare)
+  jackpotOut: bigint;     // lamports moved contest → jackpot (rollover only; always
+                          // 0 on a winners-settle — nothing ever flows back out)
+  rolledOver: boolean;    // perfectCount == 0 → no winners, potNet rolls into jackpot
 }
 
 /**
- * Pure mirror of `settle_contest.rs` (handler lines 99-214): compute exactly what
+ * Pure mirror of `settle_contest.rs` (handler lines 28-221): compute exactly what
  * the on-chain handler will do for a keeper-supplied `perfectCount`, so the operator
  * can sanity-check the one trusted input (perfect_count) and the resulting payout +
  * jackpot movement BEFORE broadcasting `settle_contest`.
@@ -220,13 +256,20 @@ export interface SettlePreview {
  *   rake      = (entry_count * entry_price * fee_bps / 10_000) capped at pot
  *   pot_net   = pot − rake
  *   jpool     = jackpot_lamports − jackpot_rent_floor          (clamp ≥0)
- *   rollover (perfect_count==0): jackpot_out = pot_net; distributable = 0
- *   winners:  raw = pot_net + jpool; share = floor(raw / perfect_count);
- *             payable = share * perfect_count; dust = raw − payable (left in jackpot);
- *             SIGNED delta — payable >= pot_net → jackpot_in = payable − pot_net
- *                            (jackpot → contest); else jackpot_out = pot_net − payable
- *                            (contest → jackpot, leaving the jackpot holding dust > jpool).
- *             distributable = payable.
+ *   rollover (perfect_count==0): jackpot_out = pot_net; distributable = 0.
+ *   winners:  distributable = pot_net + jpool (the FULL raw pool — NO division at
+ *             settle; claim_contest.rs floors per-entry by weight, residue stays in
+ *             the Contest PDA); jackpot_in = jpool UNCONDITIONALLY (the whole
+ *             rolling jackpot is always pulled into the contest when there are
+ *             winners — no signed-delta comparison against pot_net); jackpot_out
+ *             stays 0 (nothing ever flows contest → jackpot on a winners-settle).
+ *
+ * NOTE (Rider B / commit 542d57c): this used to floor-divide at settle (share =
+ * floor(raw / perfect_count); payable = share * perfect_count; dust = raw − payable
+ * left in the jackpot via a signed jackpotIn/jackpotOut delta). That mechanism is
+ * GONE — settle now hands winners the whole raw pool undivided, and per-claim
+ * division/flooring happens in claim_contest.rs against perfect_weight, not
+ * perfect_count. `share`/`payable`/`dust` no longer exist as settle-time concepts.
  */
 export function previewSettle(i: SettlePreviewInput): SettlePreview {
   const max0 = (x: bigint) => (x > 0n ? x : 0n);
@@ -237,18 +280,13 @@ export function previewSettle(i: SettlePreviewInput): SettlePreview {
   const potNet = pot - rake;
   if (i.perfectCount === 0n) {
     return {
-      pot, rake, jpool, distributable: 0n, share: 0n, payable: 0n, dust: 0n,
+      pot, rake, jpool, distributable: 0n,
       jackpotIn: 0n, jackpotOut: potNet, rolledOver: true,
     };
   }
   const raw = potNet + jpool;
-  const share = raw / i.perfectCount;
-  const payable = share * i.perfectCount;
-  const dust = raw - payable;
-  const jackpotIn = payable >= potNet ? payable - potNet : 0n;
-  const jackpotOut = payable >= potNet ? 0n : potNet - payable;
   return {
-    pot, rake, jpool, distributable: payable, share, payable, dust,
-    jackpotIn, jackpotOut, rolledOver: false,
+    pot, rake, jpool, distributable: raw,
+    jackpotIn: jpool, jackpotOut: 0n, rolledOver: false,
   };
 }
