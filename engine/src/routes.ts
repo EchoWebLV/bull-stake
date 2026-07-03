@@ -19,6 +19,7 @@ import {
   readLinePosition,
   type ContestView,
   type LivePoolView,
+  type RawEntryView,
 } from "./chain.ts";
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
@@ -68,24 +69,39 @@ export function selectTodaysCard(
  * Per-leg winning buckets for a card's OWN leg markets — mid-day, a leg settles
  * (its own Market account) long before the whole Contest does (Contest.winning_buckets
  * is only written in bulk by settle_contest once every leg is ready). `null` for a
- * leg whose market isn't settled yet OR whose read failed (best-effort: one flaky
- * leg read shouldn't blank alive-tracking for the rest of the card).
+ * leg whose market isn't settled yet. A leg whose READ threw (RPC blip / missing
+ * market account) also reads null, but flips `failed` — "unknown" must stay
+ * distinguishable from "not settled yet" upstream: a silently-skipped failed leg
+ * would make aliveCount an overcount with no signal to the client. Never rejects.
  */
-async function readLegWinningBuckets(card: ContestView): Promise<(number | null)[]> {
-  return Promise.all(
+async function readLegWinningBuckets(
+  card: ContestView,
+): Promise<{ buckets: (number | null)[]; failed: boolean }> {
+  let failed = false;
+  const buckets = await Promise.all(
     card.legs.map(async (leg) => {
       try {
         const pda = deriveMarketPda(PROGRAM_ID, leg.fixtureId, leg.marketId).toBase58();
         const m = await readMarket(pda);
         return m.status === "settled" ? m.winningBucket : null;
       } catch {
+        failed = true; // this leg's outcome is UNKNOWN (not "unsettled") — degrade visibly
         return null;
       }
     }),
   );
+  return { buckets, failed };
 }
 
-/** One entry's active-leg mask against a card's per-leg locks: leg i is active iff legLockTs[i] > entryTs. */
+/**
+ * One entry's active-leg mask against a card's per-leg locks: leg i is active iff
+ * legLockTs[i] > entryTs. `legLockTs` here is the ContestView's numLegs-TRIMMED
+ * view, and create_contest requires every carded leg's lock to be a real future
+ * kickoff (`leg_lock_ts[i] >= lock_ts > now`, create_contest.rs) with the zero
+ * tail confined strictly BEYOND num_legs — so a 0 lock never reaches this mask,
+ * and every real entryTs (> 0, stamped from the chain clock) compares against
+ * genuine kickoffs only.
+ */
 function activeMask(legLockTs: number[], entryTs: number): boolean[] {
   return legLockTs.map((lockTs) => lockTs > entryTs);
 }
@@ -320,6 +336,18 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
     });
   });
 
+  // /api/card alive-tracking micro-cache: the web Pearly tab polls this route
+  // every few seconds and each poll costs one Entry getProgramAccounts scan +
+  // numLegs Market fetches. Same idiom as `linesCache` below — per-server
+  // instance (test-safe), single slot (one live card at a time), short TTL.
+  // Keyed by contestId; ONLY successful reads are cached, so a blip retries on
+  // the very next poll instead of pinning `degraded: true` for a whole TTL.
+  // myCard needs no extra caching: it derives from the same cached entry scan
+  // (the per-wallet filter is pure CPU per request).
+  const CARD_SCAN_TTL_MS = 4_000;
+  let cardBucketsCache: { contestId: number; at: number; data: (number | null)[] } | null = null;
+  let cardEntriesCache: { contestId: number; at: number; data: RawEntryView[] } | null = null;
+
   /**
    * GET /api/card[?wallet=<base58>]
    * TODAY's single 6-leg card — the focused view the new web reads. It reuses
@@ -328,7 +356,7 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
    * standalone jackpot pot.
    *
    * Shape: `{ contestId, status, lockTs, entriesCloseTs, settleAfterTs, entryPrice,
-   *           pot, jackpot, aliveCount, myCard,
+   *           pot, jackpot, aliveCount, myCard, degraded?,
    *           legs: [{ fixtureId, home, away, kickoffTs, marketId, label, group,
    *                    line, buckets, lockTs }] }`.
    * Every leg is one match (single-match parlay), so home/away/kickoffTs are the
@@ -339,19 +367,37 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
    * own `lockTs` (`legLockTs[i]`) is its individual kickoff — Pearly locks legs
    * one at a time through the day, not all at once at the card's first `lockTs`.
    *
-   * `aliveCount`: entries whose picks still match every ACTIVE leg that has
-   * ALREADY settled (own Market, not the bulk Contest.winning_buckets — see
-   * `readLegWinningBuckets`) — a running "how many cards are still perfect"
-   * count for the whole card, independent of `?wallet=`.
+   * `aliveCount: number | null` — entries whose picks still match every ACTIVE
+   * leg that has ALREADY settled (each leg's own Market, not the bulk
+   * Contest.winning_buckets — see `readLegWinningBuckets`); a running "how many
+   * cards are still perfect" count, independent of `?wallet=`. `null` means
+   * "couldn't compute this poll" (see `degraded`), NEVER "zero cards alive".
    *
-   * `myCard` (only when `?wallet=` parses as a pubkey): that wallet's entry on
-   * this card mapped to `{ picks, entryTs, activeMask, weight, alive }`
-   * (`weight = 2**activeCount`, mirroring `perfect_weight`'s on-chain divisor),
-   * or `null` when the wallet has no entry here.
+   * `myCard` — three-state, driven by `?wallet=`:
+   *   - object          → the wallet's entry (LOWEST nonce if it somehow holds
+   *                       several — the product model is one card per wallet and
+   *                       the web always enters nonce 0), mapped to
+   *                       `{ picks, entryTs, activeMask, weight, alive }` with
+   *                       `weight = 2**activeCount` (perfect_weight's divisor).
+   *   - null            → CONFIRMED no entry: the scan succeeded and found none,
+   *                       or no/invalid `wallet` was given (incl. a repeated
+   *                       ?wallet= — Fastify parses that as an array, which
+   *                       `new PublicKey` would silently resolve to the system
+   *                       program address rather than throw, so anything but a
+   *                       single non-empty string is treated as absent).
+   *   - KEY OMITTED     → unknown: a valid wallet asked but the entry scan
+   *                       failed this poll — retry, don't render "no entry".
+   *
+   * `degraded?: true` — present ONLY when the entry scan and/or ≥1 leg-market
+   * read failed; the key is omitted entirely on a healthy response. When set,
+   * `aliveCount` is null and `myCard.alive` (if myCard is served at all) is
+   * computed against only the leg outcomes that could be read — optimistic;
+   * trust `alive`/`aliveCount` only on non-degraded responses. Fail-soft by
+   * design: a read blip must not blank the whole card view.
    *
    * Empty case: when no Open contest exists, responds `{ card: null }` with 200
    * (NOT 404 / not a paused object) so the web can render an "open later" state.
-   * A genuine RPC failure still 502s.
+   * A genuine RPC failure on the CONTEST read itself still 502s.
    */
   app.get("/api/card", async (req, reply) => {
     let contests;
@@ -374,45 +420,72 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
       jackpot = "0";
     }
 
-    // Alive-tracking: each leg's OWN market (not Contest.winning_buckets, which
-    // stays unset until the whole contest settles) + every raw entry on this
-    // card. Best-effort — an entry-scan hiccup degrades to 0/[] rather than
-    // 502ing an otherwise-good card (same idiom as the jackpot fold-in above).
-    let winningBuckets: (number | null)[] = card.legs.map(() => null);
-    try {
-      winningBuckets = await readLegWinningBuckets(card);
-    } catch {
-      winningBuckets = card.legs.map(() => null);
+    // Alive-tracking inputs: each leg's OWN market + every raw entry on this
+    // card, both behind the short-TTL success-only caches declared above.
+    const now = Date.now();
+    let winningBuckets: (number | null)[];
+    let legsFailed = false;
+    if (cardBucketsCache && cardBucketsCache.contestId === card.contestId && now - cardBucketsCache.at < CARD_SCAN_TTL_MS) {
+      winningBuckets = cardBucketsCache.data;
+    } else {
+      const r = await readLegWinningBuckets(card); // never rejects; failures flip r.failed
+      winningBuckets = r.buckets;
+      legsFailed = r.failed;
+      if (!legsFailed) cardBucketsCache = { contestId: card.contestId, at: now, data: winningBuckets };
     }
-    let rawEntries: Awaited<ReturnType<typeof listRawEntriesForContest>> = [];
-    try {
-      rawEntries = await listRawEntriesForContest(card.pubkey);
-    } catch {
-      rawEntries = [];
-    }
-    const aliveCount = rawEntries.filter((e) =>
-      isEntryAlive(e.picks, activeMask(card.legLockTs, e.entryTs), winningBuckets, e.entryTs),
-    ).length;
 
-    // myCard: only when ?wallet= parses as a valid pubkey. null when absent or
-    // when the wallet has no entry on this card.
-    const { wallet } = req.query as Record<string, string>;
+    let rawEntries: RawEntryView[] = [];
+    let scanFailed = false;
+    if (cardEntriesCache && cardEntriesCache.contestId === card.contestId && now - cardEntriesCache.at < CARD_SCAN_TTL_MS) {
+      rawEntries = cardEntriesCache.data;
+    } else {
+      try {
+        rawEntries = await listRawEntriesForContest(card.pubkey);
+        cardEntriesCache = { contestId: card.contestId, at: now, data: rawEntries };
+      } catch {
+        scanFailed = true; // fail-soft, but VISIBLY: degraded + aliveCount null below
+      }
+    }
+
+    // degraded → aliveCount null ("couldn't compute"), never a misleading 0.
+    const degraded = legsFailed || scanFailed;
+    const aliveCount = degraded
+      ? null
+      : rawEntries.filter((e) =>
+          isEntryAlive(e.picks, activeMask(card.legLockTs, e.entryTs), winningBuckets, e.entryTs),
+        ).length;
+
+    // myCard (three-state contract — see the route doc above). The wallet param
+    // must be a single non-empty string: Fastify parses ?wallet=A&wallet=B as an
+    // ARRAY, and new PublicKey(array) silently resolves to the system program
+    // address instead of throwing — validate BEFORE PublicKey ever sees it.
+    const walletRaw = (req.query as Record<string, unknown>).wallet;
+    const wallet = typeof walletRaw === "string" && walletRaw.length > 0 ? walletRaw : undefined;
     let myCard: {
       picks: number[]; entryTs: number; activeMask: boolean[]; weight: number; alive: boolean;
     } | null = null;
+    let myCardKnown = true; // false → omit the key entirely (asked, but scan failed)
     if (wallet) {
       try {
         const walletKey = new PublicKey(wallet).toBase58();
-        const mine = rawEntries.find((e) => e.bettor === walletKey);
-        if (mine) {
-          const mask = activeMask(card.legLockTs, mine.entryTs);
-          myCard = {
-            picks: mine.picks,
-            entryTs: mine.entryTs,
-            activeMask: mask,
-            weight: 2 ** mask.filter(Boolean).length,
-            alive: isEntryAlive(mine.picks, mask, winningBuckets, mine.entryTs),
-          };
+        if (scanFailed) {
+          myCardKnown = false; // can't distinguish "no entry" from "scan blip" — say neither
+        } else {
+          // LOWEST nonce wins deterministically (web enters nonce 0; scan order
+          // from getProgramAccounts is arbitrary).
+          const mine = rawEntries
+            .filter((e) => e.bettor === walletKey)
+            .sort((a, b) => a.nonce - b.nonce)[0];
+          if (mine) {
+            const mask = activeMask(card.legLockTs, mine.entryTs);
+            myCard = {
+              picks: mine.picks,
+              entryTs: mine.entryTs,
+              activeMask: mask,
+              weight: 2 ** mask.filter(Boolean).length,
+              alive: isEntryAlive(mine.picks, mask, winningBuckets, mine.entryTs),
+            };
+          }
         }
       } catch {
         myCard = null; // not a valid pubkey → same as "no wallet given"
@@ -469,8 +542,12 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
       entryPrice: card.entryPrice,
       pot: card.pot,
       jackpot,
+      // `degraded` key present ONLY when a read failed (healthy → omitted).
+      ...(degraded ? { degraded: true } : {}),
       aliveCount,
-      myCard,
+      // Omit `myCard` entirely when a valid wallet asked but the scan failed
+      // (unknown ≠ null "confirmed no entry" — see the route doc).
+      ...(myCardKnown ? { myCard } : {}),
       legs,
     };
   });

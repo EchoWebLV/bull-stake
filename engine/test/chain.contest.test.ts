@@ -121,7 +121,7 @@ describe("entryOutcome — mirrors claim_contest.rs payout math", () => {
     pubkey: "C", contestId: 1, settleAuthority: "K", feeRecipient: "F",
     fixtures: [10, 11, 12], marketIds: [16, 15, 12], numLegs: 3,
     legs: [], entryPrice: "100",
-    lockTs: 0, legLockTs: [0, 0, 0, 0, 0, 0], entriesCloseTs: 0,
+    lockTs: 0, legLockTs: [0, 0, 0], entriesCloseTs: 0,
     settleAfterTs: 0, feeBps: 500, status: "settled",
     winningBuckets: [0, 1, 2], entryCount: 5, perfectCount: 2, perfectWeight: "0",
     pot: "1050", distributable: "1000", claimedCount: 0, claimedTotal: "0",

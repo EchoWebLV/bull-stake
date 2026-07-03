@@ -28,7 +28,8 @@ vi.mock("../src/chain.ts", async (orig) => {
           { marketId: 13, label: "Total Yellow Cards O/U 3.5", group: "cards", numBuckets: 2, fixtureId: 101, winningBucket: null },
         ],
         entryPrice: "20000000", lockTs: 9999999999,
-        legLockTs: [9999999999, 9999999999, 9999999999, 0, 0, 0], entriesCloseTs: 9999999999,
+        // legLockTs is the numLegs-TRIMMED view (toContestView slices the zero tail).
+        legLockTs: [9999999999, 9999999999, 9999999999], entriesCloseTs: 9999999999,
         settleAfterTs: 9999999999,
         feeBps: 500, status: "open", winningBuckets: [0, 0, 0],
         entryCount: 4, perfectCount: 0, perfectWeight: "0", pot: "80000000", distributable: "0",
@@ -421,7 +422,7 @@ describe("GET /api/contest/live", () => {
           { marketId: 99, label: "", group: "", numBuckets: 0, fixtureId: 202, winningBucket: null },
         ],
         entryPrice: "20000000", lockTs: 9999999999,
-        legLockTs: [9999999999, 0, 0, 0, 0, 0], entriesCloseTs: 9999999999,
+        legLockTs: [9999999999], entriesCloseTs: 9999999999,
         settleAfterTs: 9999999999,
         feeBps: 500, status: "open", winningBuckets: [0],
         entryCount: 0, perfectCount: 0, perfectWeight: "0", pot: "0", distributable: "0",
@@ -616,7 +617,7 @@ describe("GET /api/card", () => {
         fixtures: [202], marketIds: [99], numLegs: 1,
         legs: [{ marketId: 99, label: "", group: "", numBuckets: 0, fixtureId: 202, winningBucket: null }],
         entryPrice: "20000000", lockTs: 9999999999,
-        legLockTs: [9999999999, 0, 0, 0, 0, 0], entriesCloseTs: 9999999999,
+        legLockTs: [9999999999], entriesCloseTs: 9999999999,
         settleAfterTs: 9999999999,
         feeBps: 500, status: "open", winningBuckets: [0],
         entryCount: 0, perfectCount: 0, perfectWeight: "0", pot: "0", distributable: "0",
@@ -742,13 +743,111 @@ describe("GET /api/card", () => {
     await app.close();
   });
 
-  it("aliveCount is 0 and myCard is omitted-null when no ?wallet= is given", async () => {
+  it("aliveCount is 0, myCard is null and degraded is ABSENT when no ?wallet= is given and reads succeed", async () => {
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/card" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.aliveCount).toBe(0); // default fixture's listRawEntriesForContest mock is []
     expect(body.myCard).toBeNull();
+    expect("degraded" in body).toBe(false); // healthy reads → key omitted entirely
+    await app.close();
+  });
+
+  it("treats a repeated ?wallet= (array-parsed) as absent — never reaches PublicKey", async () => {
+    // Fastify parses ?wallet=A&wallet=B as an ARRAY, and new PublicKey(array)
+    // does NOT throw — it silently resolves to the system program address
+    // (11111111111111111111111111111111). Plant an entry with exactly that
+    // bettor: if the route ever fed the array to PublicKey, it would "find"
+    // this entry and serve a bogus myCard. The validated route must treat the
+    // array as no-wallet-given instead.
+    const A = "So11111111111111111111111111111111111111112";
+    const B = "CYDxTZVogVUscoWr6Fftz6M6ubnCo98PQDBn2Uo3AquM";
+    vi.mocked(listRawEntriesForContest).mockResolvedValueOnce([
+      { pubkey: "EntryTrap", bettor: "11111111111111111111111111111111", nonce: 0,
+        picks: [0, 0, 0, 0, 0, 0], amount: "20000000", entryTs: 1 },
+    ]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${A}&wallet=${B}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.myCard).toBeNull(); // array param == absent, NOT the system-program resolution
+    expect(body.aliveCount).toBe(1); // the scan itself ran fine (entry alive: no legs settled)
+    expect("degraded" in body).toBe(false);
+    await app.close();
+  });
+
+  it("signals degraded (aliveCount null, myCard OMITTED) when the entry scan fails", async () => {
+    const WALLET = "So11111111111111111111111111111111111111112";
+    vi.mocked(listRawEntriesForContest).mockRejectedValueOnce(new Error("rpc down"));
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${WALLET}` });
+    expect(res.statusCode).toBe(200); // fail-soft: the card itself still serves
+    const body = res.json();
+    expect(body.degraded).toBe(true);
+    expect(body.aliveCount).toBeNull(); // "couldn't compute", NOT 0
+    // Entry existence is UNKNOWN — the key is omitted, distinguishable from
+    // myCard:null ("confirmed no entry").
+    expect("myCard" in body).toBe(false);
+    expect(body.contestId).toBe(20269); // rest of the card is intact
+    await app.close();
+  });
+
+  it("signals degraded (aliveCount null) when leg-market reads fail; myCard still serves from the good scan", async () => {
+    const WALLET = "So11111111111111111111111111111111111111112";
+    // All 3 leg-market reads reject (default fixture is 3-leg); the entry scan succeeds.
+    vi.mocked(readMarket)
+      .mockRejectedValueOnce(new Error("rpc down"))
+      .mockRejectedValueOnce(new Error("rpc down"))
+      .mockRejectedValueOnce(new Error("rpc down"));
+    vi.mocked(listRawEntriesForContest).mockResolvedValueOnce([
+      { pubkey: "EntryW", bettor: WALLET, nonce: 0, picks: [1, 0, 2, 0, 0, 0], amount: "20000000", entryTs: 1 },
+    ]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${WALLET}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.degraded).toBe(true);
+    expect(body.aliveCount).toBeNull(); // leg outcomes unknown → can't count alive cards
+    // The scan is the source of truth for entry EXISTENCE, and it succeeded:
+    // myCard is present (locks-derived fields are all still exact).
+    expect(body.myCard).not.toBeNull();
+    expect(body.myCard.weight).toBe(8); // 3 active legs (numLegs 3) → 2^3
+    expect(body.myCard.activeMask).toEqual([true, true, true]);
+    expect(body.myCard.picks).toEqual([1, 0, 2, 0, 0, 0]);
+    await app.close();
+  });
+
+  it("myCard picks the LOWEST nonce when the wallet holds multiple entries", async () => {
+    const WALLET = "So11111111111111111111111111111111111111112";
+    // Scan order deliberately REVERSED (nonce 1 first) to prove the route sorts,
+    // not just takes the first scanned row. Product model: web enters nonce 0.
+    vi.mocked(listRawEntriesForContest).mockResolvedValueOnce([
+      { pubkey: "Entry1", bettor: WALLET, nonce: 1, picks: [2, 2, 2, 0, 0, 0], amount: "20000000", entryTs: 50 },
+      { pubkey: "Entry0", bettor: WALLET, nonce: 0, picks: [1, 0, 2, 0, 0, 0], amount: "20000000", entryTs: 40 },
+    ]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${WALLET}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.myCard.picks).toEqual([1, 0, 2, 0, 0, 0]); // nonce 0's picks
+    expect(body.myCard.entryTs).toBe(40);                  // nonce 0's timestamp
+    await app.close();
+  });
+
+  it("caches the alive-tracking reads across polls (one scan + one leg pass per TTL, per server)", async () => {
+    // No beforeEach mock-clearing in this file → assert on call-count DELTAS.
+    const scansBefore = vi.mocked(listRawEntriesForContest).mock.calls.length;
+    const marketReadsBefore = vi.mocked(readMarket).mock.calls.length;
+    const app = buildServer(makeMockStore());
+    const res1 = await app.inject({ url: "/api/card" });
+    const res2 = await app.inject({ url: "/api/card" }); // same server, well inside the TTL
+    expect(res1.statusCode).toBe(200);
+    expect(res2.statusCode).toBe(200);
+    expect(res2.json().aliveCount).toBe(0); // second poll serves the same computed view
+    // ONE entry scan and ONE 3-leg market pass total — the second poll hit the cache.
+    expect(vi.mocked(listRawEntriesForContest).mock.calls.length - scansBefore).toBe(1);
+    expect(vi.mocked(readMarket).mock.calls.length - marketReadsBefore).toBe(3);
     await app.close();
   });
 });
