@@ -187,6 +187,13 @@ export function dailyCardCreateEnabled(env: NodeJS.ProcessEnv): boolean {
   return env.DAILY_CARD_CREATE !== "0";
 }
 
+/** Pool auto-scheduler toggle: `POOL_SCHEDULE=0` pauses job (4) — live-pool
+ *  creation spends real rent per match, so a lines-only keeper can opt out.
+ *  Anything else leaves it on. Pure; mirrors dailyCardCreateEnabled. */
+export function poolScheduleEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env.POOL_SCHEDULE !== "0";
+}
+
 // ── child-process runner ──────────────────────────────────────────────────────────
 
 /**
@@ -476,16 +483,20 @@ async function main() {
   //     pool-PDA-exists check, so overlapping/duplicate ticks are no-ops). Same
   //     child-CLI pattern + busy guard as the settle job. Run once on boot so a
   //     freshly started keeper lines up an imminent game immediately.
-  const scheduleMs = scheduleIntervalMs(process.env);
-  let scheduling = false;
-  const tickSchedule = async () => {
-    if (scheduling) { console.log("[cron] previous schedule pass still running — skipping tick"); return; }
-    scheduling = true;
-    try { await runSchedulePools(dryRun); }
-    finally { scheduling = false; }
-  };
-  await tickSchedule();
-  setInterval(tickSchedule, scheduleMs);
+  if (poolScheduleEnabled(process.env)) {
+    const scheduleMs = scheduleIntervalMs(process.env);
+    let scheduling = false;
+    const tickSchedule = async () => {
+      if (scheduling) { console.log("[cron] previous schedule pass still running — skipping tick"); return; }
+      scheduling = true;
+      try { await runSchedulePools(dryRun); }
+      finally { scheduling = false; }
+    };
+    await tickSchedule();
+    setInterval(tickSchedule, scheduleMs);
+  } else {
+    console.log("[cron] pool auto-scheduler PAUSED (POOL_SCHEDULE=0) — live settle loop unaffected");
+  }
 
   // (5) Beat the Market lines pass: ensure/seed/settle line markets every
   //     LINES_INTERVAL_MIN (default 5m). Idempotent; run once on boot.

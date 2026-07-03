@@ -16,6 +16,7 @@ import {
   makeTickLive,
   linesIntervalMs,
   dailyCardCreateEnabled,
+  poolScheduleEnabled,
 } from "../cron.js";
 
 const HOUR_MS = 60 * 60_000;
@@ -278,5 +279,13 @@ describe("dailyCardCreateEnabled", () => {
     expect(dailyCardCreateEnabled({} as NodeJS.ProcessEnv)).toBe(true);
     expect(dailyCardCreateEnabled({ DAILY_CARD_CREATE: "1" } as unknown as NodeJS.ProcessEnv)).toBe(true);
     expect(dailyCardCreateEnabled({ DAILY_CARD_CREATE: "0" } as unknown as NodeJS.ProcessEnv)).toBe(false);
+  });
+});
+
+describe("poolScheduleEnabled", () => {
+  it("is on by default and off only at the explicit '0'", () => {
+    expect(poolScheduleEnabled({} as NodeJS.ProcessEnv)).toBe(true);
+    expect(poolScheduleEnabled({ POOL_SCHEDULE: "1" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+    expect(poolScheduleEnabled({ POOL_SCHEDULE: "0" } as unknown as NodeJS.ProcessEnv)).toBe(false);
   });
 });
