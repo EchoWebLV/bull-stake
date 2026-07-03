@@ -479,7 +479,7 @@ In `lib.rs`, update the `settle_contest` program fn to `(ctx, perfect_count: u64
 
 - [ ] **Step 4: Fix existing settle callers in tests**
 
-`grep -rn "settleContest(" tests/` — every `settleContest(new BN(n))` becomes `settleContest(new BN(n), new BN(w))` where legacy same-lock contests use `w = n * 64` (full-mask winners; e.g. `contest_six_legs.ts`: `settleContest(new BN(1), new BN(64))`) and rollover calls use `settleContest(new BN(0), new BN(0))`. Leave `keeper/settle-contest.ts` alone here — the keeper is its own tsc project (not part of `anchor test`) and gets its real weighted update in Task 9.
+`grep -rn "settleContest(" tests/` — every `settleContest(new BN(n))` becomes `settleContest(new BN(n), new BN(w))` where **w = n × 2^(that contest's num_legs)**: legacy entries all pre-date the lock so their active mask is the full card — a 6-leg contest winner weighs 64 (`contest_six_legs.ts`: `settleContest(new BN(1), new BN(64))`), a 4-leg winner weighs 16, a 3-leg winner 8. Read each test's `num_legs` — do NOT blanket-apply 64, or claim's recomputed 2^active shares will mismatch the test's payout assertions. Rollover calls use `settleContest(new BN(0), new BN(0))`. Leave `keeper/settle-contest.ts` alone here — the keeper is its own tsc project (not part of `anchor test`) and gets its real weighted update in Task 9.
 
 - [ ] **Step 5: Build + full anchor suite**
 
@@ -602,7 +602,10 @@ In `claim_contest.rs`, replace the `ContestStatus::Settled` arm's perfect-check 
             // picks are ignored. weight = 2^active — matches the keeper's count.
             let entry_ts = ctx.accounts.entry.entry_ts;
             let mut active: u32 = 0;
-            let mut perfect = true;
+            // Fail closed on an impossible zero entry_ts (defense-in-depth: zero
+            // would mark every leg active since all real locks are > 0; legit
+            // entries always stamp a positive clock time).
+            let mut perfect = entry_ts > 0;
             for i in 0..nl {
                 if ctx.accounts.contest.leg_lock_ts[i] > entry_ts {
                     active += 1;
@@ -1162,15 +1165,18 @@ Expected: ALL anchor suites PASS.
 Run: `anchor deploy --provider.cluster devnet 2>&1 | tail -3`
 Expected: `Deploy success` for program `By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ`.
 NOTE: pre-change Contest/Entry accounts (old size) become undecodable under the new IDL — the engine's `dataSize` filter (now 281) excludes them by design, same as the v1→v2 orphaning. Any OPEN old-size contest should be settled/voided BEFORE deploying (check: `cd keeper && npx tsx settle-contest.ts --dry-run`).
+OPERATIONAL (verified 07-03): a local engine (`engine src/server.ts`) and keeper cron (`keeper cron.ts`, LIVE+LINES jobs) are RUNNING with the old IDL in memory — do NOT restart them before this deploy; restart BOTH right after it so they pick up the new IDL + program. Market/LivePool layouts are untouched, so LINES and LIVE jobs are unaffected throughout.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add engine/src/chain.ts
+git add engine/src/chain.ts target/idl/proofbet.json
 git commit -m "chore: contest/entry account sizes 281/103 after pearly fields; devnet redeploy in place
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
+
+(The regenerated `target/idl/proofbet.json` is tracked and runtime-loaded by engine/keeper — it commits HERE, with the deploy, so the committed IDL always matches the deployed program.)
 
 ---
 
