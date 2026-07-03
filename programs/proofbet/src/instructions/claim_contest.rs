@@ -49,26 +49,37 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
         }
         ContestStatus::Settled => {
             let nl = ctx.accounts.contest.num_legs as usize;
-            let mut perfect = true;
+            // The entry's ACTIVE legs are those still open when its picks were
+            // (last) written. Locked-at-entry legs are outside the card: their
+            // picks are ignored. weight = 2^active — matches the keeper's count.
+            let entry_ts = ctx.accounts.entry.entry_ts;
+            let mut active: u32 = 0;
+            // Fail closed on an impossible zero entry_ts (defense-in-depth: zero
+            // would mark every leg active since all real locks are > 0; legit
+            // entries always stamp a positive clock time).
+            let mut perfect = entry_ts > 0;
             for i in 0..nl {
-                if ctx.accounts.entry.picks[i] != ctx.accounts.contest.winning_buckets[i] {
-                    perfect = false;
-                    break;
+                if ctx.accounts.contest.leg_lock_ts[i] > entry_ts {
+                    active += 1;
+                    if ctx.accounts.entry.picks[i] != ctx.accounts.contest.winning_buckets[i] {
+                        perfect = false;
+                    }
                 }
             }
-            if perfect {
+            // Entries are only accepted while >= MIN_OPEN_LEGS legs are open, so
+            // active >= MIN_OPEN_LEGS for every legitimate entry.
+            if perfect && active > 0 {
                 require!(ctx.accounts.contest.perfect_count > 0, ProofBetError::PerfectCountZero);
+                require!(ctx.accounts.contest.perfect_weight > 0, ProofBetError::PerfectCountZero);
+                let weight = 1u128 << active;
                 let share = u64::try_from(
                     (ctx.accounts.contest.distributable as u128)
-                        .checked_div(ctx.accounts.contest.perfect_count as u128)
+                        .checked_mul(weight)
+                        .ok_or(ProofBetError::MathOverflow)?
+                        .checked_div(ctx.accounts.contest.perfect_weight as u128)
                         .ok_or(ProofBetError::MathOverflow)?,
                 )
                 .map_err(|_| ProofBetError::MathOverflow)?;
-                // Solvency cap: never pay more claims than perfect_count, and never
-                // pay out more than distributable in total. Bounds a bad (too-low)
-                // perfect_count to over-paying early claimers — never beyond this
-                // contest's own distributable, and never another contest's funds
-                // (each contest holds its own pot).
                 require!(
                     ctx.accounts.contest.claimed_count < ctx.accounts.contest.perfect_count,
                     ProofBetError::VaultInsolvent
