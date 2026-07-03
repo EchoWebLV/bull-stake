@@ -62,9 +62,9 @@ const BN = anchorDefault.BN;
 // Jackpot PDA rent floor: minimum_balance(8 disc + Jackpot::INIT_SPACE(1 bump)).
 const JACKPOT_RENT_SIZE = 8 + 1;
 // Contest PDA rent floor: minimum_balance(8 disc + Contest::INIT_SPACE) — Anchor's
-// program.account.contest.size already includes the 8-byte discriminator (= 217 for
-// the 6-leg v2 layout; was 207 at 5 legs).
-const CONTEST_SIZE_FALLBACK = 217;
+// program.account.contest.size already includes the 8-byte discriminator (= 281 for
+// the pearly v3 layout; was 217 at 6-leg v2, 207 at 5 legs).
+const CONTEST_SIZE_FALLBACK = 281;
 
 const sol = (l: bigint) => (Number(l) / 1e9).toFixed(4);
 

@@ -83,18 +83,19 @@ const JACKPOT_SIZE = 8 + 1;
  * Fallback for the on-chain Contest account size (8 disc + INIT_SPACE). Real
  * Anchor exposes `program.account.contest.size`; this constant keeps real code
  * from ever passing `undefined` to getMinimumBalanceForRentExemption and matches
- * the v2 IDL layout (MAX_LEGS = 6): 8 disc + 8 (contest_id) + 32 (settle_authority)
+ * the v3 (pearly) IDL layout (MAX_LEGS = 6): 8 disc + 8 (contest_id) + 32 (settle_authority)
  * + 32 (fee_recipient) + 48 (fixtures [i64;6]) + 6 (market_ids [u8;6]) + 1 (num_legs)
- * + 8 (entry_price) + 8 (lock_ts) + 8 (settle_after_ts) + 2 (fee_bps) + 1 (status)
- * + 6 (winning_buckets [u8;6]) + 8 (entry_count) + 8 (perfect_count)
+ * + 8 (entry_price) + 8 (lock_ts) + 48 (leg_lock_ts [i64;6]) + 8 (entries_close_ts)
+ * + 8 (settle_after_ts) + 2 (fee_bps) + 1 (status)
+ * + 6 (winning_buckets [u8;6]) + 8 (entry_count) + 8 (perfect_count) + 8 (perfect_weight)
  * + 8 (distributable) + 8 (claimed_count) + 8 (claimed_total) + 8 (settled_ts)
- * + 1 (bump) = 217.
+ * + 1 (bump) = 281.
  *
- * This grew from the 5-leg v1 layout (207 bytes); the +10 (fixtures +8, market_ids
- * +1, winning_buckets +1) is what makes the dataSize discovery filter exclude the
- * orphaned 5-leg contests — only true 6-leg v2 cards pass.
+ * This grew from the 6-leg v2 layout (217 bytes); the +64 (leg_lock_ts +48,
+ * entries_close_ts +8, perfect_weight +8) is what makes the dataSize discovery filter
+ * exclude the orphaned pre-pearly contests — only true v3 pearly cards pass.
  */
-const CONTEST_SIZE = 217;
+const CONTEST_SIZE = 281;
 
 function u64le(n: number | bigint): Buffer {
   const b = Buffer.alloc(8);
@@ -457,9 +458,9 @@ export async function readLiveContests(): Promise<ContestView[]> {
     // try: an IDL-rename miss makes coder.memcmp throw synchronously, so keeping it
     // here degrades to [] (graceful) rather than bubbling out of readLiveContests.
     const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
-    // Filter by the discriminator AND the exact v2 account size. Orphaned older
-    // contests share the "Contest" discriminator but are a different size (the prior
-    // 5-leg layout is 207 bytes vs the current 6-leg 217) and — critically — their
+    // Filter by the discriminator AND the exact v3 account size. Orphaned older
+    // contests share the "Contest" discriminator but are a different size (prior
+    // layouts: 207 at 5 legs, 217 at v2 vs the current pearly 281) and — critically — their
     // bytes borsh-DECODE into the current struct as GARBAGE rather than throwing, so a
     // try/catch around decode does NOT skip them (an orphaned contest would otherwise
     // surface as a junk card). The dataSize filter excludes any wrong-sized account at
