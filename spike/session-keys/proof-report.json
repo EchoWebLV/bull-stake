@@ -1,0 +1,46 @@
+{
+  "spike": "SLICE-6 session-keys compatibility",
+  "date": "2026-07-01",
+  "question": "Can MagicBlock session keys (#[session_auth_or]/SessionToken) build against anchor-lang 0.32.1 + ephemeral-rollups-sdk 0.14.4 (anchor-compat), with NO anchor-1.0 migration?",
+  "verdict": "GREEN, with a mandatory lockfile pin",
+  "toolchain": {
+    "solana": "solana-cli 4.1.0-beta.2 (Agave)",
+    "anchor": "avm 0.32.1 (~/.avm/bin/anchor)",
+    "cargo-build-sbf": "4.1.0",
+    "platform-tools": "v1.54"
+  },
+  "rust_crate": {
+    "name": "session-keys",
+    "version": "3.1.1",
+    "repo": "github.com/magicblock-labs/gum-program-library",
+    "anchor_lang_req": ">=0.28, <2.0",
+    "provides": ["session_auth_or (attr)", "Session/SessionV2 (derive)", "SessionToken/SessionTokenV2 (account)", "SessionError", "create_session/revoke_session program id KeyspM2ssCJbqUhQ4k7sveSiY4WjnYsrXkC8oDbwde5"],
+    "macros_crate": "session-keys-macros 3.1.1 -> session-keys-macros-attribute 3.1.1",
+    "note": "gpl-session 2.0.0 is the OLD gumhq lineage (anchor ^0.28 only); session-keys 3.1.1 is the current magicblock fork."
+  },
+  "build_test": {
+    "result": "GREEN",
+    "so_bytes": 224880,
+    "so_path": "target/deploy/session_keys_spike.so",
+    "warnings": "13 (5 duplicates) — all cfg/unexpected-cfg noise, no errors",
+    "anchor_lang_versions_in_lock": ["0.32.1"],
+    "solana_program_versions_in_lock": ["2.3.0", "3.0.0"],
+    "solana_program_note": "two solana-program versions coexist (2.3.0 via anchor-0.32; 3.0.0 via ER SDK modern sub-crates). Tolerable — session-keys never crosses that boundary; identical shape to spike/live-er.",
+    "MANDATORY_PIN": "Fresh resolve splits anchor-lang to 1.1.2 for session-keys (cargo picks highest in >=0.28,<2.0). Must force one node: 'cargo update anchor-lang@1.1.2 --precise 0.32.1'. A '=0.32.1' direct req alone does NOT collapse it."
+  },
+  "client_npm": {
+    "package": "@magicblock-labs/gum-sdk",
+    "version": "3.0.10",
+    "peer": "@coral-xyz/anchor ^0.30.1, @solana/web3.js (via anchor)",
+    "api": "SessionTokenManager(wallet, connection) -> .program.methods.createSession(top_up, valid_until, lamports) / revokeSession; .get(sessionPda) reads the token",
+    "gpl_session_program_id": "KeyspM2ssCJbqUhQ4k7sveSiY4WjnYsrXkC8oDbwde5",
+    "note": "@magicblock-labs/ephemeral-rollups-sdk 0.15.5 (npm) has NO session helper — delegation only. Session keys are a separate program (gpl_session)."
+  },
+  "privy_alternative": {
+    "installed": "@privy-io/react-auth 3.32.2",
+    "no_prompt_mechanism": "useSignTransaction/useSendTransaction with options.uiOptions.showWalletUIs=false suppresses the confirmation modal for EMBEDDED wallets (React SDK).",
+    "also_available": "useSigners/addSigners + useHeadlessDelegatedActions + useSessionSigners (app authorization key as a signer; server/headless).",
+    "program_change": "NONE — the embedded wallet IS entry.player, already satisfies lock_pick's Signer/has_one auth.",
+    "limitation": "External wallets (Phantom) still pop per-tap; showWalletUIs only affects Privy embedded wallets."
+  }
+}

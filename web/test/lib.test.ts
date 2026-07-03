@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { PublicKey } from "@solana/web3.js";
 import { impliedOdds, displayMultiplier } from "../src/lib/odds.ts";
 import { deriveMarketPda, deriveVaultPda, derivePositionPda, deriveJackpotPda, deriveContestPda, deriveEntryPda } from "../src/lib/pdas.ts";
+import { legLiveStatus, fmtLiveScore, fmtLivePhase } from "../src/lib/liveStatus.ts";
+import { legRowLabel, legSummary } from "../src/lib/cardLegs.ts";
+import type { CardLeg, CardLegLive } from "../src/lib/api.ts";
 
 const P = new PublicKey("By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ");
 
@@ -44,6 +47,102 @@ describe("web pdas", () => {
     const pos = derivePositionPda(P, m, PublicKey.default);
     expect(m).toBeInstanceOf(PublicKey);
     expect(v.toBase58()).not.toBe(pos.toBase58());
+  });
+});
+
+describe("live status — Result 1X2 (3 buckets)", () => {
+  const live = (h: number, a: number, phase: CardLegLive["phase"], minute: number | null = 55): CardLegLive =>
+    ({ home: h, away: a, minute, phase });
+
+  it("home pick leading → on track (green)", () => {
+    expect(legLiveStatus(3, 0, live(2, 0, "live"))).toEqual({ tone: "good", label: "on track", final: false });
+  });
+  it("home pick behind → trailing (red)", () => {
+    expect(legLiveStatus(3, 0, live(0, 1, "live"))).toEqual({ tone: "bad", label: "trailing", final: false });
+  });
+  it("home pick level → trailing (draw isn't a home lead)", () => {
+    expect(legLiveStatus(3, 0, live(1, 1, "live")).tone).toBe("bad");
+  });
+  it("draw pick level → on track", () => {
+    expect(legLiveStatus(3, 1, live(1, 1, "live"))).toEqual({ tone: "good", label: "on track", final: false });
+  });
+  it("away pick leading → on track", () => {
+    expect(legLiveStatus(3, 2, live(0, 2, "live")).tone).toBe("good");
+  });
+  it("full-time resolves to hit / miss", () => {
+    expect(legLiveStatus(3, 0, live(2, 1, "ft", null))).toEqual({ tone: "good", label: "hit", final: true });
+    expect(legLiveStatus(3, 2, live(2, 1, "ft", null))).toEqual({ tone: "bad", label: "miss", final: true });
+  });
+});
+
+describe("live status — Total Goals O/U 2.5 (2 buckets)", () => {
+  const live = (h: number, a: number, phase: CardLegLive["phase"]): CardLegLive =>
+    ({ home: h, away: a, minute: 70, phase });
+
+  it("Over pick with 3 goals in → on track", () => {
+    expect(legLiveStatus(2, 0, live(2, 1, "live"))).toEqual({ tone: "good", label: "on track", final: false });
+  });
+  it("Over pick with under 3 goals → at risk (amber)", () => {
+    expect(legLiveStatus(2, 0, live(1, 1, "live"))).toEqual({ tone: "warn", label: "at risk", final: false });
+  });
+  it("Under pick still under → on track", () => {
+    expect(legLiveStatus(2, 1, live(1, 1, "live")).tone).toBe("good");
+  });
+  it("Under pick already blown → at risk", () => {
+    expect(legLiveStatus(2, 1, live(2, 1, "live")).tone).toBe("warn");
+  });
+  it("full-time resolves to hit / miss on the total", () => {
+    expect(legLiveStatus(2, 0, live(2, 1, "ft"))).toEqual({ tone: "good", label: "hit", final: true }); // 3 > 2.5
+    expect(legLiveStatus(2, 0, live(1, 1, "ft"))).toEqual({ tone: "bad", label: "miss", final: true });  // 2 < 2.5
+  });
+});
+
+describe("live formatting", () => {
+  it("score is home–away with an en-dash", () => {
+    expect(fmtLiveScore({ home: 2, away: 1, minute: 60, phase: "live" })).toBe("2–1");
+  });
+  it("phase caption: minute when live, HT/FT otherwise", () => {
+    expect(fmtLivePhase({ home: 0, away: 0, minute: 78, phase: "live" })).toBe("78'");
+    expect(fmtLivePhase({ home: 0, away: 0, minute: null, phase: "ht" })).toBe("HT");
+    expect(fmtLivePhase({ home: 1, away: 0, minute: null, phase: "ft" })).toBe("FT");
+    expect(fmtLivePhase({ home: 0, away: 0, minute: null, phase: "pre" })).toBe("kickoff");
+  });
+});
+
+describe("card leg summary + row labels", () => {
+  const leg = (marketId: number, buckets: number): CardLeg =>
+    ({ fixtureId: 1, home: "A", away: "B", kickoffTs: null, marketId, label: "", group: "", buckets });
+
+  it("row label maps each marketId (with bucket fallback)", () => {
+    expect(legRowLabel(leg(12, 3))).toBe("Result");
+    expect(legRowLabel(leg(11, 2))).toBe("Goals O/U 2.5");
+    expect(legRowLabel(leg(16, 3))).toBe("HT result");
+    expect(legRowLabel(leg(15, 2))).toBe("HT goals O/U");
+    expect(legRowLabel(leg(99, 2))).toBe("O/U");   // unknown → bucket fallback
+    expect(legRowLabel(leg(99, 3))).toBe("Result");
+  });
+
+  it("summarizes a 3-winner + 3-goals card dynamically", () => {
+    const legs = [leg(12, 3), leg(12, 3), leg(12, 3), leg(11, 2), leg(11, 2), leg(11, 2)];
+    expect(legSummary(legs)).toBe("6 legs · 3 winners + 3 goals");
+  });
+
+  it("pluralizes winners and orders winner→goals", () => {
+    expect(legSummary([leg(12, 3), leg(11, 2)])).toBe("2 legs · 1 winner + 1 goals");
+  });
+
+  it("includes HT markets when present", () => {
+    const legs = [leg(12, 3), leg(16, 3), leg(11, 2), leg(15, 2)];
+    expect(legSummary(legs)).toBe("4 legs · 1 winner + 1 HT result + 1 goals + 1 HT goals");
+  });
+
+  it("all-Result day reads N winners", () => {
+    expect(legSummary([leg(12, 3), leg(12, 3), leg(12, 3), leg(12, 3), leg(12, 3), leg(12, 3)]))
+      .toBe("6 legs · 6 winners");
+  });
+
+  it("unknown markets still count toward the leg total", () => {
+    expect(legSummary([leg(99, 2), leg(12, 3)])).toBe("2 legs · 1 winner");
   });
 });
 

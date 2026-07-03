@@ -14,12 +14,12 @@ describe("buildCreateArgs", () => {
     const a = buildCreateArgs(p);
     // contest_id == fixtureId
     expect(a.contestId).toBe(12345);
-    // fixtures = fixtureId repeated num_legs (4) times, padded to 5 with 0
-    expect(a.fixtures).toEqual([12345, 12345, 12345, 12345, 0]);
-    expect(a.fixtures.length).toBe(5);
-    // market_ids = [16, 15, 12, 11] padded to 5 with 0
-    expect(a.marketIds).toEqual([16, 15, 12, 11, 0]);
-    expect(a.marketIds.length).toBe(5);
+    // fixtures = fixtureId repeated num_legs (4) times, padded to MAX_LEGS (6) with 0
+    expect(a.fixtures).toEqual([12345, 12345, 12345, 12345, 0, 0]);
+    expect(a.fixtures.length).toBe(6);
+    // market_ids = [16, 15, 12, 11] padded to MAX_LEGS (6) with 0
+    expect(a.marketIds).toEqual([16, 15, 12, 11, 0, 0]);
+    expect(a.marketIds.length).toBe(6);
     // num_legs = 4
     expect(a.numLegs).toBe(4);
     // window carried straight through from parlayParams

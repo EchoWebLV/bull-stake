@@ -39,7 +39,7 @@ describe("parlay v2 — enter", () => {
     assert.equal(eInit.nonce.toNumber(), 0, "entry.nonce set");
     assert.ok(eInit.bettor.equals(player.publicKey), "entry.bettor set");
     assert.ok(eInit.contest.equals(contest), "entry.contest set");
-    assert.deepEqual(eInit.picks, [0, 1, 2, 0, 0], "entry.picks set with tail zero");
+    assert.deepEqual(eInit.picks, [0, 1, 2, 0, 0, 0], "entry.picks set with tail zero");
 
     // Edit the SAME nonce before lock — no second charge, no entry_count change.
     const cAfterFirst = await balance(contest);
@@ -50,7 +50,7 @@ describe("parlay v2 — enter", () => {
     c = await program.account.contest.fetch(contest);
     assert.equal(c.entryCount.toNumber(), 1, "edit does not increment entry_count");
     const e = await program.account.entry.fetch(entry0);
-    assert.deepEqual(e.picks, [2, 2, 2, 2, 0]);
+    assert.deepEqual(e.picks, [2, 2, 2, 2, 0, 0]);
   });
 
   it("a second nonce is a second ticket and a second charge", async () => {
@@ -95,7 +95,7 @@ describe("parlay v2 — enter", () => {
     const entry0 = entryPda(contest, player.publicKey, 0);
     // num_legs == 4, so index 4 must be 0.
     await expectError(
-      program.methods.enter(new BN(0), [0, 0, 0, 0, 1])
+      program.methods.enter(new BN(0), [0, 0, 0, 0, 1, 0])
         .accountsStrict({ bettor: player.publicKey, contest, entry: entry0, systemProgram: SystemProgram.programId })
         .signers([player]).rpc(),
       "InvalidPick",

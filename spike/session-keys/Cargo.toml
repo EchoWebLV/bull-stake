@@ -1,0 +1,33 @@
+# Throwaway SLICE-6 spike: prove the MagicBlock `session-keys` crate (the current
+# gum/gpl-session lineage under magicblock-labs) compiles against THIS program's
+# exact Anchor pin — anchor-lang 0.32.1 — AND coexists with the ER layer's
+# ephemeral-rollups-sdk 0.14.4 (anchor-compat), inside one #[ephemeral] program.
+# If green, `#[session_auth_or(...)]` on lock_pick is buildable with NO anchor-1.0
+# migration. Not part of the repo's Cargo workspace; built standalone.
+[workspace]
+
+[package]
+name = "session-keys-spike"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "session_keys_spike"
+
+[features]
+default = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+# session-keys re-exports its proc-macros only under `no-entrypoint`; the derive
+# `#[derive(Session)]` + attribute `#[session_auth_or]` come from that path.
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+# The EXACT program pin from spike/live-er (Finding 3): anchor 0.32.1 + sdk 0.14.4.
+anchor-lang = { version = "=0.32.1", features = ["init-if-needed"] }
+ephemeral-rollups-sdk = { version = "0.14.4", features = ["anchor-compat"] }
+# The load-bearing addition: MagicBlock session keys. v3.1.1 requires
+# anchor-lang ">=0.28, <2.0" — which admits 0.32.1. `session-keys-macros` (opt-in)
+# gives #[session_auth_or] / #[derive(Session)].
+session-keys = { version = "3.1.1", features = ["no-entrypoint"] }

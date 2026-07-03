@@ -130,7 +130,7 @@ describe("parlay v2 — safety", () => {
       .signers([keeper]).rpc();
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} }, "contest settles despite a zero-stake result leg");
-    assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0], "winning bucket read from the voided-with-bucket market");
+    assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0, 0], "winning bucket read from the voided-with-bucket market");
     const cBefore = await balance(contest);
     await program.methods.claimContest()
       .accountsStrict({ bettor: winner.publicKey, contest, entry: e, systemProgram: SystemProgram.programId })

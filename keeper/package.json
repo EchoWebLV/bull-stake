@@ -7,6 +7,7 @@
   "scripts": {
     "keep": "tsx settle.ts",
     "settle-all": "tsx settle-all.ts",
+    "cron": "tsx cron.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -141,7 +141,7 @@ async function main() {
       .createContest(
         new BN(args.contestId),
         args.fixtures.map((f) => new BN(f)),
-        args.marketIds, // [u8; 5] as a plain number[] — matches the program's own tests
+        args.marketIds, // [u8; MAX_LEGS] as a plain number[] — matches the program's own tests
         args.numLegs,
         new BN(entryPrice),
         new BN(args.lockTs),

@@ -77,7 +77,7 @@ describe("parlay v2 — settle_contest", () => {
 
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} });
-    assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0]);
+    assert.deepEqual(c.winningBuckets, [0, 1, 2, 0, 0, 0]);
     assert.equal(c.perfectCount.toNumber(), 2);
     // rake = 5% of 2 SOL = 0.1 SOL → to the separate fee recipient.
     assert.equal(await balance(feeRecip.publicKey), 0.1 * LAMPORTS_PER_SOL, "rake = 5% of 2 SOL of entries");
@@ -200,7 +200,7 @@ describe("parlay v2 — settle_contest", () => {
     await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 1 });
     const c = await program.account.contest.fetch(contest);
     assert.deepEqual(c.status, { settled: {} });
-    assert.deepEqual(c.winningBuckets, [2, 1, 0, 0, 0], "each leg's bucket read from its own (fixture, market_id) market");
+    assert.deepEqual(c.winningBuckets, [2, 1, 0, 0, 0, 0], "each leg's bucket read from its own (fixture, market_id) market");
   });
 
   it("(f) oracle binding: a leg market settled by a non-keeper authority → ResultMarketMismatch", async () => {

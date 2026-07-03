@@ -1,0 +1,27 @@
+# Throwaway SLICE-2 spike: prove ephemeral-rollups-sdk 0.15.x compiles against our
+# Anchor 0.31 toolchain via the `anchor-compat` feature (the alternative — the
+# default `anchor`/`anchor-modern` feature — pulls anchor-lang ^1.0, a full program
+# migration we want to avoid). Not part of the workspace; built standalone.
+# Standalone — not part of the repo's Cargo workspace.
+[workspace]
+
+[package]
+name = "live-er-spike"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "live_er_spike"
+
+[features]
+default = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+# 0.31.1 failed: the #[commit] macro's Program<MagicProgram> needs the SDK's anchor
+# (0.32.1) Id trait. Aligning on 0.32.1 + sdk 0.14.4 = the canonical example's combo.
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+ephemeral-rollups-sdk = { version = "0.14.4", features = ["anchor-compat"] }

@@ -1,0 +1,235 @@
+{
+  "steps": [
+    {
+      "name": "fund A 0.1",
+      "ms": 610,
+      "ok": true,
+      "sig": "oKZs1tWPgn8ZsK4hhvg8b4hbRdSgzAFSbQ5sUpP2n4ZC4etN44AcfDv8e6xGpeEYFwn4DbMCodmq7GMAs79preb"
+    },
+    {
+      "name": "fund B 0.1",
+      "ms": 700,
+      "ok": true,
+      "sig": "2VFLpuJB2fCa3Q14VGJcS7NEqp5NjfuEqVs4ket9wtqR94bzxEWKZTx4y5GMGySUtsTh7Qzv2YJ8Lhu2FszPkRo5"
+    },
+    {
+      "name": "create_live_pool",
+      "ms": 701,
+      "ok": true,
+      "sig": "4FFqzBKhBLqqc3SVtA2Zi6oGq2skYr5718a2tCcdvA8RhA42931dQKxW1mKMhsCLVBEC84qd5SXZN1VunPwipgJG"
+    },
+    {
+      "name": "prealloc_call(0)",
+      "ms": 801,
+      "ok": true,
+      "sig": "F32SFP2BfdXmU3C13XVF4QuTRgpFM5Z4KViFvtLeMDchM1rnFo83XrvGCiQAYJP76jP1SGG6KSCQ444UwNP5Dmy"
+    },
+    {
+      "name": "join A",
+      "ms": 702,
+      "ok": true,
+      "sig": "2bbKbnV9KEohSp77mbNhruUey3o8hgCfQrYnPRW8GtJQRrxytd9eenTFm9PXBgLMP3Wr3PfTLnCsjU8jn9fDixuV"
+    },
+    {
+      "name": "join B",
+      "ms": 499,
+      "ok": true,
+      "sig": "2GyGdDqhaK3bDL56zLGGAwBDRmoemxorwzS5LLCVTCMWH2JpYKWnBVcomSTmuowPyX96qQyyNzEPhwHkrmCvS7aV"
+    },
+    {
+      "name": "delegate_cursor",
+      "ms": 659,
+      "ok": true,
+      "sig": "4xSEDzN3DMV2n4TwthF98fWgFnb3sE3ZQ4t4SuzvSevyZEhoPTvSBDN3bUwjbrdk2FZUMHi5gV4cTwUu8kLMGXK9"
+    },
+    {
+      "name": "delegate_entry A",
+      "ms": 1002,
+      "ok": true,
+      "sig": "piHpcV5zPkAgDnPHHcx3xSByXttzdLkm3btgrvXzzkHFctd9ZWQqZRswhPN41uQH9KG2LXBomB3PkgWJf3hUntq"
+    },
+    {
+      "name": "delegate_entry B",
+      "ms": 501,
+      "ok": true,
+      "sig": "2GFuJKA4vNxYrwvgsGvoYmZDgieL6hbZZ1nhYXpNK5f46GvrV3YKjkaeZXnkb8wnNpsG1vkucCfm19MBCec3AoFz"
+    },
+    {
+      "name": "delegate_call(0)",
+      "ms": 901,
+      "ok": true,
+      "sig": "EJ5S7vUPfL2xVRn7zof4JYMwVDtrZsjxHNDPFv3T7wgPuUvtyjvMmb3CryZ4iytQQKNyxFjubvxPtQdYdGXwAez"
+    },
+    {
+      "name": "er sees cursor",
+      "ms": 606,
+      "ok": true,
+      "sig": "ready"
+    },
+    {
+      "name": "open_call(0)",
+      "ms": 1312,
+      "ok": true,
+      "sig": "5nPcwqRw8Z2oU5bYbjihGXkZVpz9LQvKLPWy7jjgcERFKdFU7R6sykL26B6pWCf4hKy2NjAwQzu9wEzCGx6DtxQ5"
+    },
+    {
+      "name": "lock_pick A=0",
+      "ms": 2048,
+      "ok": true,
+      "sig": "4QgZBXozWjCcawcs41aTjaqyhuti9PnWdt6DpA3KdZdrTS22RKdgstJUjCUqY6KkmDezLfS6YcpUuW1uUhR3qBxH"
+    },
+    {
+      "name": "lock_pick B=1",
+      "ms": 1866,
+      "ok": true,
+      "sig": "3hvhbyji44cRdqso6k2GHy1fvsz3hD22FU4WFynY4KQWa7brttPzJzF6G8oczwPiWtmFHqWCXwPnCCYpcB4sFBo4"
+    },
+    {
+      "name": "resolve_call(0)=0",
+      "ms": 608,
+      "ok": true,
+      "sig": "2cRFCkiu4ggsY7FHEhM6Z8DkJ2Y5cEff5ETEmUtpjk33rrrHkduiHbheD2TzHqEPATEEBCmYByEyHJbCKRtvrJyY"
+    },
+    {
+      "name": "score_entry A",
+      "ms": 610,
+      "ok": true,
+      "sig": "5QYcBkhJv1WEUA9C7UXK4b7RvapFVstww5U5Vbh47cerUGkHYrgpSTG6wUoJdAKrT8Xf8ChoFWmapKFY5JEWL52F"
+    },
+    {
+      "name": "score_entry B",
+      "ms": 604,
+      "ok": true,
+      "sig": "31xYds4heH4xTotWM18eqq2k6Puc9buse86o4pARhH6nfyUCi4imUYmgJQAxEUDcWwqNHXUPJnKjDGCB2pDnFZHo"
+    },
+    {
+      "name": "commit_live",
+      "ms": 667,
+      "ok": true,
+      "sig": "2JSzsPmdapLCqNtbQAtpRvcMzG7ofXMaLQNDBXBqTXaLTGnz5VS8e8Y9r79cCEbY5zC19nP1PeY5GnzKVjGcVLXa"
+    },
+    {
+      "name": "end_and_undelegate",
+      "ms": 2015,
+      "ok": true,
+      "sig": "2gDstfuA9kvXasZJk2z6WgBoXBdJ3x4N2Fj411WEeYxjU9wS9c3mt8uVvgmbNtgV3ePz9XGU33ZHt88HXBhHDaJr"
+    },
+    {
+      "name": "cursor undelegated",
+      "ms": 21325,
+      "ok": true
+    },
+    {
+      "name": "entryA undelegated",
+      "ms": 38,
+      "ok": true
+    },
+    {
+      "name": "entryB undelegated",
+      "ms": 39,
+      "ok": true
+    },
+    {
+      "name": "end_live_pool",
+      "ms": 731,
+      "ok": true,
+      "sig": "2k1WsJHnrTcwRZXpSgWQjZj5eLaVHYhGV3xvmRZfLEh8AVZhAsckdJwzsz8qpFVyBHG3qWtVeZ49BejYtY1a8Duo"
+    },
+    {
+      "name": "wait settle window",
+      "ms": 376611,
+      "ok": true,
+      "sig": "ready"
+    },
+    {
+      "name": "settle_live_pool",
+      "ms": 1041,
+      "ok": true,
+      "sig": "3dYuFsGubGoy4g5oZxM9YuKq1qgEvEmBfXdraLmsMB4WyWYHvXyrzqMAZCNGwsMbaZk6PFSf2X7qPJGxgeyk5MhR"
+    },
+    {
+      "name": "read settled pool",
+      "ms": 39,
+      "ok": true,
+      "sig": "ok"
+    },
+    {
+      "name": "claim A (winner)",
+      "ms": 561,
+      "ok": true,
+      "sig": "2whWpxJceAA8C8ds6RkWVzDKKc9nWTmMbER3dmW9jzZcN5Q2rWHLfEr3zFEZ6fqFe1PA1Brfmd81J38D8BV8NnoL"
+    },
+    {
+      "name": "claim B (loser closes)",
+      "ms": 702,
+      "ok": true,
+      "sig": "gkUyZj9U9pfxMRpq5KGVvxMskpu4JrjhfXWxKkTvaiSrPhEj8NqdQpFeDkGTG9gdff97eqHF9oB4fFgCEKjhGPP"
+    }
+  ],
+  "probe": {
+    "1_baseline_base": {
+      "present": true,
+      "owner": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ",
+      "ownerIs": "OUR_PROGRAM",
+      "dataLen": 159,
+      "lamports": 1997520,
+      "decoded": {
+        "decodeError": "Account not found: LiveEntry"
+      }
+    },
+    "2_postdelegate_base": {
+      "present": true,
+      "owner": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
+      "ownerIs": "DELEGATION_PROGRAM",
+      "dataLen": 159,
+      "lamports": 1997520,
+      "decoded": {
+        "decodeError": "Account not found: LiveEntry"
+      }
+    },
+    "2_postdelegate_er": {
+      "present": true,
+      "owner": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ",
+      "ownerIs": "OUR_PROGRAM",
+      "dataLen": 159,
+      "lamports": 1997520,
+      "decoded": {
+        "decodeError": "Account not found: LiveEntry"
+      }
+    },
+    "3_postcommit_base": {
+      "present": true,
+      "owner": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
+      "ownerIs": "DELEGATION_PROGRAM",
+      "dataLen": 159,
+      "lamports": 1997520,
+      "decoded": {
+        "decodeError": "Account not found: LiveEntry"
+      }
+    },
+    "4_postundelegate_base": {
+      "present": true,
+      "owner": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ",
+      "ownerIs": "OUR_PROGRAM",
+      "dataLen": 159,
+      "lamports": 1997520,
+      "decoded": {
+        "decodeError": "Account not found: LiveEntry"
+      }
+    }
+  },
+  "errors": [],
+  "meta": {
+    "poolId": "1782980088469000",
+    "pool": "B9Jk9xpRdFveR8oBermC9snTmGJf9kakcPySa7czT8fg",
+    "entryA": "9Sszmkfy54xpX9Rucy5RpCQJyFCde1U2wRWz1hRRSwhc",
+    "entryB": "Hvtv47MLDQu9YJjoUFUMqQMAjFJTJeFzW7Je5K4w69iT",
+    "erRpc": "https://devnet.magicblock.app"
+  },
+  "settled": {
+    "winningScore": "04",
+    "winnerCount": "01",
+    "distributable": "40000000"
+  },
+  "ok": true
+}

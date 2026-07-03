@@ -6,6 +6,10 @@ import type { Keypair } from "@solana/web3.js";
 
 export const RESULT_MARKET_ID = 12;
 
+/** Fixed-array width of a parlay card on-chain (Contest.fixtures/market_ids/
+ *  winning_buckets, Entry.picks) — tracks the program's MAX_LEGS. */
+export const MAX_LEGS = 6;
+
 /** v2 jackpot singleton PDA — NOTE the seed is "jackpot" (was "jackpot_vault" in v1). */
 export function jackpotPda(): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("jackpot")], program.programId)[0];
@@ -27,24 +31,24 @@ export function entryPda(contest: PublicKey, bettor: PublicKey, nonce: number | 
   )[0];
 }
 
-/** Pad a fixture list to the fixed [i64; 5] the program expects. */
+/** Pad a fixture list to the fixed [i64; MAX_LEGS] the program expects. */
 export function fixtureArray(ids: number[]): BN[] {
   const out = ids.map((x) => new BN(x));
-  while (out.length < 5) out.push(new BN(0));
+  while (out.length < MAX_LEGS) out.push(new BN(0));
   return out;
 }
 
-/** Pad a market_id list to the fixed [u8; 5] (tail zeros). */
+/** Pad a market_id list to the fixed [u8; MAX_LEGS] (tail zeros). */
 export function marketIdArray(ids: number[]): number[] {
   const out = [...ids];
-  while (out.length < 5) out.push(0);
+  while (out.length < MAX_LEGS) out.push(0);
   return out;
 }
 
-/** Pad a pick list to the fixed [u8; 5] (tail zeros). */
+/** Pad a pick list to the fixed [u8; MAX_LEGS] (tail zeros). */
 export function pickArray(picks: number[]): number[] {
   const out = [...picks];
-  while (out.length < 5) out.push(0);
+  while (out.length < MAX_LEGS) out.push(0);
   return out;
 }
 

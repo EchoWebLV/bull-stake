@@ -77,6 +77,30 @@ export function classifyStatus(kickoffMs: number, phaseCode: number | null, nowM
   return "live";
 }
 
+/** The four coarse phases the web card renders for live drama. */
+export type LivePhase = "pre" | "live" | "ht" | "ft";
+
+/** Store phase labels (PHASE_NAME) that mean "between halves / paused waiting",
+ *  which the card surfaces as "ht". classifyStatus folds these into status:"live"
+ *  (they aren't FINISHED_PHASES), so we detect them from the phase label here. */
+const HALFTIME_PHASE_LABELS = new Set<string>(["HT", "HTET", "WET", "WPE"]);
+
+/**
+ * Collapse the store's per-fixture `status` (+ `phase` label) into the card's
+ * coarse LivePhase, per the /api/card contract:
+ *   upcoming            → "pre"
+ *   live                → "live"  (but "ht" when the phase label is a half-time wait)
+ *   ft                  → "ft"
+ * The phase label is only consulted to split half-time out of "live"; a null or
+ * unrecognised label leaves a live match as "live".
+ */
+export function livePhase(status: MatchStatus, phase: string | null): LivePhase {
+  if (status === "upcoming") return "pre";
+  if (status === "ft") return "ft";
+  // status === "live": surface the between-halves pause as "ht" when known.
+  return phase != null && HALFTIME_PHASE_LABELS.has(phase) ? "ht" : "live";
+}
+
 /** Sort matches: live first, then upcoming, then ft. */
 export function sortMatches(matches: LiveMatch[]): LiveMatch[] {
   const order: Record<MatchStatus, number> = { live: 0, upcoming: 1, ft: 2 };

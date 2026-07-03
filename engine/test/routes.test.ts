@@ -318,6 +318,40 @@ describe("sortMatches", () => {
   });
 });
 
+describe("livePhase (store status → card phase)", () => {
+  it("maps status 'upcoming' → 'pre' (phase label is ignored)", async () => {
+    const { livePhase } = await import("../src/live.ts");
+    expect(livePhase("upcoming", null)).toBe("pre");
+    expect(livePhase("upcoming", "NS")).toBe("pre");
+  });
+
+  it("maps status 'ft' → 'ft' (phase label is ignored)", async () => {
+    const { livePhase } = await import("../src/live.ts");
+    expect(livePhase("ft", null)).toBe("ft");
+    expect(livePhase("ft", "F")).toBe("ft");
+    expect(livePhase("ft", "FET")).toBe("ft");
+  });
+
+  it("maps status 'live' → 'live' for in-play halves (H1/H2)", async () => {
+    const { livePhase } = await import("../src/live.ts");
+    expect(livePhase("live", "H1")).toBe("live");
+    expect(livePhase("live", "H2")).toBe("live");
+  });
+
+  it("splits half-time out of 'live' → 'ht' from the phase label", async () => {
+    const { livePhase } = await import("../src/live.ts");
+    // classifyStatus folds HT into status:"live"; only the label distinguishes it.
+    expect(livePhase("live", "HT")).toBe("ht");
+    expect(livePhase("live", "HTET")).toBe("ht");
+  });
+
+  it("leaves a live match as 'live' when the phase label is null/unknown", async () => {
+    const { livePhase } = await import("../src/live.ts");
+    expect(livePhase("live", null)).toBe("live");
+    expect(livePhase("live", "weird")).toBe("live");
+  });
+});
+
 describe("GET /api/contest/live", () => {
   it("returns an array of live contests, each with match + legs joined", async () => {
     const store = makeMockStore({
@@ -411,6 +445,205 @@ describe("GET /api/contest/live", () => {
     vi.mocked(readLiveContests).mockRejectedValueOnce(new Error("rpc down"));
     const app = buildServer(makeMockStore());
     const res = await app.inject({ url: "/api/contest/live" });
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toHaveProperty("error");
+    await app.close();
+  });
+});
+
+describe("selectTodaysCard", () => {
+  // Minimal ContestView factory — only the fields selectTodaysCard reads matter.
+  const c = (over: { contestId: number; status?: string; lockTs: number; settleAfterTs: number }) =>
+    ({
+      pubkey: `C${over.contestId}`, contestId: over.contestId,
+      settleAuthority: "", feeRecipient: "", fixtures: [], marketIds: [], numLegs: 0,
+      legs: [], entryPrice: "0", lockTs: over.lockTs, settleAfterTs: over.settleAfterTs,
+      feeBps: 0, status: (over.status ?? "open") as "open", winningBuckets: [],
+      entryCount: 0, perfectCount: 0, pot: "0", distributable: "0",
+      claimedCount: 0, claimedTotal: "0", settledTs: 0,
+    });
+
+  it("returns null when no contests exist", async () => {
+    const { selectTodaysCard } = await import("../src/routes.ts");
+    expect(selectTodaysCard([], 1000)).toBeNull();
+  });
+
+  it("ignores non-open contests (settled/voided are never 'today')", async () => {
+    const { selectTodaysCard } = await import("../src/routes.ts");
+    const settled = c({ contestId: 1, status: "settled", lockTs: 0, settleAfterTs: 9999 });
+    expect(selectTodaysCard([settled], 500)).toBeNull();
+  });
+
+  it("prefers the Open contest whose [lockTs, settleAfterTs] window covers now", async () => {
+    const { selectTodaysCard } = await import("../src/routes.ts");
+    const past = c({ contestId: 1, lockTs: 0, settleAfterTs: 100 });        // window before now
+    const covering = c({ contestId: 2, lockTs: 400, settleAfterTs: 600 });  // covers now=500
+    const future = c({ contestId: 3, lockTs: 900, settleAfterTs: 1000 });   // window after now
+    expect(selectTodaysCard([past, covering, future], 500)?.contestId).toBe(2);
+  });
+
+  it("picks the latest when several Open windows cover now", async () => {
+    const { selectTodaysCard } = await import("../src/routes.ts");
+    const a = c({ contestId: 1, lockTs: 100, settleAfterTs: 900 }); // covers 500
+    const b = c({ contestId: 2, lockTs: 300, settleAfterTs: 900 }); // covers 500, later lock
+    expect(selectTodaysCard([a, b], 500)?.contestId).toBe(2);
+  });
+
+  it("falls back to the most recent Open card when no window covers now", async () => {
+    const { selectTodaysCard } = await import("../src/routes.ts");
+    const older = c({ contestId: 1, lockTs: 1000, settleAfterTs: 2000 });
+    const newer = c({ contestId: 2, lockTs: 5000, settleAfterTs: 6000 });
+    // now=100 is before both windows → fall back to the latest-lock Open contest.
+    expect(selectTodaysCard([older, newer], 100)?.contestId).toBe(2);
+  });
+});
+
+describe("GET /api/card", () => {
+  it("returns today's card with per-leg match join + folded-in jackpot", async () => {
+    // Default mock readLiveContests is one Open contest (lockTs 9999999999) — the
+    // most-recent-Open fallback selects it.
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: 1_700_000_000_000,
+          status: "upcoming" as const, minute: null, phase: null, scoreH: 0, scoreA: 0,
+          corners: 0, goals: 0, yellows: 0 },
+      ]),
+      getFixtureMeta: vi.fn(() => new Map()),
+    });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/card" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({
+      contestId: 20269, status: "open", lockTs: 9999999999, settleAfterTs: 9999999999,
+      entryPrice: "20000000", pot: "80000000", jackpot: "80000000",
+    });
+    expect(body.legs).toHaveLength(3);
+    // Per-leg single-match join (live row wins) + catalog line + buckets, kickoff in
+    // SECONDS. An upcoming live row also stamps `live` with phase "pre".
+    expect(body.legs[0]).toEqual({
+      fixtureId: 101, home: "Brazil", away: "Spain", kickoffTs: 1_700_000_000,
+      marketId: 10, label: "Total Corners O/U 9.5", group: "corners", line: 9.5, buckets: 2,
+      live: { home: 0, away: 0, minute: null, phase: "pre" },
+    });
+    // Three-way result market (line 0) carries buckets:3.
+    expect(body.legs[1]).toMatchObject({ marketId: 12, group: "result", line: 0, buckets: 3 });
+    await app.close();
+  });
+
+  it("stamps each leg's `live` from the store (score/minute/phase) for an in-play fixture", async () => {
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: Date.now() - 3600_000,
+          status: "live" as const, minute: 63, phase: "H2", scoreH: 2, scoreA: 1,
+          corners: 7, goals: 3, yellows: 2 },
+      ]),
+      getFixtureMeta: vi.fn(() => new Map()),
+    });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/card" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // Same fixture on every leg (single-match parlay) → same live object.
+    for (const leg of body.legs) {
+      expect(leg.live).toEqual({ home: 2, away: 1, minute: 63, phase: "live" });
+    }
+    await app.close();
+  });
+
+  it("maps a half-time store row to phase 'ht'", async () => {
+    const store = makeMockStore({
+      getMatches: vi.fn(() => [
+        { fixtureId: 101, home: "Brazil", away: "Spain", kickoffMs: Date.now() - 2700_000,
+          status: "live" as const, minute: null, phase: "HT", scoreH: 1, scoreA: 0,
+          corners: 4, goals: 1, yellows: 1 },
+      ]),
+      getFixtureMeta: vi.fn(() => new Map()),
+    });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/card" });
+    const body = res.json();
+    expect(body.legs[0].live).toEqual({ home: 1, away: 0, minute: null, phase: "ht" });
+    await app.close();
+  });
+
+  it("OMITS `live` entirely when the store has no live entry for the fixture", async () => {
+    // No live row; names resolved from fixture-meta only → no `live` key at all.
+    const store = makeMockStore({
+      getMatches: vi.fn(() => []),
+      getFixtureMeta: vi.fn(() => new Map([[101, { home: "Japan", away: "Peru" }]])),
+    });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/card" });
+    const body = res.json();
+    for (const leg of body.legs) {
+      expect("live" in leg).toBe(false);
+      expect(leg).not.toHaveProperty("live");
+    }
+    await app.close();
+  });
+
+  it("falls back to fixture meta names, then to #fixtureId + null kickoff", async () => {
+    const store = makeMockStore({
+      getMatches: vi.fn(() => []),
+      getFixtureMeta: vi.fn(() => new Map([[101, { home: "Japan", away: "Peru" }]])),
+    });
+    const app = buildServer(store);
+    const res = await app.inject({ url: "/api/card" });
+    const body = res.json();
+    expect(body.legs[0]).toMatchObject({
+      fixtureId: 101, home: "Japan", away: "Peru", kickoffTs: null,
+    });
+    await app.close();
+  });
+
+  it("OMITS the leg `line` key (not null) for an out-of-catalog market", async () => {
+    vi.mocked(readLiveContests).mockResolvedValueOnce([
+      {
+        pubkey: "Contest222", contestId: 30001,
+        settleAuthority: "Keep1111111111111111111111111111111111111111",
+        feeRecipient: "Fee11111111111111111111111111111111111111111",
+        fixtures: [202], marketIds: [99], numLegs: 1,
+        legs: [{ marketId: 99, label: "", group: "", numBuckets: 0, fixtureId: 202, winningBucket: null }],
+        entryPrice: "20000000", lockTs: 9999999999, settleAfterTs: 9999999999,
+        feeBps: 500, status: "open", winningBuckets: [0],
+        entryCount: 0, perfectCount: 0, pot: "0", distributable: "0",
+        claimedCount: 0, claimedTotal: "0", settledTs: 0,
+      },
+    ]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/card" });
+    expect(res.statusCode).toBe(200);
+    const leg = res.json().legs[0];
+    expect(leg).toMatchObject({ marketId: 99, fixtureId: 202, buckets: 0 });
+    expect("line" in leg).toBe(false);
+    await app.close();
+  });
+
+  it("returns 200 + { card: null } when no Open contest exists", async () => {
+    vi.mocked(readLiveContests).mockResolvedValueOnce([]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/card" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ card: null });
+    await app.close();
+  });
+
+  it("serves the card with jackpot:'0' when the jackpot read fails (best-effort)", async () => {
+    vi.mocked(readJackpot).mockRejectedValueOnce(new Error("rpc down"));
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/card" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.contestId).toBe(20269);
+    expect(body.jackpot).toBe("0");
+    await app.close();
+  });
+
+  it("502s when the contest read fails", async () => {
+    vi.mocked(readLiveContests).mockRejectedValueOnce(new Error("rpc down"));
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: "/api/card" });
     expect(res.statusCode).toBe(502);
     expect(res.json()).toHaveProperty("error");
     await app.close();

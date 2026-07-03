@@ -22,8 +22,9 @@ import { createContext } from "../spike/src/auth.js";
 import { loadProofbetProgram } from "./settle.js";
 
 // Contest PDA rent floor: minimum_balance(8 disc + Contest::INIT_SPACE) — Anchor's
-// program.account.contest.size already includes the 8-byte discriminator (= 207).
-const CONTEST_SIZE_FALLBACK = 207;
+// program.account.contest.size already includes the 8-byte discriminator (= 217 for
+// the 6-leg v2 layout; was 207 at 5 legs).
+const CONTEST_SIZE_FALLBACK = 217;
 
 const sol = (l: bigint) => (Number(l) / 1e9).toFixed(4);
 

@@ -33,8 +33,8 @@ describe("parlay v2 — create_contest", () => {
     assert.deepEqual(c.status, { open: {} });
     assert.equal(c.numLegs, 4);
     assert.equal(c.entryPrice.toNumber(), 20_000_000);
-    assert.deepEqual(c.marketIds, [16, 15, 12, 11, 0], "per-leg market_ids stored with tail zero");
-    assert.deepEqual(c.fixtures.map((x: any) => x.toNumber()), [F, F, F, F, 0]);
+    assert.deepEqual(c.marketIds, [16, 15, 12, 11, 0, 0], "per-leg market_ids stored with tail zero");
+    assert.deepEqual(c.fixtures.map((x: any) => x.toNumber()), [F, F, F, F, 0, 0]);
     assert.ok(c.settleAuthority.equals(keeper.publicKey));
     assert.equal(c.distributable.toNumber(), 0);
   });
@@ -62,7 +62,7 @@ describe("parlay v2 — create_contest", () => {
     assert.deepEqual((await program.account.contest.fetch(c2)).status, { open: {} }, "second also Open — concurrent");
   });
 
-  it("rejects num_legs outside 3..=5", async () => {
+  it("rejects num_legs outside 3..=6", async () => {
     const keeper = await freshFunded();
     const contest = contestPda(130004);
     const lock = nowSec() + 30;

@@ -54,8 +54,9 @@ const BN = anchorDefault.BN;
 // Jackpot PDA rent floor: minimum_balance(8 disc + Jackpot::INIT_SPACE(1 bump)).
 const JACKPOT_RENT_SIZE = 8 + 1;
 // Contest PDA rent floor: minimum_balance(8 disc + Contest::INIT_SPACE) — Anchor's
-// program.account.contest.size already includes the 8-byte discriminator (= 207).
-const CONTEST_SIZE_FALLBACK = 207;
+// program.account.contest.size already includes the 8-byte discriminator (= 217 for
+// the 6-leg v2 layout; was 207 at 5 legs).
+const CONTEST_SIZE_FALLBACK = 217;
 
 const sol = (l: bigint) => (Number(l) / 1e9).toFixed(4);
 
@@ -314,6 +315,8 @@ async function main() {
   const ctx = createContext();
   const auth = await authenticateCached(ctx);
   const proofbet = loadProofbetProgram(ctx.provider);
+  const programId = proofbet.programId;
+  const connection = proofbet.provider.connection;
 
   // PRIMARY path: explicit --contest-id <fixtureId>.
   if (flags["contest-id"] != null && flags["contest-id"] !== true) {
@@ -322,34 +325,65 @@ async function main() {
     return;
   }
 
-  // No-id mode: enumerate Open contests whose settle window has opened. Under the
-  // planned fresh-id deploy there are no stale v1 contests, so .all() is acceptable
-  // here; the PRIMARY path is the explicit --contest-id above.
+  // No-id mode: enumerate Open contests whose settle window has opened.
+  //
+  // We deliberately do NOT use `proofbet.account.contest.all()`: it fetches then
+  // decodes EVERY account sharing the "Contest" discriminator in one call and
+  // rejects the whole call if any single one fails. Orphaned older contests (the
+  // v1 5-leg layout) share the discriminator but are a different size and their
+  // bytes either throw or borsh-decode into the v2 struct as GARBAGE — so `.all()`
+  // throws ("offset out of range") and hides every good v2 card. Instead we scan
+  // raw via getProgramAccounts filtered by the v2 Contest discriminator AND the
+  // exact v2 account size, then decode each in its own try/catch — the same
+  // size-filtered discovery the engine uses (engine/src/chain.ts readLiveContests).
   console.log(`[settle-contest] no --contest-id; enumerating Open contests due${dryRun ? " (DRY RUN)" : ""}`);
   const nowSec = Math.floor(Date.now() / 1000);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let all: any[] = [];
+  const coder = (proofbet as any).coder.accounts;
+  const contestSize = (proofbet.account as { contest: { size?: number } }).contest.size ?? CONTEST_SIZE_FALLBACK;
+
+  let raw: { pubkey: PublicKey; account: { data: Buffer } }[] = [];
   try {
+    // Resolve the discriminator filter INSIDE the try — an IDL-rename miss makes
+    // coder.memcmp throw synchronously; keeping it here degrades to [] gracefully.
+    const disc = coder.memcmp("contest"); // { offset: 0, bytes: <base58> }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    all = await (proofbet.account as any).contest.all();
+    raw = (await (connection as any).getProgramAccounts(programId, {
+      filters: [{ memcmp: { offset: disc.offset, bytes: disc.bytes } }, { dataSize: contestSize }],
+    })) as { pubkey: PublicKey; account: { data: Buffer } }[];
   } catch (e) {
-    console.error(`[settle-contest] contest.all() failed: ${(e as Error).message}`);
+    console.error(`[settle-contest] contest scan failed: ${(e as Error).message}`);
     return;
   }
-  const due = all.filter((x) => {
+
+  // Decode each candidate in its own try/catch; size-filtered above so only true
+  // v2 cards reach here, but stay defensive against an RPC that ignores dataSize.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const decoded: { contestId: number; account: any }[] = [];
+  for (const item of raw) {
+    if (item.account.data.length !== contestSize) continue; // skip wrong-size (stale v1) accounts
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const acc: any = coder.decode("contest", item.account.data); // throws on stale v1 layout
+      decoded.push({ contestId: Number(acc.contestId), account: acc });
+    } catch {
+      continue; // skip undecodable account, keep the rest
+    }
+  }
+
+  const due = decoded.filter((x) => {
     const st = x.account.status;
     const isOpen = st && typeof st === "object" && "open" in st;
     const settleAfter = Number(x.account.settleAfterTs);
     return isOpen && settleAfter <= nowSec;
   });
-  console.log(`[settle-contest] ${due.length} of ${all.length} contest(s) Open and due`);
+  console.log(`[settle-contest] ${due.length} of ${decoded.length} contest(s) Open and due`);
   for (const x of due) {
-    const contestId = Number(x.account.contestId);
-    console.log(`[settle-contest] === contest ${contestId} ===`);
+    console.log(`[settle-contest] === contest ${x.contestId} ===`);
     try {
-      await settleOneContest(ctx, auth, proofbet, contestId, dryRun);
+      await settleOneContest(ctx, auth, proofbet, x.contestId, dryRun);
     } catch (e) {
-      console.error(`[settle-contest] contest ${contestId} failed: ${(e as Error).message}`);
+      console.error(`[settle-contest] contest ${x.contestId} failed: ${(e as Error).message}`);
     }
   }
 }

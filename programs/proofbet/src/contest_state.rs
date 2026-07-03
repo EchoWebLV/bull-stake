@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 
-/// Maximum legs on a single-match parlay card (3..=5 used; tail stays zero).
+/// Maximum legs on a single-match parlay card (3..=6 used; tail stays zero).
 /// A leg is a (fixture, market_id) pair, NOT necessarily a distinct match — a v2
 /// parlay reads several markets (e.g. 16/15/12/11) on the SAME fixture.
-pub const MAX_LEGS: usize = 5;
+pub const MAX_LEGS: usize = 6;
 /// Default 1X2 "Match Result" market_id (engine MARKET_TEMPLATE). Kept as the
 /// across-match default; v2 legs each name their own market_id explicitly.
 pub const RESULT_MARKET_ID: u8 = 12;
@@ -48,7 +48,7 @@ pub struct Contest {
     /// market_id per leg: leg i = (fixtures[i], market_ids[i]). Indices >= num_legs
     /// stay zero. A v2 parlay reads, e.g., markets [16,15,12,11] on one fixture.
     pub market_ids: [u8; MAX_LEGS],
-    pub num_legs: u8,             // 3..=MAX_LEGS (parlay uses 4)
+    pub num_legs: u8,             // 3..=MAX_LEGS (daily card uses 6)
     pub entry_price: u64,         // lamports per ticket
     pub lock_ts: i64,             // entries close (first kickoff)
     pub settle_after_ts: i64,     // earliest settle (latest kickoff + buffer)

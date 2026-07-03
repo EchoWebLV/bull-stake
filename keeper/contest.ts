@@ -141,27 +141,27 @@ export function parlayParams(fixtureId: number, kickoffMs: number, bufferSecs = 
   };
 }
 
-/** On-chain arrays are [_; 5]; we use up to 4 legs. */
-const MAX_LEGS = 5;
+/** On-chain arrays are [_; MAX_LEGS] (mirrors contest_state.rs); a contest uses num_legs of them. */
+const MAX_LEGS = 6;
 
 /** Padded, BN-free args for the v2 `create_contest` instruction. The `new BN(...)`
  * wrapping happens at the RPC call site in create-parlay.ts. */
 export interface CreateArgs {
   contestId: number;   // == fixtureId
-  fixtures: number[];  // [i64; 5] — fixtureId repeated numLegs times, padded with 0
-  marketIds: number[]; // [u8; 5] — [16, 15, 12, 11, 0]
+  fixtures: number[];  // [i64; MAX_LEGS] — fixtureId repeated numLegs times, padded with 0
+  marketIds: number[]; // [u8; MAX_LEGS] — e.g. [16, 15, 12, 11, 0, 0]
   numLegs: number;     // 4
   lockTs: number;
   settleAfterTs: number;
 }
 
-/** Pad fixtures to [i64; 5] with 0 (the program ignores entries beyond num_legs). */
+/** Pad fixtures to [i64; MAX_LEGS] with 0 (the program ignores entries beyond num_legs). */
 export function padFixtures(ids: number[]): number[] {
   const out = [...ids];
   while (out.length < MAX_LEGS) out.push(0);
   return out;
 }
-/** Pad market ids to [u8; 5] with 0 (tail zeros). */
+/** Pad market ids to [u8; MAX_LEGS] with 0 (tail zeros). */
 export function padMarketIds(ids: number[]): number[] {
   const out = [...ids];
   while (out.length < MAX_LEGS) out.push(0);
@@ -171,7 +171,7 @@ export function padMarketIds(ids: number[]): number[] {
 /**
  * Pure arg assembly: turn ParlayParams into the padded on-chain create_contest
  * args. All 4 legs are on the SAME fixture, so `fixtures` is the fixtureId repeated
- * numLegs times (padded to 5), and `marketIds` is the leg markets padded to 5.
+ * numLegs times (padded to MAX_LEGS), and `marketIds` is the leg markets padded to MAX_LEGS.
  */
 export function buildCreateArgs(p: ParlayParams): CreateArgs {
   return {
