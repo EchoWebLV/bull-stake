@@ -41,9 +41,10 @@
  *   --dry-run       compose + PRINT the card (contest_id, lock/settle, every leg
  *                   with teams + market label + the implied odds used, and each
  *                   leg's own lock_ts) and EXIT. No markets created, no transaction.
- *                   If a REAL run's R1/R2 guards would reject the card (thin
- *                   slate / duplicate leg), prints a would-SKIP NOTE so the
- *                   operator isn't shown a plausible card that cron would skip.
+ *                   If a REAL run's R1/R2/R3 guards would reject the card (thin
+ *                   slate / duplicate leg / too many legs), prints a would-SKIP
+ *                   NOTE so the operator isn't shown a plausible card that cron
+ *                   would then skip.
  *   --entry-price   SOL per ticket (default 0.05 — spec §12). fee_bps is hard-wired to 0.
  *   --window-hours  eligibility window for the card (default 24).
  *
@@ -86,6 +87,7 @@ import { marketById, toInitArgs } from "../engine/src/markets.js";
 import { loadProofbetProgram } from "./settle.js";
 import {
   buildPearlyCard,
+  filterEligible,
   DEFAULT_MENU,
   type PearlyCard,
   type Fixture,
@@ -99,7 +101,6 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
 const MAX_LEGS = 6; // mirrors contest_state.rs MAX_LEGS; create_contest requires num_legs 3..=6.
 const TARGET_LEGS = 6;
 const MAX_IMPLIED = 0.82; // quality gate: drop a leg whose favorite implied prob exceeds this.
-const MATCH_LEN_SECS = 2 * 3600; // assumed match length (matches the allocator's own buffer).
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Widened menu for buildOdds/ensure-markets ONLY (chaos must be priceable so
@@ -200,6 +201,12 @@ export async function fetchSlate(
  *
  * epochDay today (2026) is ~20_600 and grows ~365/yr, so it stays < 1e6 for
  * ~2700 years; the whole value is ~7.77e8, far inside u64. Pure + reversible.
+ *
+ * NOTE: DAILY_NAMESPACE 777 is SHARED with the superseded daily card
+ * (create-daily-card.ts uses the identical derivation), so an epochDay whose
+ * id is already occupied by a legacy daily-card Contest reports "exists" —
+ * the spec-consistent no-op (one daily contest per UTC day, whichever keeper
+ * created it).
  */
 const DAILY_NAMESPACE = 777; // arbitrary high tag so daily ids don't collide with fixtureId-keyed parlays.
 export function dailyContestId(nowMs: number): { contestId: number; epochDay: number } {
@@ -381,8 +388,8 @@ function pad<T>(xs: T[], fill: T): T[] {
 // ── on-chain create driver ───────────────────────────────────────────────────────
 
 /** Discriminated outcome of createDailyPearly (the settle.ts SettleResult
- *  convention). On a dry-run, `wouldSkip` carries the R1/R2 verdict a REAL run
- *  would reach (absent when the card is creatable). */
+ *  convention). On a dry-run, `wouldSkip` carries the R1/R2/R3 verdict a REAL
+ *  run would reach (absent when the card is creatable). */
 export type DailyPearlyResult =
   | { action: "dry-run"; wouldSkip?: string }
   | { action: "skipped"; reason: string }
@@ -390,14 +397,19 @@ export type DailyPearlyResult =
   | { action: "created"; contest: PublicKey; sig: string; marketSigs: string[] };
 
 /**
- * R1/R2 create-guard verdict for a composed card — PURE (no rpc, no account
- * reads), so the dry-run path can evaluate it too:
+ * R1/R2/R3 create-guard verdict for a composed card — PURE (no rpc, no account
+ * reads), so the dry-run path can evaluate it too. Checked in size-then-content
+ * order (floor, cap, duplicates):
  *   R1 — leg floor: create_contest requires num_legs 3..=6; a thin slate that
  *        can't reach 3 legs isn't a card worth opening — bail rather than send
  *        a tx the program rejects.
  *   R2 — duplicate legs: a repeated (fixtureId, marketId) pair means the
  *        composer produced a broken card; a human should look rather than have
  *        the keeper silently dedupe/mangle it into something plausible-looking.
+ *   R3 — leg cap: a >MAX_LEGS card is the same composer-bug class as a
+ *        duplicate. Silently slice()-ing to 6 would drop the TRAILING leg —
+ *        which is exactly where the composer puts the chaos leg — so refuse
+ *        loudly instead of truncating.
  * Returns null when the card is creatable, else the reason plus the exact log
  * line a real run prints when it skips.
  */
@@ -405,6 +417,10 @@ function pearlyGuardVerdict(card: PearlyCard): { reason: string; log: string } |
   if (card.legs.length < 3) {
     const reason = `thin slate: ${card.legs.length} legs < 3`;
     return { reason, log: `# SKIPPING create: ${reason} — not creating a contest.` };
+  }
+  if (card.legs.length > MAX_LEGS) {
+    const reason = `too many legs: ${card.legs.length} > ${MAX_LEGS}`;
+    return { reason, log: `# SKIPPING create: ${reason} — composition is wrong, not creating a contest.` };
   }
   const seen = new Set<string>();
   for (const l of card.legs) {
@@ -423,11 +439,11 @@ function pearlyGuardVerdict(card: PearlyCard): { reason: string; log: string } |
  * Anchor Program — extracted from main() so tests can inject a Program.methods
  * spy and assert the exact wire args with zero network I/O (the
  * create-match-pool.ts createMatchPool precedent). ALL chain effects (account
- * reads and `.rpc()`) live here; `dryRun` and the R1/R2 guards both return
- * before any of them. The R1/R2 conditions are evaluated BEFORE the dry-run
+ * reads and `.rpc()`) live here; `dryRun` and the create guards both return
+ * before any of them. The guard conditions are evaluated BEFORE the dry-run
  * early-return so a dry-run surfaces the verdict a real run would reach —
- * otherwise a thin or duplicate-legged card dry-runs as a plausible full card
- * and the operator only discovers the skip when cron takes the real path.
+ * otherwise a broken card dry-runs as a plausible full card and the operator
+ * only discovers the skip when cron takes the real path.
  */
 export async function createDailyPearly(
   proofbet: AnchorProgramLike,
@@ -438,7 +454,7 @@ export async function createDailyPearly(
   contestId: number,
   opts: { entryPriceLamports: number; feeBps: number; dryRun?: boolean },
 ): Promise<DailyPearlyResult> {
-  // R1/R2 — pure checks, evaluated before the dry-run return (see doc above).
+  // R1/R2/R3 — pure checks, evaluated before the dry-run return (see doc above).
   const guard = pearlyGuardVerdict(card);
 
   if (opts.dryRun) {
@@ -452,8 +468,10 @@ export async function createDailyPearly(
     return { action: "skipped", reason: guard.reason };
   }
 
-  const numLegs = Math.min(card.legs.length, MAX_LEGS);
-  const legs = card.legs.slice(0, numLegs);
+  // Guarded above: 3 <= legs.length <= MAX_LEGS, no duplicates. No Math.min /
+  // slice() here — truncation would silently drop the trailing chaos leg.
+  const legs = card.legs;
+  const numLegs = legs.length;
 
   const programId = proofbet.programId;
 
@@ -577,9 +595,9 @@ async function main() {
     maxImplied: MAX_IMPLIED,
   });
 
-  const eligibleCount = fixtures.filter(
-    (f) => f.kickoffTs > nowSecs && f.kickoffTs + MATCH_LEN_SECS <= nowSecs + windowSecs,
-  ).length;
+  // Same eligibility rule the composer applies (allocator filterEligible:
+  // kicks off after now AND ends — kickoff + ~2h — inside the window).
+  const eligibleCount = filterEligible(fixtures, nowSecs, windowSecs).length;
   printCard(card, contestId, epochDay, slate, odds, {
     entryPrice, feeBps, eligible: eligibleCount, fromPool, fromPrior,
   });
