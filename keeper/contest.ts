@@ -87,6 +87,30 @@ export function perfectCountWithinEntries(perfectCount: number, entryCount: numb
   return perfectCount <= entryCount;
 }
 
+/** Entries are only accepted while >= MIN_OPEN_LEGS legs are open (mirrors
+ * contest_state.rs MIN_OPEN_LEGS), so every legitimate winner carries at least
+ * this many active legs. */
+const MIN_OPEN_LEGS = 3;
+
+/**
+ * Guard predicate mirroring the on-chain `WeightMismatch` band in
+ * settle_contest.rs: weight must be 0 iff count is 0; otherwise it must lie in
+ * [count × 2^MIN_OPEN_LEGS, count × 2^numLegs] (every winner carried at least the
+ * minimum mask, at most THIS contest's full card). Unreachable for weights
+ * produced by countPerfectWeighted over legitimate entries, but a friendly abort
+ * beats a raw on-chain revert. Pure.
+ */
+export function perfectWeightWithinBand(
+  perfectCount: number,
+  perfectWeight: number,
+  numLegs: number,
+): boolean {
+  if (perfectCount === 0) return perfectWeight === 0;
+  const minW = perfectCount * 2 ** MIN_OPEN_LEGS;
+  const maxW = perfectCount * 2 ** numLegs;
+  return perfectWeight >= minW && perfectWeight <= maxW;
+}
+
 /** Count entries whose first `numLegs` picks all equal the winning buckets. */
 export function countPerfect(
   entries: { picks: number[] }[],
@@ -99,9 +123,36 @@ export function countPerfect(
   }).length;
 }
 
+/** Per-entry mirror of claim_contest.rs's masked-perfect check: `active` counts
+ * the legs whose lock is strictly after entryTs; `perfect` seeds from
+ * `entryTs > 0` (fail-closed on an impossible zero — the chain never pays such
+ * an entry) and requires every active pick to match; a perfect entry's claim
+ * weight is 2^active (0 if imperfect or nothing was active). Single source of
+ * truth for the mask semantics — countPerfectWeighted aggregates over this and
+ * settle-contest.ts logs it per entry, so the audit log and the two trusted
+ * settle args can never disagree. */
+export function entryWeight(
+  e: { picks: number[]; entryTs: number },
+  winningBuckets: number[],
+  legLockTs: number[],
+  numLegs: number,
+): { active: number; perfect: boolean; weight: number } {
+  let active = 0;
+  let perfect = e.entryTs > 0; // fail-closed seed, mirrors claim_contest.rs
+  for (let i = 0; i < numLegs; i++) {
+    if (legLockTs[i] > e.entryTs) {
+      active++;
+      if (e.picks[i] !== winningBuckets[i]) perfect = false;
+    }
+  }
+  const paid = perfect && active > 0;
+  return { active, perfect: paid, weight: paid ? 2 ** active : 0 };
+}
+
 /** Weighted perfect tally for the Pearly: an entry's ACTIVE legs are those whose
  * leg lock is strictly after its entryTs; perfect = all active picks match; each
- * perfect entry contributes 2^active to the weight. Mirrors claim_contest.rs. */
+ * perfect entry contributes 2^active to the weight. Mirrors claim_contest.rs
+ * (the per-entry semantics live in entryWeight above). */
 export function countPerfectWeighted(
   entries: { picks: number[]; entryTs: number }[],
   winningBuckets: number[],
@@ -111,22 +162,10 @@ export function countPerfectWeighted(
   let perfectCount = 0;
   let perfectWeight = 0;
   for (const e of entries) {
-    // Fail-closed on an impossible entry_ts <= 0 (mirrors claim_contest.rs's
-    // `perfect = entry_ts > 0` seed): a legitimate entry always stamps a positive
-    // clock time, so entry_ts <= 0 marks an entry the chain will never pay — the
-    // keeper must not let it inflate count/weight.
-    if (e.entryTs <= 0) continue;
-    let active = 0;
-    let perfect = true;
-    for (let i = 0; i < numLegs; i++) {
-      if (legLockTs[i] > e.entryTs) {
-        active++;
-        if (e.picks[i] !== winningBuckets[i]) perfect = false;
-      }
-    }
-    if (perfect && active > 0) {
+    const w = entryWeight(e, winningBuckets, legLockTs, numLegs);
+    if (w.perfect) {
       perfectCount++;
-      perfectWeight += 2 ** active;
+      perfectWeight += w.weight;
     }
   }
   return { perfectCount, perfectWeight };
@@ -245,10 +284,16 @@ export interface SettlePreview {
 }
 
 /**
- * Pure mirror of `settle_contest.rs` (handler lines 28-221): compute exactly what
- * the on-chain handler will do for a keeper-supplied `perfectCount`, so the operator
- * can sanity-check the one trusted input (perfect_count) and the resulting payout +
- * jackpot movement BEFORE broadcasting `settle_contest`.
+ * Pure mirror of `settle_contest.rs` (the pot/rake/jackpot-movement section of the
+ * handler, after the leg-market verification): compute exactly what the on-chain
+ * handler will do for a keeper-supplied `perfectCount`, so the operator can
+ * sanity-check the trusted inputs and the resulting payout + jackpot movement
+ * BEFORE broadcasting `settle_contest`. Settle takes TWO trusted inputs, but
+ * money movement depends only on perfect_count == 0 vs > 0; perfect_weight (the
+ * second trusted input) never moves lamports at settle — on-chain it is checked
+ * only by the WeightMismatch band ([count × 2^MIN_OPEN_LEGS, count × 2^num_legs],
+ * mirrored here by perfectWeightWithinBand) and is exercised at claim, where each
+ * winner's share divides by it.
  *
  * On-chain uses checked_sub for pot/jpool (would error on underflow); here we clamp
  * ≥0 so the preview is total. All other arithmetic mirrors the chain exactly:

@@ -47,10 +47,12 @@ import { loadProofbetProgram, settleMarketByPubkey } from "./settle.js";
 import { marketsToSettle } from "./settle-all.js";
 import {
   countPerfectWeighted,
+  entryWeight,
   previewSettle,
   legMarketsInOrder,
   classifyLegReadiness,
   perfectCountWithinEntries,
+  perfectWeightWithinBand,
   type LegStatus,
 } from "./contest.js";
 
@@ -253,6 +255,21 @@ async function settleOneContest(
     legLockTs,
     numLegs,
   );
+  // Per-entry audit breakdown (same scan, bounded by entry_count — cheap). Entry
+  // PDAs close at claim and ContestSettled emits only aggregates, so this log line
+  // is the only durable per-entry record for payout disputes.
+  const entryBreakdown = entries.map((e) => {
+    const entryTs = Number(e.account.entryTs);
+    const w = entryWeight(
+      { picks: e.account.picks as number[], entryTs },
+      winningBuckets, legLockTs, numLegs,
+    );
+    return {
+      entry: (e.publicKey as PublicKey).toBase58(),
+      bettor: (e.account.bettor as PublicKey).toBase58(),
+      entryTs, active: w.active, perfect: w.perfect, weight: w.weight,
+    };
+  });
 
   // 5. AUDIT (always — dry-run AND live): mirror settle_contest exactly so the
   //    operator can sanity-check the pot/rake/jackpot movement BEFORE broadcasting.
@@ -277,7 +294,8 @@ async function settleOneContest(
 
   console.log(JSON.stringify({
     action: "settle_contest", contestId, fixtures, marketIds, winningBuckets,
-    entries: entries.length, entryCount, perfectCount, perfectWeight,
+    legLockTs, entries: entries.length, entryCount, perfectCount, perfectWeight,
+    entryBreakdown,
     preview: {
       pot: preview.pot.toString(), rake: preview.rake.toString(),
       jpool: preview.jpool.toString(), distributable: preview.distributable.toString(),
@@ -300,6 +318,19 @@ async function settleOneContest(
     console.error(
       `contest ${contestId}: perfect_count (${perfectCount}) > entry_count (${entryCount}) — ` +
       `this would revert on-chain as PerfectCountExceedsEntries. ABORTING.`,
+    );
+    return "aborted-guard";
+  }
+  // 6b. Enforce the weight band (mirror on-chain WeightMismatch): weight 0 iff
+  //     count 0, else within [count × 2^MIN_OPEN_LEGS(3), count × 2^numLegs].
+  //     Unreachable for weights countPerfectWeighted produced from real entries,
+  //     but a friendly abort beats a raw on-chain revert.
+  if (!perfectWeightWithinBand(perfectCount, perfectWeight, numLegs)) {
+    console.error(
+      `contest ${contestId}: perfect_weight (${perfectWeight}) outside the on-chain band ` +
+      `[${perfectCount * 2 ** 3}, ${perfectCount * 2 ** numLegs}] for perfect_count ${perfectCount}` +
+      (perfectCount === 0 ? " (count 0 requires weight 0)" : "") +
+      ` — this would revert on-chain as WeightMismatch. ABORTING.`,
     );
     return "aborted-guard";
   }

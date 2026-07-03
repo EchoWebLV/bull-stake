@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   countPerfect,
   countPerfectWeighted,
+  perfectWeightWithinBand,
   selectParlayMatches,
   parlayParams,
   previewSettle,
@@ -100,6 +101,24 @@ describe("countPerfectWeighted", () => {
     ];
     const r = countPerfectWeighted(entries, winning, legLockTs, 6);
     expect(r).toEqual({ perfectCount: 1, perfectWeight: 32 });
+  });
+});
+
+describe("perfectWeightWithinBand", () => {
+  it("mirrors the on-chain WeightMismatch band: 0 iff count 0, else [count×2^3, count×2^numLegs] inclusive", () => {
+    // rollover: count 0 ↔ weight 0
+    expect(perfectWeightWithinBand(0, 0, 6)).toBe(true);
+    expect(perfectWeightWithinBand(0, 8, 6)).toBe(false);   // weight without winners
+    expect(perfectWeightWithinBand(1, 0, 6)).toBe(false);   // winner without weight
+    // count 2, numLegs 6 → band [2×2^3, 2×2^6] = [16, 128], edges inclusive
+    expect(perfectWeightWithinBand(2, 16, 6)).toBe(true);   // min edge (both minimum mask)
+    expect(perfectWeightWithinBand(2, 128, 6)).toBe(true);  // max edge (both full card)
+    expect(perfectWeightWithinBand(2, 15, 6)).toBe(false);  // below band
+    expect(perfectWeightWithinBand(2, 129, 6)).toBe(false); // above band
+    expect(perfectWeightWithinBand(2, 96, 6)).toBe(true);   // the canonical 64+32 case
+    // band max tracks THIS contest's num_legs, not the MAX_LEGS ceiling
+    expect(perfectWeightWithinBand(1, 32, 5)).toBe(true);   // 2^5 == full 5-leg card
+    expect(perfectWeightWithinBand(1, 64, 5)).toBe(false);  // 2^6 impossible on a 5-leg card
   });
 });
 
