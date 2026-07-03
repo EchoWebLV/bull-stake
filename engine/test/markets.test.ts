@@ -71,6 +71,19 @@ describe("MARKET_TEMPLATE", () => {
   it("marketById resolves label/group for the 4 parlay legs", () => {
     expect([16, 15, 12, 11].map((id) => marketById(id)?.numBuckets)).toEqual([3, 2, 3, 2]);
   });
+
+  it("market 17: red card shown Y/N settles off red-card stat keys 5/6", () => {
+    const def = marketById(17)!;
+    expect(def.label).toBe("Red Card Shown Y/N");
+    expect(def.group).toBe("cards");
+    expect(def.numBuckets).toBe(2);
+    expect(def.statKey).toBe(5);
+    expect(def.statKey2).toBe(6);
+    expect(def.op).toBe("add");
+    expect(def.comparison).toBe("greaterThan");
+    expect(def.threshold).toBe(0);
+    expect(def.settleAt).toBe("FT");
+  });
 });
 
 describe("toInitArgs", () => {

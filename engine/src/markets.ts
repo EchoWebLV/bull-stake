@@ -55,6 +55,30 @@ export function marketById(id: number): MarketDef | undefined {
   return BY_ID.get(id);
 }
 
+// ── Daily Pearly chaos leg: Red Card Shown Y/N (id 17) ───────────────────────
+// Registered for marketById lookups like LINE_CLOSE (id 90) below, but OUTSIDE
+// MARKET_TEMPLATE: unlike ids 10–16 (created on every fixture), market 17 is
+// created on exactly one fixture per day — the daily card's marquee (top-ranked)
+// match — by the allocator/keeper, not the per-fixture seeding loop.
+// Bucket 0 = "yes" (home+away reds > 0), bucket 1 = "no" — same over/under
+// convention as every other 2-bucket def (e.g. markets 10/11/13).
+export const RED_CARD_MARKET_ID = 17;
+
+export const RED_CARD_DEF: MarketDef = {
+  marketId: RED_CARD_MARKET_ID,
+  label: "Red Card Shown Y/N",
+  group: "cards",
+  line: 0.5,
+  statKey: 5,        // home reds
+  statKey2: 6,        // away reds
+  op: "add",
+  comparison: "greaterThan",
+  threshold: 0,
+  settleAt: "FT",
+  numBuckets: 2,
+};
+BY_ID.set(RED_CARD_MARKET_ID, RED_CARD_DEF);
+
 // ── Beat the Market: the odds-line market (id 90) ───────────────────────────
 // One per fixture, OUTSIDE the per-fixture template. Bucket 0 = Above,
 // 1 = Below the opening line. Field reuse (documented in spec §3):
