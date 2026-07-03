@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { MARKET_TEMPLATE, marketById, toInitArgs, type MarketDef } from "../src/markets.ts";
 import {
   LINE_CLOSE_MARKET_ID, LINE_CLOSE_DEF, lineInitArgs, MARKET_TEMPLATE as TPL,
+  RED_CARD_MARKET_ID, RED_CARD_DEF,
 } from "../src/markets.ts";
 
 const DUMMY_AUTH = new PublicKey("11111111111111111111111111111112");
@@ -70,19 +71,6 @@ describe("MARKET_TEMPLATE", () => {
 
   it("marketById resolves label/group for the 4 parlay legs", () => {
     expect([16, 15, 12, 11].map((id) => marketById(id)?.numBuckets)).toEqual([3, 2, 3, 2]);
-  });
-
-  it("market 17: red card shown Y/N settles off red-card stat keys 5/6", () => {
-    const def = marketById(17)!;
-    expect(def.label).toBe("Red Card Shown Y/N");
-    expect(def.group).toBe("cards");
-    expect(def.numBuckets).toBe(2);
-    expect(def.statKey).toBe(5);
-    expect(def.statKey2).toBe(6);
-    expect(def.op).toBe("add");
-    expect(def.comparison).toBe("greaterThan");
-    expect(def.threshold).toBe(0);
-    expect(def.settleAt).toBe("FT");
   });
 });
 
@@ -170,5 +158,27 @@ describe("LINE_CLOSE (market 90)", () => {
     expect(args.numBuckets).toBe(2);
     expect(args.settleAuthority).toBe(DUMMY_AUTH);
     expect(args.feeRecipient).toBeNull();
+  });
+});
+
+describe("RED_CARD (market 17)", () => {
+  it("market 17: red card shown Y/N settles off red-card stat keys 5/6", () => {
+    const def = marketById(17)!;
+    expect(def.label).toBe("Red Card Shown Y/N");
+    expect(def.group).toBe("cards");
+    expect(def.numBuckets).toBe(2);
+    expect(def.statKey).toBe(5);
+    expect(def.statKey2).toBe(6);
+    expect(def.op).toBe("add");
+    expect(def.comparison).toBe("greaterThan");
+    expect(def.threshold).toBe(0);
+    expect(def.settleAt).toBe("FT");
+    expect(def.line).toBe(0.5);
+  });
+
+  it("is registered for lookups but NOT in the per-fixture template", () => {
+    expect(RED_CARD_MARKET_ID).toBe(17);
+    expect(marketById(17)).toBe(RED_CARD_DEF);
+    expect(TPL.some((d) => d.marketId === 17)).toBe(false);
   });
 });
