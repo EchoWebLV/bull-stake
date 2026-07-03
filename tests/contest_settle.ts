@@ -1,15 +1,17 @@
 import {
-  program, freshFunded, SystemProgram, assert, balance, Keypair, expectError,
+  program, provider, freshFunded, SystemProgram, assert, balance, Keypair, expectError,
   BN, nowSec, sleep, LAMPORTS_PER_SOL, connection,
 } from "./helpers";
+import { Transaction } from "@solana/web3.js";
 import {
   jackpotPda, ensureJackpot, contestPda, entryPda, fixtureArray, marketIdArray, pickArray,
   makeSettledResultMarket, makeAbandonedMarket, legLockArray,
 } from "./contest_helpers";
 
 // Task 5: settle_contest v2 — per-leg market_id resolution + the jackpot mechanic
-// (rollover sweeps the post-rake pot INTO the jackpot; a winner scoops the whole
-// rolling pool and leaves only floor-division dust behind).
+// (rollover sweeps the post-rake pot INTO the jackpot; a winner-settle scoops the
+// whole rolling pool into distributable — weighted claims floor per-share and the
+// residue stays in the Contest PDA, never the jackpot).
 
 async function contestRentFloor(contest: any): Promise<number> {
   const info = await connection.getAccountInfo(contest);
@@ -86,7 +88,8 @@ describe("parlay v2 — settle_contest", () => {
     // pot - rake = 1.9 SOL; jackpot started empty so distributable == 1.9 SOL, share == 0.95.
     assert.equal(c.distributable.toNumber(), 1.9 * LAMPORTS_PER_SOL);
     assert.equal(c.distributable.toNumber() / c.perfectCount.toNumber(), 0.95 * LAMPORTS_PER_SOL, "share = distributable/2");
-    // jackpot was empty and stays empty (no dust because 1.9e9 is divisible by 2).
+    // jackpot started empty so there was nothing to scoop — a nonzero pool would
+    // have been pulled into distributable in full (asserted in (c) and (d)).
     assert.equal(await jackpotPool(jackpot), poolBefore, "empty jackpot unchanged");
     // The Contest PDA holds floor + distributable.
     const floor = await contestRentFloor(contest);
@@ -151,38 +154,42 @@ describe("parlay v2 — settle_contest", () => {
     // distributable == its_pot(post-rake) + jackpot_pool (perfect_count 1 → no dust).
     const ownPotNet = 0.95 * LAMPORTS_PER_SOL; // 1 SOL entry, 5% rake
     assert.equal(c.distributable.toNumber(), ownPotNet + poolBeforeB, "distributable = own net pot + scooped jackpot pool");
-    assert.equal(await jackpotPool(jackpot), 0, "jackpot drained to dust (0 here, evenly divisible)");
+    assert.equal(await jackpotPool(jackpot), 0, "jackpot fully drained on a winners settle");
   });
 
-  it("(d) dust: distributable not divisible by perfect_count → remainder stays in the jackpot", async () => {
+  it("(d) winners settle takes the full raw pool — distributable is not rounded", async () => {
     const jackpot = await ensureJackpot();
     const keeper = await freshFunded();
     const fixtures = [150040, 150041, 150042];
-    // 3 perfect tickets at 1 SOL, 0 fee → pot = 3 SOL, jpool from prior tests is
-    // whatever it is. To force dust we add 1 lamport of jackpot via... instead use
-    // an odd raw: 3 entries, fee 0 → pot_net = 3e9. raw = 3e9 + jpool. We make
-    // perfect_count = 3 and assert dust = raw % 3 stays in the jackpot.
+    // 3 perfect tickets at 1 SOL, fee 0 → pot_net = 3e9. distributable = the FULL
+    // raw pool (pot_net + the whole jackpot), NOT rounded down to a multiple of
+    // perfect_count: weighted claims floor per-share and the flooring residue
+    // stays in the Contest PDA, so the jackpot always drains to exactly zero.
     const contest = await open({ contestId: 150005, keeper, fixtures, marketIds: [12, 12, 12], feeRecipient: keeper.publicKey, feeBps: 0 });
     const results = [0, 1, 2];
     const players = [await freshFunded(), await freshFunded(), await freshFunded()];
     for (const p of players) await enter(contest, p, 0, results);
+
+    // Seed the jackpot so the raw pool is provably NOT divisible by perfect_count
+    // (3) — the deleted rounded-distributable semantics would shave the remainder.
+    const potNet = 3 * LAMPORTS_PER_SOL; // fee 0
+    let seed = 1_000_001;
+    if ((potNet + (await jackpotPool(jackpot)) + seed) % 3 === 0) seed += 1;
+    await provider.sendAndConfirm(new Transaction().add(
+      SystemProgram.transfer({ fromPubkey: provider.wallet.publicKey, toPubkey: jackpot, lamports: seed }),
+    ));
+    const poolBefore = await jackpotPool(jackpot);
+    assert.notEqual((potNet + poolBefore) % 3, 0, "precondition: raw pool indivisible by perfect_count");
+
     const markets = [];
     for (let i = 0; i < 3; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
-
-    const poolBefore = await jackpotPool(jackpot);
-    const potNet = 3 * LAMPORTS_PER_SOL; // fee 0
-    const raw = potNet + poolBefore;
-    const share = Math.floor(raw / 3);
-    const payable = share * 3;
-    const expectedDust = raw - payable;
     await sleep(6500);
     // 3-leg contest, 3 perfect tickets → weight = 3 * 2^3 = 24.
     await settle({ keeper, jackpot, contest, feeRecipient: keeper.publicKey, markets, perfectCount: 3, weight: 24 });
 
     const c = await program.account.contest.fetch(contest);
-    assert.equal(c.distributable.toNumber(), payable, "distributable == share*perfect_count (divisible)");
-    assert.equal(c.distributable.toNumber() % 3, 0, "distributable exactly divisible by perfect_count");
-    assert.equal(await jackpotPool(jackpot), expectedDust, "the floor-division dust stays in the jackpot");
+    assert.equal(c.distributable.toNumber(), potNet + poolBefore, "distributable == full raw pool (pot_net + entire jackpot), unrounded");
+    assert.equal(await jackpotPool(jackpot), 0, "jackpot drained to exactly zero on a winners settle");
   });
 
   it("(e) leg-by-market_id: legs [16,15,12,11] read their own markets; a 2-way leg reads bucket 0/1", async () => {

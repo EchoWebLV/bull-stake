@@ -111,8 +111,10 @@ pub fn handler(ctx: Context<ClaimContest>) -> Result<()> {
             }
             // Solvency (winners): after a win payout the Contest PDA must still cover
             // its rent floor AND every share not yet claimed (distributable -
-            // claimed_total). distributable was made exactly divisible at settle, so a
-            // legitimate winner is always payable — this can only fire on over-claim.
+            // claimed_total). Weighted shares floor per-claim, so `outstanding`
+            // over-reserves by the flooring residue — lamports the PDA actually
+            // holds; a legitimate claim always passes and this can only fire on
+            // over-claim.
             let outstanding = ctx
                 .accounts
                 .contest

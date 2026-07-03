@@ -312,4 +312,82 @@ describe("parlay v2 — safety", () => {
       .signers([keeper]).rpc();
     assert.deepEqual((await program.account.contest.fetch(contest)).status, { settled: {} }, "honest perfect_count settles");
   });
+
+  // Weight-sanity band negatives. The gate fires BEFORE the result markets are
+  // read (and before remaining_accounts length is checked), so none of these
+  // need settled leg markets — each tx reverts atomically at WeightMismatch.
+  // Because no markets are created, the sleep alone must clear settle_after_ts
+  // (the other settle tests ride ~15s of market-creation time before theirs),
+  // so these use tight offsets (lock now+3, settle now+6) and sleep past both.
+  // Band for a 3-leg contest with count 1: [1×2^MIN_OPEN_LEGS, 1×2^num_legs] = [8, 8].
+  it("rejects weight 0 with a nonzero perfect_count (WeightMismatch)", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [182020, 182021, 182022];
+    const lock = nowSec() + 3;
+    const contest = contestPda(182002);
+    await program.methods
+      .createContest(new BN(182002), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 3), keeper.publicKey, 500, legLockArray(lock, 3))
+      .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    // One entry so perfect_count 1 clears the entry_count cap and reaches the band.
+    const player = await freshFunded();
+    await program.methods.enter(new BN(0), pickArray([0, 1, 2]))
+      .accountsStrict({ bettor: player.publicKey, contest, entry: entryPda(contest, player.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([player]).rpc();
+    await sleep(8000); // past settle_after (now+6) with margin
+    await expectError(
+      program.methods.settleContest(new BN(1), new BN(0))
+        .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
+        .signers([keeper]).rpc(),
+      "WeightMismatch",
+    );
+  });
+
+  it("rejects a weight below perfect_count × 2^MIN_OPEN_LEGS (WeightMismatch)", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [182030, 182031, 182032];
+    const lock = nowSec() + 3;
+    const contest = contestPda(182003);
+    await program.methods
+      .createContest(new BN(182003), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 3), keeper.publicKey, 500, legLockArray(lock, 3))
+      .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    const player = await freshFunded();
+    await program.methods.enter(new BN(0), pickArray([0, 1, 2]))
+      .accountsStrict({ bettor: player.publicKey, contest, entry: entryPda(contest, player.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([player]).rpc();
+    await sleep(8000); // past settle_after (now+6) with margin
+    // weight 7 < 1×2^3 = 8: no perfect card can carry fewer than MIN_OPEN_LEGS legs.
+    await expectError(
+      program.methods.settleContest(new BN(1), new BN(7))
+        .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
+        .signers([keeper]).rpc(),
+      "WeightMismatch",
+    );
+  });
+
+  it("rejects a nonzero weight on a zero-winner rollover (WeightMismatch)", async () => {
+    const jackpot = await ensureJackpot();
+    const keeper = await freshFunded();
+    const fixtures = [182040, 182041, 182042];
+    const lock = nowSec() + 3;
+    const contest = contestPda(182004);
+    await program.methods
+      .createContest(new BN(182004), fixtureArray(fixtures), marketIdArray([12, 12, 12]), 3,
+        new BN(1 * LAMPORTS_PER_SOL), new BN(lock), new BN(lock + 3), keeper.publicKey, 500, legLockArray(lock, 3))
+      .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+    await sleep(8000); // past settle_after (now+6) with margin
+    // perfect_count 0 (rollover) requires weight exactly 0 — 8 is rejected.
+    await expectError(
+      program.methods.settleContest(new BN(0), new BN(8))
+        .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
+        .signers([keeper]).rpc(),
+      "WeightMismatch",
+    );
+  });
 });

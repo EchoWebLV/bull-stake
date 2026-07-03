@@ -48,7 +48,8 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64, perfect_weight: 
     );
 
     // Weight sanity: zero iff no winners; otherwise between perfect_count × 2^MIN_OPEN_LEGS
-    // (every winner carried the minimum mask) and perfect_count × 2^MAX_LEGS.
+    // (every winner carried the minimum mask) and perfect_count × 2^num_legs (every
+    // winner carried THIS contest's full card — not the MAX_LEGS ceiling).
     if perfect_count == 0 {
         require!(perfect_weight == 0, ProofBetError::WeightMismatch);
     } else {
@@ -56,7 +57,7 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64, perfect_weight: 
             .checked_mul(1u64 << MIN_OPEN_LEGS as u64)
             .ok_or(ProofBetError::MathOverflow)?;
         let max_w = perfect_count
-            .checked_mul(1u64 << MAX_LEGS as u64)
+            .checked_mul(1u64 << (ctx.accounts.contest.num_legs as u64))
             .ok_or(ProofBetError::MathOverflow)?;
         require!(perfect_weight >= min_w && perfect_weight <= max_w, ProofBetError::WeightMismatch);
     }
@@ -171,7 +172,9 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64, perfect_weight: 
     } else {
         // Weighted split: distributable is the FULL raw pool (net entries + the
         // whole jackpot). Claims pay floor(distributable * w_i / perfect_weight);
-        // flooring residue (< perfect_count lamports) stays in the Contest PDA.
+        // flooring residue (< perfect_count lamports) stays in the Contest PDA,
+        // assuming an honest weight; an overstated in-band weight strands
+        // proportionally more in the PDA.
         let raw = (pot_net as u128)
             .checked_add(jpool as u128)
             .ok_or(ProofBetError::MathOverflow)?;

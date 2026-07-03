@@ -72,7 +72,9 @@ pub struct Contest {
     /// Σ 2^(active legs) over all perfect entries — the weighted-split divisor
     /// (keeper-supplied at settle, same trust class as perfect_count).
     pub perfect_weight: u64,
-    pub distributable: u64,       // winners' total (== payable; exactly divisible by perfect_count)
+    /// Winners' distributable = the full raw pool (pot_net + whole jackpot).
+    /// Weighted claims floor per-share; the flooring residue stays in this PDA.
+    pub distributable: u64,
     pub claimed_count: u64,       // # winning claims paid (caps at perfect_count)
     pub claimed_total: u64,       // lamports paid out (caps at distributable)
     pub settled_ts: i64,
