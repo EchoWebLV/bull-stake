@@ -397,7 +397,7 @@ async function main() {
     `[cron] scheduler up · settle every ${settleIntervalMin}m · ` +
     `create ${dailyCreateOn ? `at ${String(createHourUtc).padStart(2, "0")}:00 UTC` : "PAUSED"} · ` +
     `live every ${liveMs / SECOND_MS}s · ` +
-    `pool-schedule every ${scheduleIntervalMs(process.env) / SECOND_MS}s · ` +
+    `pool-schedule ${poolScheduleEnabled(process.env) ? `every ${scheduleIntervalMs(process.env) / SECOND_MS}s` : "PAUSED"} · ` +
     `lines every ${linesIntervalMs(process.env) / MINUTE_MS}m` +
     `${dryRun ? " · DRY RUN (settle/lines preview only)" : ""}`,
   );
