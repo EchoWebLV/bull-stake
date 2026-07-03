@@ -430,6 +430,15 @@
         {
           "name": "fee_bps",
           "type": "u16"
+        },
+        {
+          "name": "leg_lock_ts",
+          "type": {
+            "array": [
+              "i64",
+              6
+            ]
+          }
         }
       ]
     },
@@ -2432,6 +2441,10 @@
         {
           "name": "perfect_count",
           "type": "u64"
+        },
+        {
+          "name": "perfect_weight",
+          "type": "u64"
         }
       ]
     },
@@ -3338,6 +3351,21 @@
       "code": 6049,
       "name": "AlreadyRefunded",
       "msg": "this voided pool's seats have already been refunded"
+    },
+    {
+      "code": 6050,
+      "name": "InvalidLegLockTs",
+      "msg": "per-leg lock timestamps are inconsistent with lock_ts/settle_after_ts"
+    },
+    {
+      "code": 6051,
+      "name": "WeightMismatch",
+      "msg": "perfect_weight is inconsistent with perfect_count"
+    },
+    {
+      "code": 6052,
+      "name": "CardLocked",
+      "msg": "card has a locked leg; picks are immutable"
     }
   ],
   "types": [
@@ -3641,6 +3669,29 @@
             "type": "i64"
           },
           {
+            "name": "leg_lock_ts",
+            "docs": [
+              "Per-leg entry lock (the leg's own kickoff). Indices >= num_legs stay 0.",
+              "An entry's ACTIVE legs are those with leg_lock_ts[i] > entry.entry_ts."
+            ],
+            "type": {
+              "array": [
+                "i64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "entries_close_ts",
+            "docs": [
+              "The moment open legs would drop below MIN_OPEN_LEGS — no entries at or",
+              "after this. Derived at create: the (num_legs - MIN_OPEN_LEGS)-th smallest",
+              "of the first num_legs lock times (zero tail excluded), 0-indexed. For",
+              "num_legs == 3 this equals lock_ts."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "settle_after_ts",
             "type": "i64"
           },
@@ -3674,7 +3725,19 @@
             "type": "u64"
           },
           {
+            "name": "perfect_weight",
+            "docs": [
+              "Σ 2^(active legs) over all perfect entries — the weighted-split divisor",
+              "(keeper-supplied at settle, same trust class as perfect_count)."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "distributable",
+            "docs": [
+              "Winners' distributable = the full raw pool (pot_net + whole jackpot).",
+              "Weighted claims floor per-share; the flooring residue stays in this PDA."
+            ],
             "type": "u64"
           },
           {
@@ -3787,6 +3850,13 @@
           },
           {
             "name": "perfect_count",
+            "type": "u64"
+          },
+          {
+            "name": "perfect_weight",
+            "docs": [
+              "Σ 2^(active legs) over all perfect entries — the weighted-split divisor."
+            ],
             "type": "u64"
           },
           {
@@ -3922,6 +3992,14 @@
           {
             "name": "amount",
             "type": "u64"
+          },
+          {
+            "name": "entry_ts",
+            "docs": [
+              "Unix time of the LAST picks write (init or edit). Refreshing on edit means",
+              "a re-pick after a leg locks shrinks the mask instead of cheating it."
+            ],
+            "type": "i64"
           },
           {
             "name": "bump",
