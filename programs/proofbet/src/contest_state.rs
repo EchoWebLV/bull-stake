@@ -11,6 +11,10 @@ pub const RESULT_MARKET_ID: u8 = 12;
 /// (permissionless liveness backstop for a lost/absent keeper). Generous enough
 /// to never race a live keeper, which settles within minutes of `settle_after_ts`.
 pub const VOID_GRACE_SECS: i64 = 3 * 24 * 60 * 60; // 3 days
+/// Minimum legs still open (unlocked) for a new entry to be accepted. Entries
+/// close for the day the moment fewer than this many legs remain open — that
+/// instant is precomputed at create as `entries_close_ts`.
+pub const MIN_OPEN_LEGS: usize = 3;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum ContestStatus {
@@ -51,12 +55,22 @@ pub struct Contest {
     pub num_legs: u8,             // 3..=MAX_LEGS (daily card uses 6)
     pub entry_price: u64,         // lamports per ticket
     pub lock_ts: i64,             // entries close (first kickoff)
+    /// Per-leg entry lock (the leg's own kickoff). Indices >= num_legs stay 0.
+    /// An entry's ACTIVE legs are those with leg_lock_ts[i] > entry.entry_ts.
+    pub leg_lock_ts: [i64; MAX_LEGS],
+    /// The moment open legs would drop below MIN_OPEN_LEGS — no entries after
+    /// this. Derived at create: the (num_legs - MIN_OPEN_LEGS)-th smallest
+    /// active leg_lock_ts (0-indexed). For num_legs == 3 this equals lock_ts.
+    pub entries_close_ts: i64,
     pub settle_after_ts: i64,     // earliest settle (latest kickoff + buffer)
     pub fee_bps: u16,             // 500 = 5%
     pub status: ContestStatus,
     pub winning_buckets: [u8; MAX_LEGS],
     pub entry_count: u64,         // # tickets (drives new-entry rake + void refund)
     pub perfect_count: u64,       // keeper-supplied split divisor (capped at claim)
+    /// Σ 2^(active legs) over all perfect entries — the weighted-split divisor
+    /// (keeper-supplied at settle, same trust class as perfect_count).
+    pub perfect_weight: u64,
     pub distributable: u64,       // winners' total (== payable; exactly divisible by perfect_count)
     pub claimed_count: u64,       // # winning claims paid (caps at perfect_count)
     pub claimed_total: u64,       // lamports paid out (caps at distributable)
@@ -78,5 +92,8 @@ pub struct Entry {
     pub nonce: u64,       // ticket index for this wallet in this contest
     pub picks: [u8; MAX_LEGS],
     pub amount: u64,      // lamports paid (= contest.entry_price)
+    /// Unix time of the LAST picks write (init or edit). Refreshing on edit means
+    /// a re-pick after a leg locks shrinks the mask instead of cheating it.
+    pub entry_ts: i64,
     pub bump: u8,
 }
