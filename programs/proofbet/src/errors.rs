@@ -117,4 +117,6 @@ pub enum ProofBetError {
     InvalidLegLockTs,
     #[msg("perfect_weight is inconsistent with perfect_count")]
     WeightMismatch,
+    #[msg("card has a locked leg; picks are immutable")]
+    CardLocked,
 }

@@ -95,6 +95,16 @@ pub fn handler(ctx: Context<Enter>, nonce: u64, picks: [u8; MAX_LEGS]) -> Result
         });
     } else {
         require_keys_eq!(ctx.accounts.entry.bettor, bettor_key, ProofBetError::Unauthorized);
+        // Weight-neutral edits only: once any carried leg has kicked off, the
+        // card is immutable — a dead card spectates (spec: no buy-backs). A leg
+        // left the mask iff old entry_ts < leg_lock <= now.
+        for i in 0..(ctx.accounts.contest.num_legs as usize) {
+            let ll = ctx.accounts.contest.leg_lock_ts[i];
+            require!(
+                !(ll > ctx.accounts.entry.entry_ts && ll <= now),
+                ProofBetError::CardLocked
+            );
+        }
         ctx.accounts.entry.picks = picks;
         // Editing re-times the card: the mask is computed from the LAST write, so
         // re-picking after a leg locked shrinks the mask instead of cheating it.

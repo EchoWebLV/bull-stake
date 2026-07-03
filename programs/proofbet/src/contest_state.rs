@@ -54,7 +54,7 @@ pub struct Contest {
     pub market_ids: [u8; MAX_LEGS],
     pub num_legs: u8,             // 3..=MAX_LEGS (daily card uses 6)
     pub entry_price: u64,         // lamports per ticket
-    pub lock_ts: i64,             // entries close (first kickoff)
+    pub lock_ts: i64,             // first kickoff (min of leg_lock_ts)
     /// Per-leg entry lock (the leg's own kickoff). Indices >= num_legs stay 0.
     /// An entry's ACTIVE legs are those with leg_lock_ts[i] > entry.entry_ts.
     pub leg_lock_ts: [i64; MAX_LEGS],
