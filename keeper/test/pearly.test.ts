@@ -187,4 +187,25 @@ describe("createDailyPearly driver", () => {
     expect(spy.program.account.contest.fetchNullable).not.toHaveBeenCalled();
     expect(spy.program.account.market.fetchNullable).not.toHaveBeenCalled();
   });
+
+  it("dry-run on a guard-failing card surfaces the would-skip verdict, still sends nothing", async () => {
+    // Thin card + dryRun: the operator sees the verdict a REAL run would reach
+    // (cron uses the real path — a silent plausible dry-run is a footgun).
+    const spy = makeProgramSpy();
+    const thin: PearlyCard = { ...CARD, legs: CARD.legs.slice(0, 2) };
+    const res = await drive(spy, thin, { ...OK_OPTS, dryRun: true });
+    expect(res.action).toBe("dry-run");
+    if (res.action === "dry-run") expect(res.wouldSkip).toMatch(/thin slate: 2 legs < 3/);
+    expect(createContestCalls(spy.calls)).toHaveLength(0);
+    expect(initMarketCalls(spy.calls)).toHaveLength(0);
+    expect(spy.program.account.contest.fetchNullable).not.toHaveBeenCalled();
+    expect(spy.program.account.market.fetchNullable).not.toHaveBeenCalled();
+
+    // A creatable card's dry-run carries NO would-skip verdict.
+    const spy2 = makeProgramSpy();
+    const ok = await drive(spy2, CARD, { ...OK_OPTS, dryRun: true });
+    expect(ok.action).toBe("dry-run");
+    if (ok.action === "dry-run") expect(ok.wouldSkip).toBeUndefined();
+    expect(spy2.calls).toHaveLength(0);
+  });
 });

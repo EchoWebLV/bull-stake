@@ -41,6 +41,9 @@
  *   --dry-run       compose + PRINT the card (contest_id, lock/settle, every leg
  *                   with teams + market label + the implied odds used, and each
  *                   leg's own lock_ts) and EXIT. No markets created, no transaction.
+ *                   If a REAL run's R1/R2 guards would reject the card (thin
+ *                   slate / duplicate leg), prints a would-SKIP NOTE so the
+ *                   operator isn't shown a plausible card that cron would skip.
  *   --entry-price   SOL per ticket (default 0.05 — spec §12). fee_bps is hard-wired to 0.
  *   --window-hours  eligibility window for the card (default 24).
  *
@@ -377,20 +380,54 @@ function pad<T>(xs: T[], fill: T): T[] {
 
 // ── on-chain create driver ───────────────────────────────────────────────────────
 
-/** Discriminated outcome of createDailyPearly (the settle.ts SettleResult convention). */
+/** Discriminated outcome of createDailyPearly (the settle.ts SettleResult
+ *  convention). On a dry-run, `wouldSkip` carries the R1/R2 verdict a REAL run
+ *  would reach (absent when the card is creatable). */
 export type DailyPearlyResult =
-  | { action: "dry-run" }
+  | { action: "dry-run"; wouldSkip?: string }
   | { action: "skipped"; reason: string }
   | { action: "exists"; contest: PublicKey }
   | { action: "created"; contest: PublicKey; sig: string; marketSigs: string[] };
+
+/**
+ * R1/R2 create-guard verdict for a composed card — PURE (no rpc, no account
+ * reads), so the dry-run path can evaluate it too:
+ *   R1 — leg floor: create_contest requires num_legs 3..=6; a thin slate that
+ *        can't reach 3 legs isn't a card worth opening — bail rather than send
+ *        a tx the program rejects.
+ *   R2 — duplicate legs: a repeated (fixtureId, marketId) pair means the
+ *        composer produced a broken card; a human should look rather than have
+ *        the keeper silently dedupe/mangle it into something plausible-looking.
+ * Returns null when the card is creatable, else the reason plus the exact log
+ * line a real run prints when it skips.
+ */
+function pearlyGuardVerdict(card: PearlyCard): { reason: string; log: string } | null {
+  if (card.legs.length < 3) {
+    const reason = `thin slate: ${card.legs.length} legs < 3`;
+    return { reason, log: `# SKIPPING create: ${reason} — not creating a contest.` };
+  }
+  const seen = new Set<string>();
+  for (const l of card.legs) {
+    const key = `${l.fixtureId}:${l.marketId}`;
+    if (seen.has(key)) {
+      const reason = `duplicate leg ${key}`;
+      return { reason, log: `# SKIPPING create: ${reason} — composition is wrong, not creating a contest.` };
+    }
+    seen.add(key);
+  }
+  return null;
+}
 
 /**
  * Drive ensure-markets + create_contest for a composed Pearly card against an
  * Anchor Program — extracted from main() so tests can inject a Program.methods
  * spy and assert the exact wire args with zero network I/O (the
  * create-match-pool.ts createMatchPool precedent). ALL chain effects (account
- * reads and `.rpc()`) live here; `dryRun` and the R1/R2 guards below all return
- * before any of them.
+ * reads and `.rpc()`) live here; `dryRun` and the R1/R2 guards both return
+ * before any of them. The R1/R2 conditions are evaluated BEFORE the dry-run
+ * early-return so a dry-run surfaces the verdict a real run would reach —
+ * otherwise a thin or duplicate-legged card dry-runs as a plausible full card
+ * and the operator only discovers the skip when cron takes the real path.
  */
 export async function createDailyPearly(
   proofbet: AnchorProgramLike,
@@ -401,34 +438,18 @@ export async function createDailyPearly(
   contestId: number,
   opts: { entryPriceLamports: number; feeBps: number; dryRun?: boolean },
 ): Promise<DailyPearlyResult> {
+  // R1/R2 — pure checks, evaluated before the dry-run return (see doc above).
+  const guard = pearlyGuardVerdict(card);
+
   if (opts.dryRun) {
+    if (guard) console.log(`# NOTE: a real run would SKIP this card — ${guard.reason}`);
     console.log("# --dry-run: composed only, no markets created, no transaction sent.");
-    return { action: "dry-run" };
+    return guard ? { action: "dry-run", wouldSkip: guard.reason } : { action: "dry-run" };
   }
 
-  // R1 — leg floor. create_contest requires num_legs 3..=6. A thin slate that
-  // can't reach 3 legs isn't a card worth opening — bail rather than send a tx
-  // the program rejects.
-  if (card.legs.length < 3) {
-    const reason = `thin slate: ${card.legs.length} legs < 3`;
-    console.log(`# SKIPPING create: ${reason} — not creating a contest.`);
-    return { action: "skipped", reason };
-  }
-
-  // R2 — duplicate legs. A repeated (fixtureId, marketId) pair means the
-  // composer produced a broken card; a human should look rather than have the
-  // keeper silently dedupe/mangle it into something plausible-looking.
-  {
-    const seen = new Set<string>();
-    for (const l of card.legs) {
-      const key = `${l.fixtureId}:${l.marketId}`;
-      if (seen.has(key)) {
-        const reason = `duplicate leg ${key}`;
-        console.log(`# SKIPPING create: ${reason} — composition is wrong, not creating a contest.`);
-        return { action: "skipped", reason };
-      }
-      seen.add(key);
-    }
+  if (guard) {
+    console.log(guard.log);
+    return { action: "skipped", reason: guard.reason };
   }
 
   const numLegs = Math.min(card.legs.length, MAX_LEGS);
