@@ -15,25 +15,25 @@
 Nav: **Live · Pearly · My Bets · Wallet**. Beat the Market tab retires (hidden-not-deleted); its odds data becomes "field split / crowd" context. The hidden Parlay tab is reborn as the Pearly.
 
 - **⚡ Live (per match):** join pool ◎0.035 before KO; rapid on-chain micro-calls during play (MagicBlock ER); top score takes the pot at FT. Mechanics unchanged this cycle — new presentation layer only (§7).
-- **🃏 Pearly (per day):** one keeper-composed **6-leg card across all of today's fixtures**. Enter **◎0.05 at any time while ≥3 legs remain unlocked**; your card = the legs still open at entry; **payout weight = 2^(legs carried)** (6 legs ×64 … 3 legs ×8). Each leg locks at its own kickoff. **One entry per wallet per day — no buy-backs.** All carried legs correct = **perfect**. Perfect cards split (pot − rake) **by weight**. **Zero perfect → the entire pot rolls** into the jackpot PDA (existing rollover path) and seeds tomorrow's card. A dead card spectates; alerts continue.
+- **🃏 Pearly (per day):** one keeper-composed **6-leg card across all of today's fixtures**. Enter **◎0.05 at any time while ≥3 legs remain unlocked**; your card = the legs still open at entry; **payout weight = 2^(legs carried)** (6 legs ×64 … 3 legs ×8). Each leg locks at its own kickoff. **One entry per wallet per day — no buy-backs.** (Enforced at the product layer: web/engine always use entry nonce 0, so a wallet has one card. The program's nonce channel remains for legacy parlays; extra raw-CLI tickets just feed the pot.) All carried legs correct = **perfect**. Perfect cards split (pot − rake) **by weight**. **Zero perfect → the entire pot rolls** into the jackpot PDA (existing rollover path) and seeds tomorrow's card. A dead card spectates; alerts continue.
 - **Notifications are the retention engine** (replaces rejected buy-backs): card-relevant alerts — leg live / leg hit / leg died / one-leg-from-perfect / settled / tomorrow-seeded. v1 = in-app ticker + browser `Notification` API while the PWA is open; service-worker Web Push = stretch.
 - **Cross-links:** a slim Pearly strip inside `LiveMatchView` ("🃏 your card rides this match — Over 2.5 needs one more goal") and a "match window live — go play it ⚡" pointer in the Pearly during its matches.
 
 ## 2. Card composition (allocator v2 — cross-fixture)
 
 - **Inputs:** TxLINE day slate + StablePrice consensus odds. **Markets restricted to TxLINE-verified stats** (soccer feed keys 1–8: goals / yellows / reds / corners per team, plus per-period variants `(period×1000)+key`): 1X2 winner, goals O/U, first-half goal, corners O/U, red/yellow card props. Team-news and line-movement markets are explicitly rejected (§11).
-- **Shape (6 legs):** one winner leg per fixture (up to 4) → goals O/U on the most competitive fixture → first-half-goal on an evening fixture → **one day-wide chaos leg** ("a red card in any match today", settled off per-fixture reds at last FT). Fewer fixtures → climb the market menu on the most competitive matches (daily-card spec rules apply).
+- **Shape (6 legs):** one winner leg per fixture (up to 4) → goals O/U on the most competitive fixture → first-half-goal on an evening fixture → **one chaos leg** — "Red card shown? (Y/N)" on the day's marquee (top-ranked) fixture, new catalog market 17 settling off TxLINE red-card keys 5/6 through the existing per-fixture settle machinery. (Day-wide "any match today" aggregation = post-hackathon; it needs a synthetic-fixture market the settle path can't proof-validate today.) Fewer fixtures → climb the market menu on the most competitive matches (daily-card spec rules apply).
 - **Gates:** drop legs with implied favorite > ~82% where odds exist. Deterministic `contest_id = hash(dayEpoch)`; idempotent create (PDA exists → no-op).
 
 ## 3. Weight math + edge cases
 
 - `weight_i = 2^(count of legs with leg.lock_ts > entry.entry_ts)`. Entry permitted iff that count ≥ 3 (entries effectively close at the KO that leaves only 2 open legs).
-- `perfect_i` = every counted leg correct. **Voided legs** (postponed/abandoned fixture): excluded from everyone's perfect condition; **weights are NOT recomputed** — entry-time weight stands.
+- `perfect_i` = every counted leg correct. **Unresolvable legs** (postponed/abandoned fixture with no proof-determined bucket): the keeper voids the whole contest → every entry refunds (existing `void_contest` path). No per-leg void exclusion this cycle.
 - `payout_i = (pot − rake) × weight_i / Σ weight_perfect`, u64 floor math; dust → jackpot sweep (existing). Zero perfect (or zero entries) → full pot → jackpot PDA rollover. `fee_bps` configurable, **0 for the demo**.
 
 ## 4. On-chain changes (one focused set; redeploy in place, same program id)
 
-- `Contest` gains per-leg `lock_ts[MAX_LEGS]` (set at create from fixture KOs; day-wide leg locks at first KO).
+- `Contest` gains per-leg `lock_ts[MAX_LEGS]` (set at create from each leg's own fixture KO — the chaos leg locks at the marquee fixture's KO like any other leg).
 - `enter`: allowed until `entries_close_ts` (derived: KO leaving 2 open legs) instead of the global first-KO lock; `Entry` gains `entry_ts` (cluster time at entry).
 - `settle_contest` / `claim_contest`: compute each entry's active-leg mask from `entry_ts` vs per-leg `lock_ts`; weighted split per §3. Perfect-count guard and rollover path reuse the existing machinery.
 - `MAX_LEGS` stays 6. Live-pool instructions untouched.
