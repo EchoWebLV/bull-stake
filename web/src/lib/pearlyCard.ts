@@ -204,6 +204,9 @@ export interface PearlyLegVM {
   pickable: boolean;
   buckets: number;
   options: { bucket: number; label: string }[];
+  /** Plain bucket labels indexed by bucket number (`options[b].label`) — the
+   *  snapshot-friendly shape lib/pearlyAlerts.ts reads to name the wallet's pick. */
+  bucketNames?: string[];
   /** The wallet's pick on this leg, when they have an entry (undefined otherwise). */
   myPick?: number;
   /** True iff this leg is inside the wallet's CARRIED mask (activeMask[i]). */
@@ -241,6 +244,7 @@ export interface PearlyCardVM {
    *  it with full confidence. */
   degraded: boolean;
   potText: string;               // "◎107.1" (pot + jackpot)
+  jackpotText: string;           // "◎5.2" — the rolled-over jackpot portion alone ("◎0" when none)
   potRolledText: string | null;  // "includes ◎5.2 rolled over" when jackpot > 0
   canEdit: boolean;               // edit affordance: only pre-any-carried-leg-kickoff
   canReEnter: boolean;             // ALWAYS false — no buy-backs, kept explicit for the component
@@ -270,7 +274,7 @@ const EMPTY_VM: PearlyCardVM = {
   empty: true, legacyEngine: false, legs: [], entriesOpen: false,
   entriesCloseText: "", nextLockText: "", weightPreviewLabel: "×1",
   myCardState: "not-entered", myCardKnown: true, myWeightLabel: null, aliveText: "—", degraded: false,
-  potText: `${SOL}0`, potRolledText: null, canEdit: false, canReEnter: false, rollover: false,
+  potText: `${SOL}0`, jackpotText: `${SOL}0`, potRolledText: null, canEdit: false, canReEnter: false, rollover: false,
 };
 
 /**
@@ -329,6 +333,7 @@ export function mapPearlyCard(
     const wb = winningBuckets?.[i] ?? null;
     const lState = legState(leg, nowSec, pick, cardVoided, wb);
     const pickable = !myCard && open && (leg.lockTs == null || leg.lockTs > nowSec);
+    const options = legOptions(leg);
     return {
       fixtureId: leg.fixtureId,
       matchLabel: matchLabel(leg),
@@ -337,7 +342,8 @@ export function mapPearlyCard(
       state: lState,
       pickable,
       buckets: leg.buckets,
-      options: legOptions(leg),
+      options,
+      bucketNames: options.map((o) => o.label),
       ...(pick != null ? { myPick: pick } : {}),
       ...(myCard ? { carried: myCard.activeMask[i] === true } : {}),
       ...(leg.live ? {
@@ -387,6 +393,7 @@ export function mapPearlyCard(
     aliveText: card.aliveCount == null ? "—" : String(card.aliveCount),
     degraded: card.degraded === true,
     potText: potSolText(card.pot, card.jackpot),
+    jackpotText: potSolText(card.jackpot, "0"),
     potRolledText: jackpotNum > 0 ? `includes ${potSolText(card.jackpot, "0")} rolled over` : null,
     canEdit,
     canReEnter: false,
