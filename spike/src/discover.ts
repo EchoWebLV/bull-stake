@@ -86,6 +86,26 @@ export function resolvePhase(ev: ScoreEvent): { code: number | null; label: stri
   return { code: null, label: ev.GameState ?? "unknown" };
 }
 
+/**
+ * Effective phase of a fixture for settlement decisions, from its full score
+ * history. Terminal phases are ABSORBING: any FINISHED event (highest-Seq one)
+ * wins, else any VOID event, else the latest KNOWN in-play code. Codes outside
+ * PHASE_NAME are ignored — the devnet feed appends post-match StatusId 100
+ * events after F/FET/FPE and can emit out-of-order in-play codes after the
+ * terminal event (…PE→FPE→ET2→100,100), so "latest event" is NOT the fixture's
+ * state. Unknown-only histories → null: callers must WAIT, never settle/void.
+ */
+export function resolveFixturePhase(events: ScoreEvent[]): { code: number; label: string } | null {
+  const known = events
+    .map((ev) => ({ ev, ...resolvePhase(ev) }))
+    .filter((e): e is { ev: ScoreEvent; code: number; label: string } => e.code !== null && e.code in PHASE_NAME)
+    .sort((a, b) => b.ev.Seq - a.ev.Seq);
+  const finished = known.find((e) => FINISHED_PHASES.has(e.code));
+  const voided = known.find((e) => VOID_PHASES.has(e.code));
+  const pick = finished ?? voided ?? known[0];
+  return pick ? { code: pick.code, label: pick.label } : null;
+}
+
 /** GET the latest fixtures snapshot, optionally from `startEpochDay`. */
 export async function getFixtures(
   ctx: SpikeContext,

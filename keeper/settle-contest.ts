@@ -41,7 +41,7 @@ import { PublicKey } from "@solana/web3.js";
 import anchorDefault from "@coral-xyz/anchor";
 import { createContext } from "../spike/src/auth.js";
 import { authenticateCached } from "../spike/src/auth-cache.js";
-import { getScoreHistory, resolvePhase } from "../spike/src/discover.js";
+import { getScoreHistory, resolveFixturePhase } from "../spike/src/discover.js";
 import { marketById } from "../engine/src/markets.js";
 import { loadProofbetProgram, settleMarketByPubkey } from "./settle.js";
 import { marketsToSettle } from "./settle-all.js";
@@ -169,9 +169,7 @@ async function settleOneContest(
   const fixturePhase = new Map<number, number | null>();
   for (const fid of new Set(fixtures)) {
     const events = await getScoreHistory(ctx, auth, fid);
-    const withPhase = events.map((ev) => ({ ev, ...resolvePhase(ev) }));
-    const best = withPhase.filter((e) => e.code !== null).sort((a, b) => b.ev.Seq - a.ev.Seq)[0];
-    fixturePhase.set(fid, best ? (best.code as number) : null);
+    fixturePhase.set(fid, resolveFixturePhase(events)?.code ?? null);
   }
 
   for (let i = 0; i < numLegs; i++) {

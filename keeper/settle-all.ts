@@ -24,13 +24,11 @@
 import { PublicKey } from "@solana/web3.js";
 import { createContext } from "../spike/src/auth.js";
 import { authenticateCached } from "../spike/src/auth-cache.js";
-import { getFixtures, getScoreHistory, resolvePhase } from "../spike/src/discover.js";
+import { getFixtures, getScoreHistory, resolveFixturePhase } from "../spike/src/discover.js";
 import {
-  FINISHED_PHASES,
   VOID_PHASES,
   isH1Final,
   isFullGameFinal,
-  PHASE_NAME,
 } from "../spike/src/config.js";
 import { MARKET_TEMPLATE } from "../engine/src/markets.js";
 import { loadProofbetProgram, settleMarketByPubkey } from "./settle.js";
@@ -155,19 +153,15 @@ async function main() {
       continue;
     }
 
-    const withPhase = events.map((ev) => ({ ev, ...resolvePhase(ev) }));
-    // Pick the highest-Seq event that has a valid phase code
-    const best = withPhase
-      .filter((e) => e.code !== null)
-      .sort((a, b) => b.ev.Seq - a.ev.Seq)[0];
+    const phase = resolveFixturePhase(events);
 
-    if (!best) {
+    if (!phase) {
       console.log(`[settle-all] ${label}: no phase code resolved — skipping`);
       continue;
     }
 
-    const phaseCode = best.code as number;
-    const phaseLabel = PHASE_NAME[phaseCode] ?? String(phaseCode);
+    const phaseCode = phase.code;
+    const phaseLabel = phase.label;
 
     const h1Final = isH1Final(phaseCode);
     const ftFinal = isFullGameFinal(phaseCode);
