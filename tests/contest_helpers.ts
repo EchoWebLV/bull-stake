@@ -1,5 +1,5 @@
 import {
-  program, marketPda, vaultPda, positionPda, freshFunded, resultArgs, goalsArgs, nowSec, sleep,
+  program, marketPda, vaultPda, positionPda, freshFunded, resultArgs, goalsArgs, nowSec, waitForChainTs,
   BN, PublicKey, SystemProgram, LAMPORTS_PER_SOL,
 } from "./helpers";
 import type { Keypair } from "@solana/web3.js";
@@ -75,9 +75,10 @@ export async function makeSettledResultMarket(
   const creator = await freshFunded();
   const market = marketPda(fixtureId, marketId);
   const vault = vaultPda(market);
+  const closeTs = nowSec() + 3;
   const args = numBuckets === 2
-    ? goalsArgs({ settleAuthority: settleAuth.publicKey, threshold: 0, entryCloseTs: nowSec() + 3, numBuckets: 2 })
-    : resultArgs({ settleAuthority: settleAuth.publicKey, entryCloseTs: nowSec() + 3 });
+    ? goalsArgs({ settleAuthority: settleAuth.publicKey, threshold: 0, entryCloseTs: closeTs, numBuckets: 2 })
+    : resultArgs({ settleAuthority: settleAuth.publicKey, entryCloseTs: closeTs });
   await program.methods
     .initializeMarket(new BN(fixtureId), marketId, args)
     .accountsStrict({ creator: creator.publicKey, market, vault, systemProgram: SystemProgram.programId })
@@ -89,7 +90,9 @@ export async function makeSettledResultMarket(
   await program.methods.placeBet(winningBucket, new BN(1000))
     .accountsStrict({ bettor: bettor.publicKey, market, vault, position, systemProgram: SystemProgram.programId })
     .signers([bettor]).rpc();
-  await sleep(3500);
+  // Cluster-vs-cluster wait: a fixed sleep flakes (EntryNotClosed) once the
+  // validator's bank clock lags wall-clock late in a long suite run.
+  await waitForChainTs(closeTs);
   await program.methods
     .settle(winningBucket, 1, new BN(1700000000000), 0)
     .accountsStrict({ settleAuthority: settleAuth.publicKey, market, vault, feeRecipient: creator.publicKey })
@@ -115,9 +118,10 @@ export async function makeZeroWinnerResultMarket(
   const creator = await freshFunded();
   const market = marketPda(fixtureId, marketId);
   const vault = vaultPda(market);
+  const closeTs = nowSec() + 3;
   const args = numBuckets === 2
-    ? goalsArgs({ settleAuthority: settleAuth.publicKey, threshold: 0, entryCloseTs: nowSec() + 3, numBuckets: 2 })
-    : resultArgs({ settleAuthority: settleAuth.publicKey, entryCloseTs: nowSec() + 3 });
+    ? goalsArgs({ settleAuthority: settleAuth.publicKey, threshold: 0, entryCloseTs: closeTs, numBuckets: 2 })
+    : resultArgs({ settleAuthority: settleAuth.publicKey, entryCloseTs: closeTs });
   await program.methods
     .initializeMarket(new BN(fixtureId), marketId, args)
     .accountsStrict({ creator: creator.publicKey, market, vault, systemProgram: SystemProgram.programId })
@@ -129,7 +133,9 @@ export async function makeZeroWinnerResultMarket(
   await program.methods.placeBet(loserBucket, new BN(1000))
     .accountsStrict({ bettor: bettor.publicKey, market, vault, position, systemProgram: SystemProgram.programId })
     .signers([bettor]).rpc();
-  await sleep(3500);
+  // Cluster-vs-cluster wait: see makeSettledResultMarket — fixed sleeps flake
+  // under bank-clock lag.
+  await waitForChainTs(closeTs);
   await program.methods
     .settle(winningBucket, 1, new BN(1700000000000), 0)
     .accountsStrict({ settleAuthority: settleAuth.publicKey, market, vault, feeRecipient: creator.publicKey })

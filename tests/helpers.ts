@@ -64,6 +64,20 @@ export async function balance(pubkey: PublicKey): Promise<number> {
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const nowSec = () => Math.floor(Date.now() / 1000);
 
+/** Wait until the ON-CHAIN clock (the same Clock sysvar the program gates on)
+ *  passes `ts`. The local validator's unix_timestamp lags wall-clock under
+ *  load — long suites drift past fixed-sleep margins and flake (EntryNotClosed
+ *  etc.), so timing gates must be waited out cluster-vs-cluster, never with a
+ *  wall-clock sleep. Mirrors live_helpers' waitForSettle, generalized. */
+export async function waitForChainTs(ts: number): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    const t = await connection.getBlockTime(await connection.getSlot());
+    if (t !== null && t >= ts + 1) return;
+    await sleep(1000);
+  }
+  throw new Error(`waitForChainTs: chain clock never reached ${ts + 1} after 60s`);
+}
+
 /** Default predicate fields for a Total-Goals O/U market (two-stat Add). */
 export function goalsArgs(opts: {
   settleAuthority: PublicKey;
