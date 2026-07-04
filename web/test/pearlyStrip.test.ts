@@ -28,6 +28,18 @@ describe("stripForFixture", () => {
   it("null when no carried leg is on this fixture", () => {
     expect(stripForFixture(card(), 999, 0)).toBeNull();
   });
+  it("null when the card is not open (voided — nothing rides a closed card)", () => {
+    expect(stripForFixture(card({ status: "voided" }), 500, 0)).toBeNull();
+  });
+  it("late entry: legs this card never carried (activeMask false) don't ride", () => {
+    const c = card();
+    c.myCard!.activeMask[0] = false; // both fixture-500 legs locked before this
+    c.myCard!.activeMask[1] = false; // wallet entered → carried by neither
+    expect(stripForFixture(c, 500, 0)).toBeNull();
+  });
+  it("null on a degraded poll (alive is optimistic — never claim a ride)", () => {
+    expect(stripForFixture(card({ degraded: true }), 500, 0)).toBeNull();
+  });
   it("names the pick for a result leg on this fixture", () => {
     const s = stripForFixture(card(), 500, 0);
     expect(s).not.toBeNull();

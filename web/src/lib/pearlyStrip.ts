@@ -3,8 +3,8 @@
  * strip inside LiveMatchView. Pure derivation from the raw /api/card DTO —
  * LiveMatchView doesn't build a PearlyCardVM, so this works off Card directly
  * (activeMask = the legs this card carried at entry). Returns null whenever
- * there's nothing to say (no card, dead card, closed card, no carried leg on
- * the given fixture).
+ * there's nothing to say (no card, dead card, closed card, degraded poll, no
+ * carried leg on the given fixture).
  */
 import type { Card } from "./api.ts";
 import { bucketLabel } from "./pearlyCard.ts";
@@ -16,6 +16,7 @@ export function stripForFixture(
 ): { text: string } | null {
   if (!card || !card.myCard || !card.myCard.alive) return null;
   if (card.status !== "open") return null;
+  if (card.degraded) return null; // api.ts's DTO contract: degraded polls make `alive` OPTIMISTIC — never claim a ride we can't stand behind
   const rides: string[] = [];
   for (let i = 0; i < card.legs.length; i++) {
     const leg = card.legs[i];
