@@ -20,7 +20,7 @@
 
 The differ compares two consecutive poll snapshots and emits alerts ONLY on transitions — a `null` prev (first poll / tab remount) emits nothing, so reloading never spams. Alert ids are deterministic (no timestamps) so the component can dedupe with a `Set` across remounts.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```typescript
 // web/test/pearlyAlerts.test.ts
@@ -142,12 +142,12 @@ describe("diffCardAlerts", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `cd web && npx vitest run test/pearlyAlerts.test.ts`
 Expected: FAIL — `snapshotForAlerts is not a function` (module doesn't exist).
 
-- [ ] **Step 3: Implement `web/src/lib/pearlyAlerts.ts`**
+- [x] **Step 3: Implement `web/src/lib/pearlyAlerts.ts`**
 
 ```typescript
 /**
@@ -274,12 +274,12 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
 
 NOTE: no new VM fields — the differ names the wallet's pick by reading the EXISTING `PearlyLegVM.options` (`options[myPick]?.label`; `legOptions` in `pearlyCard.ts` guarantees `options[b].bucket === b`). Do not add a parallel `bucketNames` array: one representation only.
 
-- [ ] **Step 4: Run to verify pass, then the full web suite**
+- [x] **Step 4: Run to verify pass, then the full web suite**
 
 Run: `cd web && npx vitest run`
 Expected: all pass (138 existing + new).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/lib/pearlyAlerts.ts web/src/lib/pearlyCard.ts web/test/pearlyAlerts.test.ts
@@ -295,7 +295,7 @@ git commit -m "feat(web): pearlyAlerts — pure poll-diff alert derivation (leg 
 
 DOM-API wrapper only — deliberately no unit tests (node-env vitest can't see `Notification`/`document`; ALL decision logic stayed in Task 1).
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```typescript
 /**
@@ -330,12 +330,12 @@ export function pushNotifications(alerts: PearlyAlert[]): void {
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd web && npx tsc --noEmit`
 Expected: clean.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add web/src/lib/notify.ts
@@ -350,7 +350,7 @@ git commit -m "feat(web): notify — browser Notification adapter for pearly ale
 - Modify: `web/src/components/PearlyView.tsx` (state near line 54-77; effect after the sticky-myCard effect ~line 149; ticker + 🔔 inside `MyCardHud` ~line 363)
 - Modify: `web/src/App.css` (append `.pearly-ticker` styles after the existing `.pearly-strip` block)
 
-- [ ] **Step 1: Wire alert state into the component**
+- [x] **Step 1: Wire alert state into the component**
 
 In `PearlyView()` add state + refs next to the existing sticky-myCard state:
 
@@ -383,7 +383,7 @@ useEffect(() => {
 
 CAREFUL: `effectiveVm` is only defined after the early returns (loading/empty) — place the snapshot + effect ABOVE those returns is impossible (needs effectiveVm), so instead hoist: compute `alertSnap` from `vm.myCardKnown ? vm : (haveKnownMyCard ? mapPearlyCard(card!, lastKnownMyCard, nowMs, winningBuckets) : null)` BEFORE the early returns, i.e. right after the sticky-commit effect (~line 149), so hooks order is stable across renders. `snapshotForAlerts` returns null for empty/legacy — safe on every render.
 
-- [ ] **Step 2: onToggleAlerts handler + pass-through to the HUD**
+- [x] **Step 2: onToggleAlerts handler + pass-through to the HUD**
 
 ```tsx
 async function onToggleAlerts() {
@@ -395,7 +395,7 @@ async function onToggleAlerts() {
 
 Pass to the HUD render (line ~224): `<MyCardHud card={card!} vm={effectiveVm} msg={msg} msgErr={msgErr} alerts={alerts} alertsOn={alertsOn} onToggleAlerts={onToggleAlerts} />`.
 
-- [ ] **Step 3: Render the ticker + 🔔 in MyCardHud**
+- [x] **Step 3: Render the ticker + 🔔 in MyCardHud**
 
 Extend the signature: `function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts }: { ...; alerts: PearlyAlert[]; alertsOn: boolean; onToggleAlerts: () => void })`.
 
@@ -417,7 +417,7 @@ Insert between the `pl-gpills` row and the death card:
 </div>
 ```
 
-- [ ] **Step 4: CSS (App.css, after the `.pearly-strip` rules)**
+- [x] **Step 4: CSS (App.css, after the `.pearly-strip` rules)**
 
 ```css
 /* Pearly alert ticker (spec §1 notifications v1) */
@@ -432,12 +432,12 @@ Insert between the `pl-gpills` row and the death card:
 
 (Use the file's existing CSS variable names — check the `.pearly-strip` block and reuse whatever `--line/--txt3/--bg2` equivalents it actually uses.)
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cd web && npx tsc --noEmit && npx vitest run`
 Expected: clean + all pass. Then browser-check the HUD (needs an entered card — after 08:00 UTC compose): ticker renders, 🔔 requests permission.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/src/components/PearlyView.tsx web/src/App.css
@@ -452,13 +452,13 @@ git commit -m "feat(web): pearly HUD alert ticker + browser notifications toggle
 - Modify: `web/src/App.tsx:44` (pass the callback)
 - Modify: `web/src/components/PearlyView.tsx` (accept prop; render pointer in `MyCardHud`)
 
-- [ ] **Step 1: Thread the callback**
+- [x] **Step 1: Thread the callback**
 
 App.tsx: `{tab === "sweepstake" && <PearlyView onGoLive={() => setTab("live")} />}`
 
 PearlyView: `export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {})`, pass down to `MyCardHud` as `onGoLive`.
 
-- [ ] **Step 2: Render the pointer**
+- [x] **Step 2: Render the pointer**
 
 In `MyCardHud`, directly under the entries-close `.pearly-strip` block:
 
@@ -476,7 +476,7 @@ CSS (App.css, same block as Task 3):
 .pearly-golive { width: 100%; cursor: pointer; text-align: center; font-weight: 600; }
 ```
 
-- [ ] **Step 3: Verify + commit**
+- [x] **Step 3: Verify + commit**
 
 Run: `cd web && npx tsc --noEmit && npx vitest run` — clean/green. Browser: with a live carried leg the strip shows and switches tabs.
 
@@ -495,7 +495,7 @@ git commit -m "feat(web): pearly → live cross-link pointer during live match w
 - Modify: `web/src/components/LiveMatchView.tsx` (fetch + strip render)
 - Modify: `web/src/App.tsx:43` (pass `onGoPearly`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```typescript
 // web/test/pearlyStrip.test.ts
@@ -546,12 +546,12 @@ describe("stripForFixture", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `cd web && npx vitest run test/pearlyStrip.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `web/src/lib/pearlyStrip.ts`**
+- [x] **Step 3: Implement `web/src/lib/pearlyStrip.ts`**
 
 ```typescript
 /**
@@ -590,11 +590,11 @@ export function stripForFixture(
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd web && npx vitest run test/pearlyStrip.test.ts` — PASS, then full suite.
 
-- [ ] **Step 5: Fetch + render in LiveMatchView**
+- [x] **Step 5: Fetch + render in LiveMatchView**
 
 App.tsx: `{tab === "live" && <LiveMatchView test={IS_TEST_PAGE} onGoPearly={() => setTab("sweepstake")} />}`
 
@@ -630,7 +630,7 @@ Render the strip inside the in-play layout, directly under the scoreboard block 
 
 CSS: `.lg-pearly { margin-top: 8px; }` (App.css, same block).
 
-- [ ] **Step 6: Verify + commit**
+- [x] **Step 6: Verify + commit**
 
 Run: `cd web && npx tsc --noEmit && npx vitest run` — clean/green. Browser: on the Live tab with a card riding the shown match, the strip appears and clicking it lands on the Pearly tab.
 
@@ -645,16 +645,16 @@ git commit -m "feat(web): live → pearly cross-link strip (your card rides this
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Full web gate**
+- [x] **Step 1: Full web gate**
 
 Run: `cd web && npx tsc --noEmit && npx vitest run`
 Expected: typecheck clean; every test green.
 
-- [ ] **Step 2: Browser pass over both tabs**
+- [x] **Step 2: Browser pass over both tabs**
 
 With today's card live (post-08:00 UTC compose) and the dev wallet entered: Pearly HUD shows the ticker (empty state first); flip a leg live in the day's schedule → `leg-live` alert lands on the next poll; 🔔 toggle requests permission; Live tab shows the rides-strip when the featured match is on the card; both strips switch tabs.
 
-- [ ] **Step 3: Update HANDOFF.md open-tasks (#4 → done) and memory**
+- [x] **Step 3: Update HANDOFF.md open-tasks (#4 → done) and memory**
 
 One-line status flip in `HANDOFF.md`; note in auto-memory that Plan C shipped.
 
@@ -665,3 +665,26 @@ One-line status flip in `HANDOFF.md`; note in auto-memory that Plan C shipped.
 - Spec coverage: §1 line 19 (six alert kinds — leg live/hit/died/one-away/settled/seeded: Task 1; ticker: Task 3; Notification API: Tasks 2-3) ✓; §1 line 20 (LiveMatchView strip: Task 5; Pearly live pointer: Task 4) ✓; §56 CSS-porting convention (Tasks 3-5 extend App.css in the pearly pattern) ✓. SSE/Web Push/roar explicitly out.
 - Types: Task 1's differ reads the pick label off the EXISTING `PearlyLegVM.options[myPick]` (no `bucketNames` dual representation); `stripForFixture` (Task 5) deliberately reads the raw `Card` DTO instead, so it has no dependency on the VM's leg shape.
 - Banned copy words: alert/strip texts use "card", "legs", "multiplier" framing only — no "weight"/"mask"/"active legs".
+
+---
+
+## Execution log (2026-07-04)
+
+All six tasks done on `feat/streak-pivot`. Final gate: web suite **165 passing** (8 files), `npx tsc --noEmit` clean.
+
+| Task | Commit(s) | One-liner |
+|---|---|---|
+| 1 | `6ef3de6`, `0f2d5a5` | `pearlyAlerts.ts` pure poll-diff differ (leg live/hit/died, one-away, settled, seeded) + review fixes: status-aware settled copy, kickoff-only leg-live, seam tests |
+| 2 | `ecfb570` | `notify.ts` — thin browser Notification adapter, hidden-tab only, untested-by-design DOM shim |
+| 3 | `56bdc59` | HUD alert ticker + 🔔 notifications toggle in `PearlyView` (`.pearly-ticker` CSS block) |
+| 4 | `51e2d56` | Pearly → Live pointer ("match window live — go play it ⚡") threaded through App.tsx |
+| 5 | `b944fc1` | Live → Pearly strip: `pearlyStrip.ts` (pure, raw-DTO) + render in `LiveMatchView` on a slow 60s card poll |
+| 6 | `0939cba` | Review riders: degraded-poll guard in `stripForFixture` (degraded `alive` is optimistic — never claim a ride) + tests pinning the status / carried-mask / degraded gates; full gate + browser smoke |
+
+Browser smoke (Task 6 Step 2, scoped): own Vite preview on :5173 against the shared devnet engine (:8787), **unauthenticated** (no wallet login in the harness) — Pearly tab renders contest 777020638's full 6-leg picker, Live tab renders the pre-game countdown (Canada v Morocco), tab switching works both ways, zero console errors/warnings; ticker and rides-strip correctly absent without an entered card. The entered-wallet ticker/strip behaviors are pinned by the unit suites instead (pearlyAlerts 16, pearlyStrip 9).
+
+Accepted deferrals (review-noted as v1-acceptable; both are what the plan specified):
+- The 🔔 bell is an **enable-only** affordance — it requests/reflects browser permission but can't switch native notifications back off (browser permission model; the in-app ticker is always on).
+- The dismissed-permission-prompt path reuses the "blocked in your browser settings" flash copy, though a plain dismissal isn't technically "blocked".
+
+Fold-forward: hoist a `carriedLegs` local in `MyCardHud` (the `l.carried !== false` filter is repeated) next time that component is touched.
