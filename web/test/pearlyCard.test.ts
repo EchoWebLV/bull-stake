@@ -410,6 +410,20 @@ describe("mapPearlyCard — settled states", () => {
   });
 });
 
+describe("mapPearlyCard — jackpot text seam (lib/pearlyAlerts.ts reads vm.jackpotText)", () => {
+  it("populates jackpotText from card.jackpot alone — the seeded-alert copy source", () => {
+    const vm = mapPearlyCard(card({ pot: "1000000000", jackpot: "70000000" }), null, NOW_MS);
+    expect(vm.jackpotText).toBe("◎0.07");
+    expect(vm.potRolledText).toBe("includes ◎0.07 rolled over");
+  });
+
+  it("reads ◎0 (and no rolled-over line) when nothing rolled in", () => {
+    const vm = mapPearlyCard(card({ jackpot: "0" }), null, NOW_MS);
+    expect(vm.jackpotText).toBe("◎0");
+    expect(vm.potRolledText).toBeNull();
+  });
+});
+
 describe("mapPearlyCard — empty state (no card composed today)", () => {
   it("flags empty with a 'next card' style message, no crash", () => {
     const vm = mapPearlyCard(null, null, NOW_MS);

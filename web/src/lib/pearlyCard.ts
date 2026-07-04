@@ -203,10 +203,10 @@ export interface PearlyLegVM {
   /** Picker only: can this leg still be tapped for a NEW entry? */
   pickable: boolean;
   buckets: number;
+  /** Pick options in bucket order — `legOptions` guarantees `options[b].bucket
+   *  === b`, so consumers (PearlyView, lib/pearlyAlerts.ts) may index straight
+   *  into `options[myPick]` for the pick's label. */
   options: { bucket: number; label: string }[];
-  /** Plain bucket labels indexed by bucket number (`options[b].label`) — the
-   *  snapshot-friendly shape lib/pearlyAlerts.ts reads to name the wallet's pick. */
-  bucketNames?: string[];
   /** The wallet's pick on this leg, when they have an entry (undefined otherwise). */
   myPick?: number;
   /** True iff this leg is inside the wallet's CARRIED mask (activeMask[i]). */
@@ -343,7 +343,6 @@ export function mapPearlyCard(
       pickable,
       buckets: leg.buckets,
       options,
-      bucketNames: options.map((o) => o.label),
       ...(pick != null ? { myPick: pick } : {}),
       ...(myCard ? { carried: myCard.activeMask[i] === true } : {}),
       ...(leg.live ? {
@@ -369,6 +368,7 @@ export function mapPearlyCard(
   });
 
   const jackpotNum = Number(card.jackpot);
+  const jackpotText = potSolText(card.jackpot, "0");
   // Specifically "your card survived to settle but wasn't perfect" — NOT the
   // broader "settled and not won" (that would wrongly flag a wallet with no
   // entry at all as having "rolled over").
@@ -393,8 +393,8 @@ export function mapPearlyCard(
     aliveText: card.aliveCount == null ? "—" : String(card.aliveCount),
     degraded: card.degraded === true,
     potText: potSolText(card.pot, card.jackpot),
-    jackpotText: potSolText(card.jackpot, "0"),
-    potRolledText: jackpotNum > 0 ? `includes ${potSolText(card.jackpot, "0")} rolled over` : null,
+    jackpotText,
+    potRolledText: jackpotNum > 0 ? `includes ${jackpotText} rolled over` : null,
     canEdit,
     canReEnter: false,
     rollover,

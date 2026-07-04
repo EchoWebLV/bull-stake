@@ -44,14 +44,15 @@ export function snapshotForAlerts(vm: PearlyCardVM): AlertSnapshot | null {
       key: `${l.fixtureId}:${l.marketLabel}`,
       matchLabel: l.matchLabel,
       marketLabel: l.marketLabel,
-      pickText: l.myPick != null && l.bucketNames ? (l.bucketNames[l.myPick] ?? "") : "",
+      // legOptions guarantees options[b].bucket === b, so index straight in.
+      pickText: l.myPick != null ? (l.options[l.myPick]?.label ?? "") : "",
       state: l.state,
       carried: l.carried === true,
     })),
   };
 }
 
-const TERMINAL: ReadonlySet<string> = new Set(["settled", "rolledOver", "voided"]);
+const TERMINAL: ReadonlySet<NonNullable<PearlyCardVM["status"]>> = new Set(["settled", "rolledOver", "voided"]);
 
 export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot): PearlyAlert[] {
   if (!prev) return [];
@@ -74,7 +75,11 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
     if (!was || !leg.carried || leg.state === was.state) continue;
     const pick = leg.pickText ? ` — ${leg.marketLabel}: ${leg.pickText}` : "";
     if (leg.state === "live") {
-      out.push({ id: `${next.contestId}:leg-live:${leg.key}`, kind: "leg-live", text: `⚽ ${leg.matchLabel} kicked off${pick} riding` });
+      // Kickoffs only: a won/lost→live flap (e.g. the winningBuckets join degrading
+      // mid-poll) must not re-announce a match that already kicked off long ago.
+      if (was.state === "open" || was.state === "locked") {
+        out.push({ id: `${next.contestId}:leg-live:${leg.key}`, kind: "leg-live", text: `⚽ ${leg.matchLabel} kicked off${pick} riding` });
+      }
     } else if (leg.state === "won") {
       out.push({ id: `${next.contestId}:leg-hit:${leg.key}`, kind: "leg-hit", text: `✅ ${leg.matchLabel}${pick} HIT` });
     } else if (leg.state === "lost") {
@@ -94,11 +99,20 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
     out.push({ id: `${next.contestId}:one-away`, kind: "one-away", text: `🔥 One leg from a perfect card — hang on` });
   }
 
-  // Contest settled while we watched.
+  // Contest settled while we watched. Branch on the card's terminal STATUS first
+  // (rolledOver / voided / settled are contest-wide facts), and only then on
+  // whether THIS wallet holds a claim: a dead watcher on a `settled` card must
+  // never read rollover copy (perfect cards hit — the pot pays out), and a
+  // voided card refunds (mirrors PearlyView's ∅ voided chip + the claim
+  // surfaces' refund language) — it neither rolls nor pays.
   if (!TERMINAL.has(prev.status) && TERMINAL.has(next.status)) {
-    const text = next.myCardState === "settled-won"
-      ? `🏆 Perfect card! Your share is claimable`
-      : `🌊 No perfect cards today — the pot rolls into tomorrow's jackpot`;
+    const text = next.status === "rolledOver"
+      ? `🌊 No perfect cards today — the pot rolls into tomorrow's jackpot`
+      : next.status === "voided"
+        ? `∅ Card voided — entries are refundable`
+        : next.myCardState === "settled-won"
+          ? `🏆 Perfect card! Your share is claimable`
+          : `🏁 Settled — perfect cards took today's pot`;
     out.push({ id: `${next.contestId}:settled`, kind: "settled", text });
   }
 

@@ -5,7 +5,8 @@ import type { PearlyCardVM, PearlyLegVM } from "../src/lib/pearlyCard.ts";
 const legVM = (over: Partial<PearlyLegVM> = {}): PearlyLegVM => ({
   fixtureId: 100, matchLabel: "Brazil v Spain", marketLabel: "Match Result",
   kickoffText: "", state: "open", pickable: true,
-  buckets: 3, options: [], bucketNames: ["Brazil", "Draw", "Spain"],
+  buckets: 3,
+  options: [{ bucket: 0, label: "Brazil" }, { bucket: 1, label: "Draw" }, { bucket: 2, label: "Spain" }],
   myPick: 0, carried: true,
   ...over,
 });
@@ -60,6 +61,11 @@ describe("diffCardAlerts", () => {
     expect(a[0].kind).toBe("leg-hit");
   });
 
+  it("won → live flap (degraded winningBuckets join) emits NOTHING — leg-live fires on real kickoffs only", () => {
+    const a = diffCardAlerts(snap([legVM({ state: "won" })]), snap([legVM({ state: "live" })]));
+    expect(a).toEqual([]);
+  });
+
   it("carried leg live → lost ⇒ leg-died (card busted)", () => {
     const a = diffCardAlerts(
       snap([legVM({ state: "live" })]),
@@ -85,6 +91,18 @@ describe("diffCardAlerts", () => {
     expect(a.find((x) => x.kind === "one-away")!.id).toBe("7:one-away");
   });
 
+  it("a won→lost settle correction never fires one-away (won count didn't RISE) — the corrected leg just dies", () => {
+    // prevWon=2 (100,101); next: 101 corrected won→lost, 102 lands live→won ⇒
+    // won=2 = carried-1, but prevWon<won is false → the guard holds. myCardState
+    // stays entered-alive to simulate the alive flag lagging the correction —
+    // isolating the prevWon guard as the thing suppressing the false one-away.
+    const prev = snap([legVM({ state: "won" }), legVM({ fixtureId: 101, state: "won" }), legVM({ fixtureId: 102, state: "live" })]);
+    const next = snap([legVM({ state: "won" }), legVM({ fixtureId: 101, state: "lost" }), legVM({ fixtureId: 102, state: "won" })]);
+    const a = diffCardAlerts(prev, next);
+    expect(a.map((x) => x.kind)).not.toContain("one-away");
+    expect(a.map((x) => x.kind)).toContain("leg-died");
+  });
+
   it("status open → rolledOver ⇒ settled alert with rollover copy", () => {
     const a = diffCardAlerts(
       snap([legVM({ state: "won" })]),
@@ -103,10 +121,35 @@ describe("diffCardAlerts", () => {
     expect(a[0].text.toLowerCase()).toContain("claim");
   });
 
+  it("status open → settled with a DEAD card ⇒ payout copy, never a false 'rolls over' (someone's card was perfect)", () => {
+    const a = diffCardAlerts(
+      snap([legVM({ state: "lost" })], { myCardState: "dead" }),
+      snap([legVM({ state: "lost" })], { status: "settled", myCardState: "settled-rollover" }),
+    );
+    expect(a).toHaveLength(1);
+    expect(a[0].kind).toBe("settled");
+    expect(a[0].text).toContain("perfect cards took today's pot");
+    expect(a[0].text.toLowerCase()).not.toContain("roll");
+  });
+
+  it("status open → voided ⇒ refund copy — even a still-alive card gets NO claim copy on a void", () => {
+    // On a voided card an alive myCard maps to "settled-won" (myCardState treats
+    // voided as settled) — status-first branching is what keeps claim copy out.
+    const a = diffCardAlerts(
+      snap([legVM({ state: "live" })]),
+      snap([legVM({ state: "voided" })], { status: "voided", myCardState: "settled-won" }),
+    );
+    expect(a).toHaveLength(1);
+    expect(a[0].kind).toBe("settled");
+    expect(a[0].text.toLowerCase()).toContain("refund");
+    expect(a[0].text.toLowerCase()).not.toContain("claim");
+    expect(a[0].text.toLowerCase()).not.toContain("roll");
+  });
+
   it("contest change ⇒ single seeded alert carrying the jackpot, nothing else", () => {
     const a = diffCardAlerts(
       snap([legVM({ state: "won" })], { status: "rolledOver" }),
-      snap([legVM({ state: "open" })], { contestId: 8 } as Partial<PearlyCardVM>),
+      snap([legVM({ state: "open" })], { contestId: 8 }),
     );
     expect(a).toHaveLength(1);
     expect(a[0].kind).toBe("seeded");

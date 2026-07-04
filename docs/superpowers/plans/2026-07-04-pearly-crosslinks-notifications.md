@@ -30,7 +30,8 @@ import type { PearlyCardVM, PearlyLegVM } from "../src/lib/pearlyCard.ts";
 
 const legVM = (over: Partial<PearlyLegVM> = {}): PearlyLegVM => ({
   fixtureId: 100, matchLabel: "Brazil v Spain", marketLabel: "Match Result",
-  kickoffText: "", state: "open", pickable: true, bucketNames: ["Brazil", "Draw", "Spain"],
+  kickoffText: "", state: "open", pickable: true, buckets: 3,
+  options: [{ bucket: 0, label: "Brazil" }, { bucket: 1, label: "Draw" }, { bucket: 2, label: "Spain" }],
   myPick: 0, carried: true,
   ...over,
 });
@@ -195,14 +196,15 @@ export function snapshotForAlerts(vm: PearlyCardVM): AlertSnapshot | null {
       key: `${l.fixtureId}:${l.marketLabel}`,
       matchLabel: l.matchLabel,
       marketLabel: l.marketLabel,
-      pickText: l.myPick != null && l.bucketNames ? (l.bucketNames[l.myPick] ?? "") : "",
+      // legOptions guarantees options[b].bucket === b, so index straight in.
+      pickText: l.myPick != null ? (l.options[l.myPick]?.label ?? "") : "",
       state: l.state,
       carried: l.carried === true,
     })),
   };
 }
 
-const TERMINAL: ReadonlySet<string> = new Set(["settled", "rolledOver", "voided"]);
+const TERMINAL: ReadonlySet<NonNullable<PearlyCardVM["status"]>> = new Set(["settled", "rolledOver", "voided"]);
 
 export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot): PearlyAlert[] {
   if (!prev) return [];
@@ -225,7 +227,11 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
     if (!was || !leg.carried || leg.state === was.state) continue;
     const pick = leg.pickText ? ` — ${leg.marketLabel}: ${leg.pickText}` : "";
     if (leg.state === "live") {
-      out.push({ id: `${next.contestId}:leg-live:${leg.key}`, kind: "leg-live", text: `⚽ ${leg.matchLabel} kicked off${pick} riding` });
+      // Kickoffs only: a won/lost→live flap (e.g. the winningBuckets join degrading
+      // mid-poll) must not re-announce a match that already kicked off long ago.
+      if (was.state === "open" || was.state === "locked") {
+        out.push({ id: `${next.contestId}:leg-live:${leg.key}`, kind: "leg-live", text: `⚽ ${leg.matchLabel} kicked off${pick} riding` });
+      }
     } else if (leg.state === "won") {
       out.push({ id: `${next.contestId}:leg-hit:${leg.key}`, kind: "leg-hit", text: `✅ ${leg.matchLabel}${pick} HIT` });
     } else if (leg.state === "lost") {
@@ -245,11 +251,20 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
     out.push({ id: `${next.contestId}:one-away`, kind: "one-away", text: `🔥 One leg from a perfect card — hang on` });
   }
 
-  // Contest settled while we watched.
+  // Contest settled while we watched. Branch on the card's terminal STATUS first
+  // (rolledOver / voided / settled are contest-wide facts), and only then on
+  // whether THIS wallet holds a claim: a dead watcher on a `settled` card must
+  // never read rollover copy (perfect cards hit — the pot pays out), and a
+  // voided card refunds (mirrors PearlyView's ∅ voided chip + the claim
+  // surfaces' refund language) — it neither rolls nor pays.
   if (!TERMINAL.has(prev.status) && TERMINAL.has(next.status)) {
-    const text = next.myCardState === "settled-won"
-      ? `🏆 Perfect card! Your share is claimable`
-      : `🌊 No perfect cards today — the pot rolls into tomorrow's jackpot`;
+    const text = next.status === "rolledOver"
+      ? `🌊 No perfect cards today — the pot rolls into tomorrow's jackpot`
+      : next.status === "voided"
+        ? `∅ Card voided — entries are refundable`
+        : next.myCardState === "settled-won"
+          ? `🏆 Perfect card! Your share is claimable`
+          : `🏁 Settled — perfect cards took today's pot`;
     out.push({ id: `${next.contestId}:settled`, kind: "settled", text });
   }
 
@@ -257,7 +272,7 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
 }
 ```
 
-NOTE: `PearlyLegVM` today has `myPick?: number` but NO `bucketNames`. Add it in this step: in `pearlyCard.ts`, extend `PearlyLegVM` with `bucketNames?: string[]` and populate it in `mapPearlyCard`'s leg mapping using the existing `bucketLabel(leg, b)` helper for `b in 0..leg.buckets`. (Search for the leg-VM construction around `...(pick != null ? { myPick: pick } : {})` at `web/src/lib/pearlyCard.ts:341`.)
+NOTE: no new VM fields — the differ names the wallet's pick by reading the EXISTING `PearlyLegVM.options` (`options[myPick]?.label`; `legOptions` in `pearlyCard.ts` guarantees `options[b].bucket === b`). Do not add a parallel `bucketNames` array: one representation only.
 
 - [ ] **Step 4: Run to verify pass, then the full web suite**
 
@@ -648,5 +663,5 @@ One-line status flip in `HANDOFF.md`; note in auto-memory that Plan C shipped.
 ## Self-review notes
 
 - Spec coverage: §1 line 19 (six alert kinds — leg live/hit/died/one-away/settled/seeded: Task 1; ticker: Task 3; Notification API: Tasks 2-3) ✓; §1 line 20 (LiveMatchView strip: Task 5; Pearly live pointer: Task 4) ✓; §56 CSS-porting convention (Tasks 3-5 extend App.css in the pearly pattern) ✓. SSE/Web Push/roar explicitly out.
-- Types: `PearlyLegVM.bucketNames` is ADDED in Task 1 Step 3's note and used by Task 1's differ; `stripForFixture` (Task 5) deliberately reads the raw `Card` DTO instead, so it has no dependency on Task 1's addition.
+- Types: Task 1's differ reads the pick label off the EXISTING `PearlyLegVM.options[myPick]` (no `bucketNames` dual representation); `stripForFixture` (Task 5) deliberately reads the raw `Card` DTO instead, so it has no dependency on the VM's leg shape.
 - Banned copy words: alert/strip texts use "card", "legs", "multiplier" framing only — no "weight"/"mask"/"active legs".
