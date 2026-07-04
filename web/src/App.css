@@ -1190,6 +1190,10 @@ input:focus { outline: none; border-color: var(--accent); }
   width: 100%; justify-content: center; text-align: center;
   font-weight: 600; font-family: inherit; cursor: pointer;
 }
+/* Live → Pearly (the strip inside .livegame): pearly-strip has no top margin of
+ * its own — give it the livegame section gap (lg-match 9px / lg-srow 11px rhythm);
+ * its built-in 10px bottom margin collapses into the next section's margin-top. */
+.lg-pearly { margin-top: 8px; }
 
 /* Pearly alert ticker (spec §1 notifications v1) — card-change feed + 🔔 toggle */
 .pearly-ticker {

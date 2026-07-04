@@ -40,7 +40,7 @@ export default function App() {
     <div className="app">
       <LoginBar />
 
-      {tab === "live" && <LiveMatchView test={IS_TEST_PAGE} />}
+      {tab === "live" && <LiveMatchView test={IS_TEST_PAGE} onGoPearly={() => setTab("sweepstake")} />}
       {tab === "sweepstake" && <PearlyView onGoLive={() => setTab("live")} />}
       {tab === "markets" && <MarketLinesView />}
       {tab === "bets" && <BetsView />}

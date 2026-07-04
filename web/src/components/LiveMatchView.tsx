@@ -8,7 +8,8 @@ import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import {
   buildJoinLivePoolTx, buildClaimLivePoolTx, buildLockPickTxER,
 } from "../lib/livePoolClient.ts";
-import { poolIsClaimable, isWinner } from "../lib/api.ts";
+import { poolIsClaimable, isWinner, getCard, type Card } from "../lib/api.ts";
+import { stripForFixture } from "../lib/pearlyStrip.ts";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Streak — Live match game (home tab).
@@ -25,8 +26,9 @@ import { poolIsClaimable, isWinner } from "../lib/api.ts";
  * ──────────────────────────────────────────────────────────────────────── */
 
 /** `test` pins this view to the TEST audience (/test page): only synthetic-fixture
- *  pools are featured there, and the main Live tab never shows them. */
-export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
+ *  pools are featured there, and the main Live tab never shows them.
+ *  `onGoPearly` switches to the Pearly tab (the rides-strip cross-link). */
+export function LiveMatchView({ test = false, onGoPearly }: { test?: boolean; onGoPearly?: () => void } = {}) {
   const { address, signAndSend, signAndSendEr } = usePrivySigner();
   const { data, entry, refresh } = useLivePool(address ?? null, test);
 
@@ -45,6 +47,19 @@ export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
   const [busy, setBusy] = useState<string>("");
   const [flashMsg, setFlashMsg] = useState<string>("");
   const flash = (msg: string) => setFlashMsg(msg);
+
+  // Pearly cross-link (spec §1): a slow, independent /api/card poll — tabs are
+  // conditionally mounted, so no card state can be shared with PearlyView. 60s
+  // is plenty: the strip only names picks; the live scores come from `data`.
+  const [pearlyCard, setPearlyCard] = useState<Card | null>(null);
+  useEffect(() => {
+    if (!address) { setPearlyCard(null); return; }
+    let alive = true;
+    const tick = () => { getCard(address).then((c) => { if (alive) setPearlyCard(c); }).catch(() => {}); };
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [address]);
 
   const pool = data?.pool ?? null;
   const openCall = data?.openCall ?? null;
@@ -100,6 +115,18 @@ export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
   // Pre-game: the big countdown (upcoming fixture, or joinable pool pre-lock).
   // Recomputed on the 150ms heartbeat so the timer ticks between polls.
   const pre = useMemo(() => preGameFromChain(data, entry, nowMs), [data, entry, nowMs]);
+
+  // "🃏 your card rides this match" → Pearly tab. Built ONCE so the pre-game and
+  // in-play layouts render the identical guard (null when the card has nothing
+  // riding on the featured fixture).
+  const rideStrip = (() => {
+    const m = data?.match;
+    const s = m ? stripForFixture(pearlyCard, m.fixtureId, (m.live?.home ?? 0) + (m.live?.away ?? 0)) : null;
+    return s ? (
+      <button className="pearly-strip pearly-golive lg-pearly" onClick={onGoPearly}>{s.text}</button>
+    ) : null;
+  })();
+
   if (pre) {
     return (
       <div className="livegame">
@@ -112,6 +139,7 @@ export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
           loggedIn={!!address}
           onJoin={onJoin}
         />
+        {rideStrip}
         <div className="lg-hint">{SCORING_HINT}</div>
       </div>
     );
@@ -205,6 +233,8 @@ export function LiveMatchView({ test = false }: { test?: boolean } = {}) {
         <div className="lg-st"><div className="lg-v tnum">{match.cards}</div><div className="lg-k">Cards</div></div>
         <div className="lg-st"><div className="lg-v tnum">{match.poss}</div><div className="lg-k">Poss</div></div>
       </div>
+
+      {rideStrip}
 
       <div className="lg-srow">
         <span className={`lg-flame${score.flameHot ? " hot" : ""}`}>🔥</span>
