@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   legState, bucketLabel, weightForOpenCount, weightPreview, myWeight,
   entriesOpen, countdownText, potSolText, myCardState, mapPearlyCard,
+  walletHoldsCard,
   type PearlyLegVM,
 } from "../src/lib/pearlyCard.ts";
 import type { Card, CardLeg } from "../src/lib/api.ts";
@@ -480,5 +481,31 @@ describe("myCardState — unknown input never resolves to not-entered", () => {
     // top for the component to consult before trusting that state.
     const c = card({ status: "open" });
     expect(myCardState(c, undefined, NOW)).toBe("not-entered"); // narrow function's contract, unchanged
+  });
+});
+
+describe("walletHoldsCard — chain-entry cross-check that gates the picker/Enter", () => {
+  // The 07-03 CardLocked incident: the engine's myCard scan returned a
+  // confirmed-empty blip for a wallet that provably held a ticket, the picker
+  // rendered, and Enter took the on-chain EDIT branch → CardLocked (6052).
+  // The nonce-0 entry fetched straight from the chain is authoritative: when
+  // it exists the picker (and buildEnterTx) must be unreachable.
+  const chainEntry = { nonce: 0, bettor: "J7yZ…", claimable: false };
+  const knownMyCard = { picks: [0, 0, 0, 0, 0, 0], entryTs: 1, activeMask: [true, true, true, true, true, true], weight: 64, alive: true };
+
+  it("chain entry present + confirmed-empty myCard (the incident shape) → true", () => {
+    expect(walletHoldsCard(chainEntry, null)).toBe(true);
+  });
+
+  it("no chain entry but a last-known myCard → true (stale-closure defense in onEnter)", () => {
+    expect(walletHoldsCard(undefined, knownMyCard)).toBe(true);
+  });
+
+  it("neither signal → false (genuinely not entered; picker is correct)", () => {
+    expect(walletHoldsCard(undefined, null)).toBe(false);
+  });
+
+  it("entry fetch missed (undefined) + myCard undefined → false, never throws", () => {
+    expect(walletHoldsCard(undefined, undefined)).toBe(false);
   });
 });

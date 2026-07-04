@@ -177,6 +177,19 @@ export function myCardState(card: Card, myCard: MyCard | null | undefined, _nowS
   return myCard.alive ? "entered-alive" : "dead";
 }
 
+/**
+ * Cross-check: does this wallet provably hold a card on the current contest?
+ * True when the nonce-0 entry fetched straight from the chain exists, or any
+ * confirmed poll ever reported a myCard. The chain entry is authoritative over
+ * a single engine scan (which can blip to confirmed-empty): while this is true
+ * the picker — and therefore buildEnterTx — must be unreachable, because Enter
+ * with an existing entry takes the on-chain EDIT branch, which reverts
+ * CardLocked (6052) once a carried leg has kicked off.
+ */
+export function walletHoldsCard(chainEntry: unknown, lastKnownMyCard: unknown): boolean {
+  return chainEntry != null || lastKnownMyCard != null;
+}
+
 // ── the full view model ──────────────────────────────────────────────────────
 
 /** One leg as the UI needs it: display strings + interaction flags, never raw

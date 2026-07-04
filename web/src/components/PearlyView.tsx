@@ -8,7 +8,7 @@ import {
 } from "../lib/api.ts";
 import { SOL, fmtSol } from "../lib/odds.ts";
 import {
-  mapPearlyCard, type PearlyCardVM, type PearlyLegVM, type PearlyLegState,
+  mapPearlyCard, walletHoldsCard, type PearlyCardVM, type PearlyLegVM, type PearlyLegState,
 } from "../lib/pearlyCard.ts";
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -181,6 +181,14 @@ export function PearlyView() {
   async function onEnter() {
     if (!address) { login(); return; }
     if (!card) return;
+    // Belt-and-suspenders vs. a myCard scan blip: a wallet that provably holds
+    // a ticket (chain entry, or any confirmed poll) must never send enter —
+    // that's the on-chain EDIT branch, which reverts CardLocked (6052) once a
+    // carried leg has kicked off.
+    if (walletHoldsCard(entry, lastKnownMyCard)) {
+      flash("You already hold a card on this contest — hang tight while it syncs.", true);
+      return;
+    }
     setBusy(true); setMsg(undefined);
     try {
       // Every leg needs a pick — locked/already-past legs are outside this
@@ -224,14 +232,17 @@ export function PearlyView() {
     return <MyCardHud card={card!} vm={effectiveVm} msg={msg} msgErr={msgErr} />;
   }
 
-  // ── Just entered, engine cache hasn't caught up yet ─────────────────────
-  // Takes priority over the picker fallback below: without this, a just-placed
-  // entry would flash the picker again for up to ~4s (the engine's alive-scan
-  // cache TTL) before myCard flips to entered-alive.
-  if (confirmingEntry && effectiveVm.myCardState === "not-entered") {
+  // ── Entered per the chain (or just entered), engine hasn't caught up ─────
+  // Takes priority over the picker fallback below. Two ways in: a just-placed
+  // entry (engine's ~4s alive-scan cache still serves the pre-entry scan), or
+  // the chain-entry cross-check — the nonce-0 entry fetch says this wallet
+  // holds a ticket even though the myCard poll came back confirmed-empty (the
+  // blip behind the 07-03 CardLocked incident). Either way the picker must not
+  // render for a wallet that provably holds a card.
+  if ((confirmingEntry || walletHoldsCard(entry, lastKnownMyCard)) && effectiveVm.myCardState === "not-entered") {
     return (
       <div className="card empty-card">
-        Confirming your card on-chain…
+        {confirmingEntry ? "Confirming your card on-chain…" : "You hold a card on this contest — syncing it…"}
         {msg && <p className={`msg ${msgErr ? "err" : ""}`} role="status" aria-live="polite">{msg}</p>}
       </div>
     );
