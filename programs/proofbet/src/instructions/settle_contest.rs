@@ -173,8 +173,16 @@ pub fn handler(ctx: Context<SettleContest>, perfect_count: u64, perfect_weight: 
         // Weighted split: distributable is the FULL raw pool (net entries + the
         // whole jackpot). Claims pay floor(distributable * w_i / perfect_weight);
         // flooring residue (< perfect_count lamports) stays in the Contest PDA,
-        // assuming an honest weight; an overstated in-band weight strands
-        // proportionally more in the PDA.
+        // assuming an honest weight. A dishonest-but-in-band weight fails SAFE
+        // in both directions: OVERSTATED underpays every share and strands the
+        // difference in the PDA; UNDERSTATED inflates every share, so partway
+        // through the claim queue claim_contest's claimed_total+share <=
+        // distributable guard trips and every remaining winner's claim reverts
+        // FOREVER (settle is final — no un-settle, no re-weigh), stranding those
+        // shares in the PDA. Neither direction can over-drain rent or the
+        // jackpot; the band above bounds the damage, and the keeper's pre-send
+        // audit (countPerfectWeighted mirrors this math exactly) is the real
+        // defense.
         let raw = (pot_net as u128)
             .checked_add(jpool as u128)
             .ok_or(ProofBetError::MathOverflow)?;

@@ -79,9 +79,11 @@ describe("pearly — edit freeze", () => {
     const contest = contestPda(contestId);
     const fixtures = [770030, 770031, 770032, 770033, 770034, 770035];
     const t0 = nowSec();
-    // Leg 0 locks at +5s; legs 1..5 all lock at +20s.
+    // Leg 0 locks at +10s; legs 1..5 all lock at +20s. The +10 (not +5) keeps
+    // the accepted edit below well clear of leg 0's lock even when the two
+    // setup txs + fetch above it run slow (T5 review: anti-flake margin).
     // entries_close = 4th smallest (index 6-MIN_OPEN_LEGS(3)=3) = t0+20.
-    const locks = [t0 + 5, t0 + 20, t0 + 20, t0 + 20, t0 + 20, t0 + 20];
+    const locks = [t0 + 10, t0 + 20, t0 + 20, t0 + 20, t0 + 20, t0 + 20];
 
     await program.methods
       .createContest(
@@ -101,7 +103,7 @@ describe("pearly — edit freeze", () => {
       .signers([bettor]).rpc();
     const before = await program.account.entry.fetch(entryPda(contest, bettor.publicKey, 0));
 
-    // Edit ~2s later — still well before leg 0's lock (t0+5) and entries_close
+    // Edit ~2s later — still well before leg 0's lock (t0+10) and entries_close
     // (t0+20): no carried leg has kicked off, so the edit is weight-neutral.
     await sleep(2000);
     await program.methods.enter(new BN(0), pickArray([1, 1, 1, 1, 1, 1]))
@@ -151,6 +153,49 @@ describe("pearly — edit freeze", () => {
         .signers([bettor]).rpc(),
       "CardLocked",
     );
+  });
+
+  it("accepts an edit from a LATE entrant whose card never carried the locked leg", async () => {
+    await ensureJackpot();
+    const keeper = await freshFunded();
+    const bettor = await freshFunded();
+
+    const contestId = 770005;
+    const contest = contestPda(contestId);
+    const fixtures = [770050, 770051, 770052, 770053, 770054, 770055];
+    const t0 = nowSec();
+    // Leg 0 locks at +5s; legs 1..5 at +25s → entries_close = 4th smallest = t0+25.
+    const locks = [t0 + 5, t0 + 25, t0 + 25, t0 + 25, t0 + 25, t0 + 25];
+
+    await program.methods
+      .createContest(
+        new BN(contestId), fixtureArray(fixtures), marketIdArray(fixtures.map(() => 12)),
+        6, new BN(0.1 * LAMPORTS_PER_SOL), new BN(locks[0]), new BN(locks[5] + 60),
+        keeper.publicKey, 0, locks.map((l) => new BN(l)),
+      )
+      .accountsStrict({ keeper: keeper.publicKey, contest, systemProgram: SystemProgram.programId })
+      .signers([keeper]).rpc();
+
+    // Enter AFTER leg 0 locks: leg 0 is locked on the CONTEST but was never in
+    // THIS card's mask (leg_lock <= entry_ts), so it must not freeze the card.
+    await sleep(6000);
+    await program.methods.enter(new BN(0), pickArray([0, 0, 0, 0, 0, 0]))
+      .accountsStrict({ bettor: bettor.publicKey, contest, entry: entryPda(contest, bettor.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([bettor]).rpc();
+    const before = await program.account.entry.fetch(entryPda(contest, bettor.publicKey, 0));
+    assert.isAbove(before.entryTs.toNumber(), locks[0], "late entry stamped after leg 0 locked");
+
+    // The freeze guard fires only for legs with entry_ts < leg_lock <= now; the
+    // carried legs (1..5) don't lock until t0+25, so this edit is ACCEPTED and
+    // weight-neutral (the refreshed entry_ts keeps the same 5-leg mask).
+    await sleep(2000);
+    await program.methods.enter(new BN(0), pickArray([1, 1, 1, 1, 1, 1]))
+      .accountsStrict({ bettor: bettor.publicKey, contest, entry: entryPda(contest, bettor.publicKey, 0), systemProgram: SystemProgram.programId })
+      .signers([bettor]).rpc();
+    const after = await program.account.entry.fetch(entryPda(contest, bettor.publicKey, 0));
+
+    assert.deepEqual(after.picks, pickArray([1, 1, 1, 1, 1, 1]), "picks re-stamped");
+    assert.isAbove(after.entryTs.toNumber(), before.entryTs.toNumber(), "entry_ts refreshed by the accepted edit");
   });
 });
 
@@ -206,7 +251,10 @@ describe("pearly — weighted split", () => {
     // Settle all 6 leg markets, pass settle_after, settle with count=2 weight=96.
     const markets = [];
     for (let i = 0; i < 6; i++) markets.push(await makeSettledResultMarket(fixtures[i], results[i], keeper));
-    await sleep(22000); // past settle_after = locks[5]+12 ≈ t0+27 (we are at ~t0+6 after the late entry)
+    // Past settle_after = locks[5]+12 = t0+27. The clock here is already
+    // ~t0+10..15 (late entry ~t0+6 plus six market create+settle round-trips),
+    // so +22s lands ≥ t0+32 with real margin — don't trim it back.
+    await sleep(22000);
     await program.methods.settleContest(new BN(2), new BN(96))
       .accountsStrict({ settleAuthority: keeper.publicKey, jackpot, contest, feeRecipient: keeper.publicKey })
       .remainingAccounts(markets.map((m) => ({ pubkey: m, isWritable: false, isSigner: false })))
