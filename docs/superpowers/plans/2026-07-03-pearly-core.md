@@ -1354,6 +1354,39 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ---
 
+## E2E evidence
+
+### Run 1 — 2026-07-03 card → ROLLOVER path (recorded 2026-07-04 ~07:00 UTC)
+
+**Contest 777020637** (PDA `7KXmBHkfKkt5UZYn64BH8ZYaycuJDuhb2q4Xkdogz8Lk`), composed 07-03 by
+`create-daily-pearly`: 6 legs over 3 fixtures (Arg–CV, Aus–Egy, Col–Gha), markets
+[12,12,12,11,11,17] incl. the market-17 chaos leg. Entry ◎0.05, jackpot ◎0.02 carried in.
+
+- **Entry (early, full card):** wallet `J7yZbEoQW6gqapBnKH9r5NZdus3j1t8j3vmrGUGxzxu7`,
+  entry PDA `9PqcVChq63UVk9tCt37L6Sa3M8N8MLHt6jDF1PecR3SK`, entryTs 1783092412 (15:26 UTC,
+  before first lock) → 6 active legs, ×64. (Late-entry <64 variant: not exercised this run.)
+- **Per-leg settle waves** (first pass after the phase-100 fix, all six in one pass since all
+  fixtures were long final): leg0 `5U5Prrrj…`, leg1 `38Phhikx…`, leg2 `oqvZnKXS…`,
+  leg3 `5TQrLfP7…`, leg4 `vtCSbx6r…`, leg5 `fY5kfTLZ…`. Winning buckets **[0,1,0,0,1,1]**.
+- **Weighted count:** audit `entries 1, perfectCount 0, perfectWeight 0`; per-entry breakdown
+  logged (picks [2,0,2,1,0,1] vs [0,1,0,0,1,1] → busted; chaos leg was their only hit).
+- **Final settle → ROLLOVER:**
+  `settle_contest 777020637: 52R5xMD3N3wE1NSXC7a9Snmw6aWoypGsQi5X1pbJQGKvZh1VB88ciq3NHTLwEUQqEZdF4chxxBkVP7stYuDCw9X2`
+  — preview `distributable 0, jackpotOut 50000000, rolledOver: true`.
+- **Post-state verified:** jackpot PDA `4LEY34HvTdqfH8WKWuW6tjmxNzaP2ryzS5ce9WwMVBiq` =
+  **0.07095352 SOL** (0.02 carried + 0.05 rolled + rent); engine `/api/card` → `{"card":null}`
+  (correct between-cards state before the 08:00 UTC compose).
+
+**Regression this run caught (evidence-before-done working as intended):** the card sat
+`not-final-yet` from 03:30–06:5x UTC because the devnet feed appends post-match `StatusId 100`
+events after the terminal phase (and emits out-of-order in-play codes, e.g. …PE→FPE→ET2→100,100),
+so the "latest event" phase pick never saw a finished phase. Fixed in `a08b540`
+(`resolveFixturePhase`: FINISHED > VOID > latest known in-play; unknown codes never gate).
+Cron picked up the fix on its next spawned pass and settled with no manual intervention.
+
+**Still owed (Step 4):** perfect card + weighted claim (`distributable × weight/perfect_weight`)
+on a future card with ≥1 perfect entry.
+
 ## Not in this plan (deliberately)
 
 - **Web Pearly tab** (picker/day HUD/death/over card from mockup 17) → Plan B, written after Task 13's evidence lands.
