@@ -46,7 +46,7 @@ function legChip(state: PearlyLegState): { icon: string; label: string; tone: st
   }
 }
 
-export function PearlyView() {
+export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
   const { ready, authenticated } = usePrivy();
   const { login } = useLogin();
   const { address, signAndSend } = usePrivySigner();
@@ -158,11 +158,13 @@ export function PearlyView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vm.myCardKnown, card?.myCard]);
 
-  // Alert snapshot: same trust rules as effectiveVm below (a known poll wins,
-  // else re-map with the sticky last-confirmed myCard) but computed BEFORE the
-  // early returns so the hooks order stays render-stable. snapshotForAlerts is
-  // null on empty/legacy cards, and diffCardAlerts emits nothing on a null
-  // prev, so reloads/remounts never replay history.
+  // The trust rules for the rendered VM (a known poll wins, else re-map with
+  // the sticky last-confirmed myCard so legs/picks/carried all stay internally
+  // consistent — mapPearlyCard is pure, so the second call is cheap), computed
+  // BEFORE the early returns so the hooks order stays render-stable; past the
+  // guards below, `effectiveVm` aliases this. snapshotForAlerts is null on
+  // empty/legacy cards, and diffCardAlerts emits nothing on a null prev, so
+  // reloads/remounts never replay history.
   const alertVm = card
     ? (vm.myCardKnown ? vm : (haveKnownMyCard ? mapPearlyCard(card, lastKnownMyCard, nowMs, winningBuckets) : null))
     : null;
@@ -192,19 +194,14 @@ export function PearlyView() {
     );
   }
 
-  // Effective VM for rendering: trust this poll when its myCard is known;
-  // otherwise RE-MAP the current card with the sticky last-confirmed myCard
-  // value swapped in, so legs/picks/carried/weight all stay internally
-  // consistent (not just the top-level pills) — mapPearlyCard is pure, so
-  // calling it twice with different myCard inputs is cheap and safe. If we've
-  // never seen a known poll for this wallet at all, there's genuinely nothing
-  // to show yet — a loading affordance is correct.
+  // If we've never seen a known poll for this wallet at all, there's genuinely
+  // nothing to show yet — a loading affordance is correct.
   if (!vm.myCardKnown && !haveKnownMyCard) {
     return <div className="card empty-card">Checking your card…</div>;
   }
-  const effectiveVm: PearlyCardVM = vm.myCardKnown
-    ? vm
-    : mapPearlyCard(card!, lastKnownMyCard, nowMs, winningBuckets);
+  // alertVm is computed pre-early-returns with the same trust rules; past the
+  // guards above it is provably non-null — one expression, no drift.
+  const effectiveVm: PearlyCardVM = alertVm!;
 
   async function onPick(legIdx: number, bucket: number) {
     setPicks((p) => ({ ...p, [legIdx]: bucket }));
@@ -273,6 +270,7 @@ export function PearlyView() {
       <MyCardHud
         card={card!} vm={effectiveVm} msg={msg} msgErr={msgErr}
         alerts={alerts} alertsOn={alertsOn} onToggleAlerts={onToggleAlerts}
+        onGoLive={onGoLive}
       />
     );
   }
@@ -406,9 +404,9 @@ function PickerLegRow({
 
 // ── My-card HUD (entered — alive or dead-spectating; mockup 17 #hud) ───────
 
-function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts }: {
+function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, onGoLive }: {
   card: Card; vm: PearlyCardVM; msg: string | undefined; msgErr: boolean;
-  alerts: PearlyAlert[]; alertsOn: boolean; onToggleAlerts: () => void;
+  alerts: PearlyAlert[]; alertsOn: boolean; onToggleAlerts: () => void; onGoLive?: () => void;
 }) {
   const dead = vm.myCardState === "dead";
   return (
@@ -431,9 +429,14 @@ function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts }: 
             </button>
           )}
         </div>
-        {alerts.length === 0
-          ? <div className="pt-row pt-empty">quiet for now — alerts land here as your legs go live</div>
-          : alerts.map((a) => <div key={a.id} className={`pt-row pt-${a.kind}`}>{a.text}</div>)}
+        {/* role="log": additions are announced politely without re-reading the
+            whole feed; the head (bell toggle) stays outside so its state
+            changes never get announced as feed entries. */}
+        <div role="log">
+          {alerts.length === 0
+            ? <div className="pt-row pt-empty">quiet for now — alerts land here as your legs go live</div>
+            : alerts.map((a) => <div key={a.id} className={`pt-row pt-${a.kind}`}>{a.text}</div>)}
+        </div>
       </div>
 
       {dead && (
@@ -453,6 +456,15 @@ function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts }: 
           <span>entries close in {vm.entriesCloseText}</span>
           {vm.nextLockText && <span>· next leg locks in {vm.nextLockText}</span>}
         </div>
+      )}
+
+      {/* Pearly → Live cross-link: while any leg still on this card is in play,
+          point at the Live tab — `carried !== false` deliberately includes
+          undefined (picker-view legs never set it; on the HUD it always is). */}
+      {!dead && onGoLive && vm.legs.some((l) => l.carried !== false && l.state === "live") && (
+        <button className="pearly-strip pearly-golive" onClick={onGoLive}>
+          ⚡ match window live — go play it
+        </button>
       )}
 
       <div className="section">

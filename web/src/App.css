@@ -1183,6 +1183,13 @@ input:focus { outline: none; border-color: var(--accent); }
   background: var(--card-2); border: 1px solid var(--border); border-radius: 12px;
   padding: 8px 10px; margin-bottom: 10px; font-size: 11px; color: var(--text-2);
 }
+/* Pearly → Live cross-link — a <button> wearing the .pearly-strip shell (which
+ * already overrides the UA background/border/color); like .pt-bell/.plopt it
+ * still needs the font + cursor resets buttons don't inherit. */
+.pearly-golive {
+  width: 100%; justify-content: center; text-align: center;
+  font-weight: 600; font-family: inherit; cursor: pointer;
+}
 
 /* Pearly alert ticker (spec §1 notifications v1) — card-change feed + 🔔 toggle */
 .pearly-ticker {
@@ -1199,7 +1206,7 @@ input:focus { outline: none; border-color: var(--accent); }
 .pt-bell[aria-pressed="true"] { color: var(--gold); border-color: rgba(255, 211, 107, 0.5); }
 .pt-row { font-size: 11px; color: var(--text-2); padding: 5px 0 0; margin-top: 5px; line-height: 1.45; }
 .pt-row + .pt-row { border-top: 1px dashed var(--border); }
-.pt-empty { color: var(--text-3); font-style: italic; }
+.pt-row.pt-empty { color: var(--text-3); font-style: italic; }
 .pt-row.pt-leg-hit { color: var(--green); }
 .pt-row.pt-leg-died { color: var(--red); }
 .pt-row.pt-one-away { color: var(--gold); }

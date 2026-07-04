@@ -41,7 +41,7 @@ export default function App() {
       <LoginBar />
 
       {tab === "live" && <LiveMatchView test={IS_TEST_PAGE} />}
-      {tab === "sweepstake" && <PearlyView />}
+      {tab === "sweepstake" && <PearlyView onGoLive={() => setTab("live")} />}
       {tab === "markets" && <MarketLinesView />}
       {tab === "bets" && <BetsView />}
       {tab === "wallet" && <WalletView />}
