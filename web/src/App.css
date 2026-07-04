@@ -1184,6 +1184,27 @@ input:focus { outline: none; border-color: var(--accent); }
   padding: 8px 10px; margin-bottom: 10px; font-size: 11px; color: var(--text-2);
 }
 
+/* Pearly alert ticker (spec §1 notifications v1) — card-change feed + 🔔 toggle */
+.pearly-ticker {
+  background: var(--card-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 10px; margin-bottom: 10px;
+}
+.pt-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pt-title { font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.7px; font-weight: 800; }
+.pt-bell {
+  font-size: 10px; font-weight: 700; color: var(--text-2);
+  background: var(--card-3); border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 9px; cursor: pointer; font-family: inherit;
+}
+.pt-bell[aria-pressed="true"] { color: var(--gold); border-color: rgba(255, 211, 107, 0.5); }
+.pt-row { font-size: 11px; color: var(--text-2); padding: 5px 0 0; margin-top: 5px; line-height: 1.45; }
+.pt-row + .pt-row { border-top: 1px dashed var(--border); }
+.pt-empty { color: var(--text-3); font-style: italic; }
+.pt-row.pt-leg-hit { color: var(--green); }
+.pt-row.pt-leg-died { color: var(--red); }
+.pt-row.pt-one-away { color: var(--gold); }
+.pt-row.pt-settled { color: var(--text); font-weight: 700; }
+
 /* Degraded-poll notice — softens the alive/dead claim while the engine's
  * chain reads are re-syncing (engine commit 3246a98's `degraded` flag). */
 .pearly-provisional {

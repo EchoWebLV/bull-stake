@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePrivy, useLogin } from "@privy-io/react-auth";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildEnterTx, buildClaimContestTx } from "../lib/anchorClient.ts";
@@ -10,6 +10,8 @@ import { SOL, fmtSol } from "../lib/odds.ts";
 import {
   mapPearlyCard, walletHoldsCard, type PearlyCardVM, type PearlyLegVM, type PearlyLegState,
 } from "../lib/pearlyCard.ts";
+import { snapshotForAlerts, diffCardAlerts, type AlertSnapshot, type PearlyAlert } from "../lib/pearlyAlerts.ts";
+import { notificationsSupported, notificationsEnabled, requestNotifications, pushNotifications } from "../lib/notify.ts";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Streak — 🃏 The Daily Pearly (spec: docs/superpowers/specs/
@@ -76,6 +78,14 @@ export function PearlyView() {
   // EVER seen a known poll" can't be inferred from `lastKnownMyCard === null`.
   const [lastKnownMyCard, setLastKnownMyCard] = useState<Card["myCard"]>(null);
   const [haveKnownMyCard, setHaveKnownMyCard] = useState(false);
+  // Alert ticker (spec §1 notifications v1): newest-first, capped. The diff
+  // bookkeeping lives in refs, not state — prev snapshot + seen-ids drive no
+  // rendering of their own, and the seen-set keeps StrictMode double-invokes
+  // and effect re-runs from ever re-announcing the same event.
+  const [alerts, setAlerts] = useState<PearlyAlert[]>([]);
+  const [alertsOn, setAlertsOn] = useState<boolean>(notificationsEnabled());
+  const prevSnapRef = useRef<AlertSnapshot | null>(null);
+  const seenAlertIdsRef = useRef<Set<string>>(new Set());
 
   function flash(t: string, err = false) { setMsg(t); setMsgErr(err); }
 
@@ -148,6 +158,28 @@ export function PearlyView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vm.myCardKnown, card?.myCard]);
 
+  // Alert snapshot: same trust rules as effectiveVm below (a known poll wins,
+  // else re-map with the sticky last-confirmed myCard) but computed BEFORE the
+  // early returns so the hooks order stays render-stable. snapshotForAlerts is
+  // null on empty/legacy cards, and diffCardAlerts emits nothing on a null
+  // prev, so reloads/remounts never replay history.
+  const alertVm = card
+    ? (vm.myCardKnown ? vm : (haveKnownMyCard ? mapPearlyCard(card, lastKnownMyCard, nowMs, winningBuckets) : null))
+    : null;
+  const alertSnap = alertVm ? snapshotForAlerts(alertVm) : null;
+  const alertSnapKey = JSON.stringify(alertSnap);
+  useEffect(() => {
+    if (!alertSnap) return;
+    const fresh = diffCardAlerts(prevSnapRef.current, alertSnap)
+      .filter((a) => !seenAlertIdsRef.current.has(a.id));
+    prevSnapRef.current = alertSnap;
+    if (!fresh.length) return;
+    for (const a of fresh) seenAlertIdsRef.current.add(a.id);
+    setAlerts((cur) => [...fresh, ...cur].slice(0, 12));
+    pushNotifications(fresh); // internally gated: permission granted AND tab hidden
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alertSnapKey]);
+
   if (card === undefined || !ready) return <div className="card empty-card">Loading today's Pearly…</div>;
 
   // ── Empty: no card composed today ─────────────────────────────────────────
@@ -217,6 +249,14 @@ export function PearlyView() {
     finally { setBusy(false); }
   }
 
+  // 🔔 toggle: requestNotifications resolves immediately (no prompt) when the
+  // permission is already granted/denied, so the await stays gesture-safe.
+  async function onToggleAlerts() {
+    const ok = await requestNotifications();
+    setAlertsOn(ok);
+    if (!ok && notificationsSupported()) flash("Notifications are blocked for this site in your browser settings.", true);
+  }
+
   // ── Settled: perfect (claim) or rollover ────────────────────────────────
   if (effectiveVm.status === "settled" || effectiveVm.status === "rolledOver" || effectiveVm.status === "voided") {
     return (
@@ -229,7 +269,12 @@ export function PearlyView() {
 
   // ── Entered: my-card HUD (alive or dead-spectating) ─────────────────────
   if (effectiveVm.myCardState === "entered-alive" || effectiveVm.myCardState === "dead") {
-    return <MyCardHud card={card!} vm={effectiveVm} msg={msg} msgErr={msgErr} />;
+    return (
+      <MyCardHud
+        card={card!} vm={effectiveVm} msg={msg} msgErr={msgErr}
+        alerts={alerts} alertsOn={alertsOn} onToggleAlerts={onToggleAlerts}
+      />
+    );
   }
 
   // ── Entered per the chain (or just entered), engine hasn't caught up ─────
@@ -361,7 +406,10 @@ function PickerLegRow({
 
 // ── My-card HUD (entered — alive or dead-spectating; mockup 17 #hud) ───────
 
-function MyCardHud({ card, vm, msg, msgErr }: { card: Card; vm: PearlyCardVM; msg: string | undefined; msgErr: boolean }) {
+function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts }: {
+  card: Card; vm: PearlyCardVM; msg: string | undefined; msgErr: boolean;
+  alerts: PearlyAlert[]; alertsOn: boolean; onToggleAlerts: () => void;
+}) {
   const dead = vm.myCardState === "dead";
   return (
     <div className="pearly">
@@ -372,6 +420,20 @@ function MyCardHud({ card, vm, msg, msgErr }: { card: Card; vm: PearlyCardVM; ms
         <div className="pl-pill pl-alive"><div className="pl-v">{vm.aliveText}</div><div className="pl-k">cards still perfect</div></div>
         <div className="pl-pill pl-pot"><div className="pl-v">{vm.potText}</div><div className="pl-k">the pot</div></div>
         <div className="pl-pill pl-wt"><div className="pl-v">{vm.myWeightLabel}</div><div className="pl-k">your multiplier</div></div>
+      </div>
+
+      <div className="pearly-ticker">
+        <div className="pt-head">
+          <span className="pt-title">card alerts</span>
+          {notificationsSupported() && (
+            <button className="pt-bell" onClick={onToggleAlerts} aria-pressed={alertsOn}>
+              {alertsOn ? "🔔 on" : "🔕 off"}
+            </button>
+          )}
+        </div>
+        {alerts.length === 0
+          ? <div className="pt-row pt-empty">quiet for now — alerts land here as your legs go live</div>
+          : alerts.map((a) => <div key={a.id} className={`pt-row pt-${a.kind}`}>{a.text}</div>)}
       </div>
 
       {dead && (
