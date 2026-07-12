@@ -36,7 +36,7 @@
 - Modify: `web/src/lib/pearlyCard.ts` (interface `PearlyLegVM` ~line 202, mapper ~line 344, `CHAOS_MARKET_ID` ~line 40)
 - Test: `web/test/pearlyCard.test.ts`
 
-- [ ] **Step 1: Write the failing test** — in the existing `describe("mapPearlyCard", ...)` block add:
+- [x] **Step 1: Write the failing test** — in the existing `describe("mapPearlyCard", ...)` block add:
 
 ```ts
 it("exposes each leg's marketId on the VM (ticket + chaos badge consumers)", () => {
@@ -46,9 +46,9 @@ it("exposes each leg's marketId on the VM (ticket + chaos badge consumers)", () 
 });
 ```
 
-- [ ] **Step 2: Run it — expect FAIL** — `cd web && npx vitest run test/pearlyCard.test.ts` → type error / undefined `marketId`.
+- [x] **Step 2: Run it — expect FAIL** — `cd web && npx vitest run test/pearlyCard.test.ts` → type error / undefined `marketId`.
 
-- [ ] **Step 3: Implement** — in `pearlyCard.ts`: change `const CHAOS_MARKET_ID = 17;` to `export const CHAOS_MARKET_ID = 17;`. In `PearlyLegVM` add after `fixtureId`:
+- [x] **Step 3: Implement** — in `pearlyCard.ts`: change `const CHAOS_MARKET_ID = 17;` to `export const CHAOS_MARKET_ID = 17;`. In `PearlyLegVM` add after `fixtureId`:
 
 ```ts
   marketId: number;         // catalog market id (17 = the day's chaos leg)
@@ -56,9 +56,9 @@ it("exposes each leg's marketId on the VM (ticket + chaos badge consumers)", () 
 
 In `mapPearlyCard`'s legs map, add `marketId: leg.marketId,` right after `fixtureId: leg.fixtureId,`.
 
-- [ ] **Step 4: Run web suite — expect PASS** — `cd web && npm test` (166 → 167 passing).
+- [x] **Step 4: Run web suite — expect PASS** — `cd web && npm test` (166 → 167 passing).
 
-- [ ] **Step 5: Commit** — SKIPPED (shared dirty file; per commit discipline above, stays in the working tree).
+- [x] **Step 5: Commit** — SKIPPED (shared dirty file; per commit discipline above, stays in the working tree).
 
 ---
 
@@ -68,7 +68,7 @@ In `mapPearlyCard`'s legs map, add `marketId: leg.marketId,` right after `fixtur
 - Create: `web/src/lib/pearlyTicket.ts`
 - Test: `web/test/pearlyTicket.test.ts`
 
-- [ ] **Step 1: Write the failing tests** — new file `web/test/pearlyTicket.test.ts`:
+- [x] **Step 1: Write the failing tests** — new file `web/test/pearlyTicket.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -166,9 +166,9 @@ describe("pickSharePath", () => {
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL** — `cd web && npx vitest run test/pearlyTicket.test.ts` → module not found.
+- [x] **Step 2: Run — expect FAIL** — `cd web && npx vitest run test/pearlyTicket.test.ts` → module not found.
 
-- [ ] **Step 3: Implement** — new file `web/src/lib/pearlyTicket.ts`:
+- [x] **Step 3: Implement** — new file `web/src/lib/pearlyTicket.ts`:
 
 ```ts
 /* Share-ticket model — PURE (node-testable). Everything the canvas renderer
@@ -249,9 +249,9 @@ export function pickSharePath(caps: { canShareFiles: boolean; hasClipboardItem: 
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS** — `cd web && npm test` (all files green).
+- [x] **Step 4: Run — expect PASS** — `cd web && npm test` (all files green).
 
-- [ ] **Step 5: Commit** — `git add web/src/lib/pearlyTicket.ts web/test/pearlyTicket.test.ts && git commit -m "feat(web): pearlyTicket — pure share-ticket model + share-path chooser"`
+- [x] **Step 5: Commit** — `git add web/src/lib/pearlyTicket.ts web/test/pearlyTicket.test.ts && git commit -m "feat(web): pearlyTicket — pure share-ticket model + share-path chooser"`
 
 ---
 
@@ -260,7 +260,7 @@ export function pickSharePath(caps: { canShareFiles: boolean; hasClipboardItem: 
 **Files:**
 - Modify: `web/src/components/Mascot.tsx`
 
-- [ ] **Step 1: Export the silhouette path + colors.** Change `const MASCOT_COLORS = {` to `export const MASCOT_COLORS = {`, and above the `Mascot` component add:
+- [x] **Step 1: Export the silhouette path + colors.** Change `const MASCOT_COLORS = {` to `export const MASCOT_COLORS = {`, and above the `Mascot` component add:
 
 ```ts
 /** Silhouette path (48×48 viewBox) — shared with the canvas ticket renderer
@@ -271,7 +271,7 @@ export const MASCOT_PATH =
 
 …and make the component's `<path d=...>` use `MASCOT_PATH` (replace the inline string).
 
-- [ ] **Step 2: Typecheck + suite** — `cd web && npx tsc --noEmit && npm test` → green. (Mascot is untracked-new; no commit yet — it ships with the skin batch.)
+- [x] **Step 2: Typecheck + suite** — `cd web && npx tsc --noEmit && npm test` → green. (Mascot is untracked-new; no commit yet — it ships with the skin batch.)
 
 ---
 
@@ -280,7 +280,7 @@ export const MASCOT_PATH =
 **Files:**
 - Create: `web/src/lib/ticketCanvas.ts` (DOM-only; NOT unit-tested — vitest env is node; verified via Task 5 harness)
 
-- [ ] **Step 1: Implement** — new file `web/src/lib/ticketCanvas.ts`:
+- [x] **Step 1: Implement** — new file `web/src/lib/ticketCanvas.ts`:
 
 ```ts
 /* Canvas ticket renderer + share plumbing. DOM-only (document/canvas/navigator)
@@ -422,9 +422,9 @@ export async function shareTicketPng(model: TicketModel): Promise<SharePath | "c
 }
 ```
 
-- [ ] **Step 2: Typecheck** — `cd web && npx tsc --noEmit` → clean.
+- [x] **Step 2: Typecheck** — `cd web && npx tsc --noEmit` → clean.
 
-- [ ] **Step 3: Commit** — `git add web/src/lib/ticketCanvas.ts && git commit -m "feat(web): ticketCanvas — canvas ticket renderer + share/clipboard/download routing"`
+- [x] **Step 3: Commit** — `git add web/src/lib/ticketCanvas.ts && git commit -m "feat(web): ticketCanvas — canvas ticket renderer + share/clipboard/download routing"`
 
 ---
 
@@ -434,7 +434,7 @@ export async function shareTicketPng(model: TicketModel): Promise<SharePath | "c
 - Create: `web/ticket-dev.html`
 - Create: `web/src/ticketDev.ts`
 
-- [ ] **Step 1: Harness page** — `web/ticket-dev.html` (Vite dev serves it at `/ticket-dev.html`; it is NOT in the prod build graph):
+- [x] **Step 1: Harness page** — `web/ticket-dev.html` (Vite dev serves it at `/ticket-dev.html`; it is NOT in the prod build graph):
 
 ```html
 <!doctype html>
@@ -467,7 +467,7 @@ export async function shareTicketPng(model: TicketModel): Promise<SharePath | "c
 </html>
 ```
 
-- [ ] **Step 2: Harness driver** — `web/src/ticketDev.ts`:
+- [x] **Step 2: Harness driver** — `web/src/ticketDev.ts`:
 
 ```ts
 /* Dev-only harness for the share ticket: renders a fixture TicketModel for each
@@ -525,9 +525,9 @@ document.getElementById("share")!.addEventListener("click", async () => {
 void show("riding");
 ```
 
-- [ ] **Step 3: Browser-verify** — start the `web` dev server (launch.json name `web`, port 5180), open `http://localhost:5180/ticket-dev.html`; confirm: ticket renders with marker fonts (not fallback serif), all four tones draw, `share` button routes (desktop Chrome → clipboard path expected) and reports the path used. Screenshot for the user.
+- [x] **Step 3: Browser-verify** — start the `web` dev server (launch.json name `web`, port 5180), open `http://localhost:5180/ticket-dev.html`; confirm: ticket renders with marker fonts (not fallback serif), all four tones draw, `share` button routes (desktop Chrome → clipboard path expected) and reports the path used. Screenshot for the user.
 
-- [ ] **Step 4: Commit** — `git add web/ticket-dev.html web/src/ticketDev.ts && git commit -m "feat(web): ticket-dev harness — renders all ticket tones + exercises real share routing"`
+- [x] **Step 4: Commit** — `git add web/ticket-dev.html web/src/ticketDev.ts && git commit -m "feat(web): ticket-dev harness — renders all ticket tones + exercises real share routing"`
 
 ---
 
@@ -537,7 +537,7 @@ void show("riding");
 - Modify: `web/src/components/PearlyView.tsx` (parent handler ~line 257; `MyCardHud` props/JSX ~484–560; `SettledCard` props/JSX ~591+)
 - Modify: `web/src/App.css` (one `.pl-share` block, near the other `.pl-*` rules)
 
-- [ ] **Step 1: Parent handler** — in `PearlyView` (after `onToggleAlerts`), add:
+- [x] **Step 1: Parent handler** — in `PearlyView` (after `onToggleAlerts`), add:
 
 ```ts
 const [sharing, setSharing] = useState(false);
@@ -559,7 +559,7 @@ async function onShare() {
 
 …with imports `import { buildTicketModel } from "../lib/pearlyTicket.ts";` and `import { shareTicketPng } from "../lib/ticketCanvas.ts";`. NOTE: `effectiveVm` can be null (degraded pre-first-known state) — the early `if (!model) return;` covers it, but guard the call: `const model = effectiveVm ? buildTicketModel(effectiveVm, …) : null;`.
 
-- [ ] **Step 2: Button in `MyCardHud`** — add props `onShare: () => void; sharing: boolean` (both call sites), and render after the legs list (right before the `vm.canEdit` hint):
+- [x] **Step 2: Button in `MyCardHud`** — add props `onShare: () => void; sharing: boolean` (both call sites), and render after the legs list (right before the `vm.canEdit` hint):
 
 ```tsx
 <button className="pl-share" disabled={sharing} onClick={onShare} aria-busy={sharing}>
@@ -567,9 +567,9 @@ async function onShare() {
 </button>
 ```
 
-- [ ] **Step 3: Button in `SettledCard`** — same props; render after its result block (same JSX as Step 2). A perfect card is the highest-value share; the rolled state shares the "pot rolled" story.
+- [x] **Step 3: Button in `SettledCard`** — same props; render after its result block (same JSX as Step 2). A perfect card is the highest-value share; the rolled state shares the "pot rolled" story.
 
-- [ ] **Step 4: `.pl-share` style** — in `App.css` near the `.pl-hint` rule:
+- [x] **Step 4: `.pl-share` style** — in `App.css` near the `.pl-hint` rule:
 
 ```css
 .pl-share{
@@ -582,11 +582,11 @@ async function onShare() {
 .pl-share:disabled{ opacity:.55; cursor:default; }
 ```
 
-- [ ] **Step 5: Typecheck + full suite** — `cd web && npx tsc --noEmit && npm test` → green (target: 167+ web tests + new pearlyTicket file).
+- [x] **Step 5: Typecheck + full suite** — `cd web && npx tsc --noEmit && npm test` → green (target: 167+ web tests + new pearlyTicket file).
 
-- [ ] **Step 6: Dev-server smoke** — app compiles and the Sweep tab renders its current (empty-day) state with no console errors. The HUD button itself is e2e-verified on the Jul 14 card (no card exists today — see "Verification reality").
+- [x] **Step 6: Dev-server smoke** — app compiles and the Sweep tab renders its current (empty-day) state with no console errors. The HUD button itself is e2e-verified on the Jul 14 card (no card exists today — see "Verification reality").
 
-- [ ] **Step 7: Commit** — shared dirty files (`PearlyView.tsx`, `App.css`) stay uncommitted per the discipline note; plan doc checkboxes updated instead.
+- [x] **Step 7: Commit** — shared dirty files (`PearlyView.tsx`, `App.css`) stay uncommitted per the discipline note; plan doc checkboxes updated instead.
 
 ---
 
@@ -595,3 +595,19 @@ async function onShare() {
 - **Spec coverage:** mascot ✓ (stamp, seed-colored), picks ✓ (rows with carried/chaos), multiplier ✓ (×N big + tone line), jackpot ✓ (moneyLine), Web Share / clipboard / download ✓ (`shareTicketPng`), web-only ✓ (no engine/keeper/program changes). Button reachable from every held-card state (HUD alive/dead + settled perfect/rolled).
 - **Placeholders:** none — every step carries real code/commands.
 - **Type consistency:** `TicketModel`/`TicketRow`/`TicketTone`/`SharePath` defined once in `pearlyTicket.ts`, imported by `ticketCanvas.ts`/`ticketDev.ts`; `marketId` added in Task 1 before Task 2 consumes it; `MASCOT_PATH`/`MASCOT_COLORS` exported in Task 3 before Task 4 imports them.
+
+---
+
+## Execution log (2026-07-12, inline)
+
+All 6 tasks executed same-session. **web suite 175 passing** (167 base + 8 pearlyTicket), `tsc --noEmit` clean.
+
+Two renderer fixes found by harness verification (both in `ticketCanvas.ts`, commit `eaa2c9a`):
+1. Bottom block: big ×N and the money line overlapped → measure-and-fit (`fitPx`) sizes the right block to the space the multiplier leaves.
+2. Match/tone row: long tone lines ("BUSTED — THE POT ROLLS ON") overlapped the match name → same fit treatment.
+
+Verified in browser (`/ticket-dev.html`, dev server 5180): riding + busted tones render with marker fonts (228 KB PNG), mascot stamp + punch holes draw, and `shareTicketPng()` routed to **clipboard** on desktop Chrome with no console errors. App smoke: Sweep tab renders (loading/empty day) with the wiring in, zero console errors.
+
+Commits: `20dfc5f` (model + tests), `9d8bdad` (canvas), `eaa2c9a` (harness + fit fixes). Shared dirty files (`pearlyCard.ts`, `pearlyCard.test.ts`, `Mascot.tsx`, `PearlyView.tsx`, `App.css`) left uncommitted per the commit-discipline note — they ride with the in-flight skin batch (WS1).
+
+Owed e2e: press "Share my card ↗" on a REAL held card — first chance is the Jul 14 semifinal card during rehearsal.
