@@ -182,8 +182,12 @@ export class BullMachineClient {
   private storeSessionKey(kp: Keypair): void {
     localStorage.setItem(skStoreKey(this.player), Buffer.from(kp.secretKey).toString("base64"));
   }
+  /** Compare-and-delete: never evict a NEWER key stored by another instance/tab. */
   private dropSessionKey(): void {
-    localStorage.removeItem(skStoreKey(this.player));
+    const mine = this.sessionKey ? Buffer.from(this.sessionKey.secretKey).toString("base64") : null;
+    if (mine !== null && localStorage.getItem(skStoreKey(this.player)) === mine) {
+      localStorage.removeItem(skStoreKey(this.player));
+    }
     this.sessionKey = null;
   }
 
@@ -212,12 +216,14 @@ export class BullMachineClient {
     if (this.er) return this.er;
     const session = sessionPda(this.player).toBase58();
     for (let tries = 0; tries < 20; tries++) {
-      const resp = await fetch(`${ROUTER}/getDelegationStatus`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [session] }),
-      });
-      const fqdn = (await resp.json())?.result?.fqdn as string | undefined;
-      if (fqdn) { this.er = new Connection(fqdn, "confirmed"); return this.er; }
+      try {
+        const resp = await fetch(`${ROUTER}/getDelegationStatus`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getDelegationStatus", params: [session] }),
+        });
+        const fqdn = (await resp.json())?.result?.fqdn as string | undefined;
+        if (fqdn) { this.er = new Connection(fqdn, "confirmed"); return this.er; }
+      } catch { /* router blip — count as a miss, not fatal */ }
       await sleep(500);
     }
     throw new Error("MagicBlock router reports no ER delegation for this session");
@@ -258,6 +264,22 @@ export class BullMachineClient {
         session: sessionPda(this.player), player: this.player,
       }).instruction());
     }
+    // Rescue leftovers on a previously stored key (failed sweep / abandoned open)
+    // before storeSessionKey overwrites it. Safe: the live-session gate above
+    // guarantees any stored key belongs to a spent session. Best-effort — a
+    // failed rescue never blocks opening (the key is then overwritten below).
+    try {
+      const priorRaw = localStorage.getItem(skStoreKey(this.player));
+      if (priorRaw) {
+        const prior = Keypair.fromSecretKey(Buffer.from(priorRaw, "base64"));
+        const priorBal = await withRetry(() => connection.getBalance(prior.publicKey, "confirmed"), "prior-key balance");
+        if (priorBal > 1_000_000) {
+          await sendLocal(connection, [SystemProgram.transfer({
+            fromPubkey: prior.publicKey, toPubkey: this.player, lamports: priorBal - 5_000,
+          })], [prior], "sweep prior session key");
+        }
+      }
+    } catch { /* opening proceeds regardless */ }
     const sk = Keypair.generate();
     this.storeSessionKey(sk); // persist BEFORE funds move — reload-safe recovery
     const session = sessionPda(this.player);
@@ -285,7 +307,9 @@ export class BullMachineClient {
     const sig = await this.signAndSend(tx);
     this.sessionKey = sk;
     this.er = null; // fresh delegation → rediscover the ER node
-    await this.ensureEr();
+    // Warm-up only: funds moved, the open SUCCEEDED. If the router lags past
+    // the retry budget, spin/fetchState rediscover the ER node on demand.
+    try { await this.ensureEr(); } catch { /* discovery self-heals later */ }
     return sig;
   }
 
@@ -294,6 +318,9 @@ export class BullMachineClient {
     if (!this.sessionKey) throw new Error("no session key held — open a session first");
     const er = await this.ensureEr();
     const before = await this.rawSession(er);
+    // Without a trustworthy before-snapshot the new slot can be mis-attributed
+    // (and the WRONG bull revealed). Nothing has been sent yet — bail out.
+    if (!before) throw new Error("could not read the session on the ER — try again");
     const ix = new TransactionInstruction({
       programId: BULL_PROGRAM_ID,
       keys: [ // frozen DoSpin order, devnet-proven
@@ -312,7 +339,7 @@ export class BullMachineClient {
     const after = await this.rawSession(er);
     if (!after) throw new Error("session unreadable on the ER after spin");
     const i = after.data.spins.findIndex((sp, k) =>
-      sp.status !== STATUS.EMPTY && (before?.data.spins[k]?.status ?? STATUS.EMPTY) === STATUS.EMPTY);
+      sp.status !== STATUS.EMPTY && before.data.spins[k].status === STATUS.EMPTY);
     if (i < 0) throw new Error("could not identify the new spin slot");
     return i;
   }
