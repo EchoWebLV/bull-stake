@@ -37,10 +37,10 @@ describe("PDAs", () => {
   it("derives stable addresses off the vendored program id", () => {
     expect(BULL_PROGRAM_ID.toBase58()).toBe("CHRm6pgBYXHSW1xWYT8YKNfKXhM1LorGm2yMKxLdQy6i");
     const player = new PublicKey("J7yZbEoQW6gqapBnKH9r5NZdus3j1t8j3vmrGUGxzxu7");
-    // snapshot-style: any accidental seed change breaks these
-    expect(configPda().toBase58()).toBe(configPda().toBase58());
-    expect(sessionPda(player).equals(sessionPda(player))).toBe(true);
-    expect(claimPda([1, 2, 3, 4, 5, 6, 7, 8, 9]).equals(claimPda([1, 2, 3, 4, 5, 6, 7, 8, 9]))).toBe(true);
+    // pinned snapshots: any accidental seed change breaks these
+    expect(configPda().toBase58()).toBe("5ZucyRt5Rh5Dmgv61rqm3t1iCh5wKZUyNSFPgt66EkDa");
+    expect(sessionPda(player).toBase58()).toBe("79ae9p7aQvGKTnQZMBujgXeW3Tkico3Mhv5Us7Turzz8");
+    expect(claimPda([1, 2, 3, 4, 5, 6, 7, 8, 9]).toBase58()).toBe("CjYTQfutYx4ErzaccNbtLr9e88Ku3Rf8Eag6uBa75TVC");
     expect(sessionPda(player).equals(configPda())).toBe(false);
   });
 });
