@@ -1422,3 +1422,28 @@ input:focus { outline: none; border-color: var(--ink); box-shadow: var(--sh); }
   text-align: center; font-weight: 700; font-size: 12.5px; background: var(--card-2);
   border: 2px solid var(--ink); border-radius: 10px; padding: 9px; margin: 12px 0 10px;
 }
+
+/* ── Bull Machine overlay (hand-drawn) ─────────────────────────────── */
+.bullm-backdrop{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:18px}
+.bullm{width:100%;max-width:380px;max-height:92vh;overflow-y:auto;background:var(--bg,#17131b);border:3px solid currentColor;border-radius:18px;padding:14px;box-shadow:6px 6px 0 #000}
+.bullm-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.bullm-title{font-size:20px;font-weight:800;flex:1}
+.bullm-x{margin-left:auto;background:none;border:2px solid currentColor;border-radius:9px;color:inherit;padding:3px 9px;cursor:pointer}
+.bullm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:12px}
+.bullm-cell{aspect-ratio:1;border:2.5px solid currentColor;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.04)}
+.bullm-cell img{width:100%;height:100%;object-fit:cover;display:block}
+.bullm-grid.spinning .bullm-cell img{filter:blur(1px)}
+.bullm-panel{display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center}
+.bullm-copy{font-size:13.5px;line-height:1.45;opacity:.92}
+.bullm-err{color:#e2564d}
+.bullm-nrow{display:flex;gap:8px}
+.bullm-n{border:2.5px solid currentColor;border-radius:11px;background:none;color:inherit;font-weight:800;padding:7px 13px;cursor:pointer}
+.bullm-n.on{background:#f5e33d;color:#17130f}
+.bullm-cta{width:100%}
+.bullm-lever{width:110px;height:110px;border-radius:50%;border:3px solid currentColor;background:#e59be0;color:#17130f;font-size:19px;font-weight:900;cursor:pointer;box-shadow:4px 4px 0 #000}
+.bullm-lever:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+.bullm-reveal{width:200px;border:3px solid currentColor;border-radius:14px;box-shadow:4px 4px 0 #000}
+.bullm-mints{display:flex;flex-direction:column;gap:12px;width:100%}
+.bullm-mint{display:flex;flex-direction:column;gap:7px;align-items:center}
+.bullm-mint img{width:160px;border:3px solid currentColor;border-radius:12px}
+.bullm-fine{font-size:11px;opacity:.6}
