@@ -12,7 +12,11 @@ const notify = () => { for (const cb of subs) cb(); };
 export function getPfp(address: string): Pfp | null {
   const raw = localStorage.getItem(key(address));
   if (!raw) return null;
-  try { return JSON.parse(raw) as Pfp; } catch { return null; }
+  try {
+    const v = JSON.parse(raw) as Pfp;
+    // Corrupt/foreign storage self-heals to the mascot fallback.
+    return typeof v.asset === "string" && Array.isArray(v.traits) ? v : null;
+  } catch { return null; }
 }
 
 export function setPfp(address: string, pfp: Pfp): void {
