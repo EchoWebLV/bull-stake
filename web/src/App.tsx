@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import "./App.css";
 import { LoginBar } from "./components/LoginBar.tsx";
 import { BetsView } from "./components/BetsView.tsx";
@@ -35,18 +35,39 @@ const IS_TEST_PAGE = window.location.pathname.startsWith("/test");
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("live");
+  // Lazy keep-alive. A tab mounts on first visit and then STAYS mounted (hidden
+  // via display:none when inactive) so its loaded data + poll loops survive tab
+  // switches — no reload flash, and the slow on-chain /api/card scan (~4.5s) is
+  // paid once, not every time you re-open Pearly. Views take `active` and only
+  // poll while they're the visible tab, so backgrounded panes stay quiet and
+  // don't pile requests on the engine (which would slow the active tab).
+  const [seen, setSeen] = useState<Set<Tab>>(() => new Set<Tab>(["live"]));
+
+  function go(t: Tab) {
+    setTab(t);
+    setSeen((s) => (s.has(t) ? s : new Set(s).add(t)));
+  }
+
+  function pane(t: Tab, node: ReactNode) {
+    if (!seen.has(t)) return null; // not visited yet — don't mount / fetch
+    return (
+      <div className="pane" style={{ display: t === tab ? undefined : "none" }}>
+        {node}
+      </div>
+    );
+  }
 
   return (
     <div className="app">
       <LoginBar />
 
-      {tab === "live" && <LiveMatchView test={IS_TEST_PAGE} onGoPearly={() => setTab("sweepstake")} />}
-      {tab === "sweepstake" && <PearlyView onGoLive={() => setTab("live")} />}
-      {tab === "markets" && <MarketLinesView />}
-      {tab === "bets" && <BetsView />}
-      {tab === "wallet" && <WalletView />}
+      {pane("live", <LiveMatchView test={IS_TEST_PAGE} active={tab === "live"} onGoPearly={() => go("sweepstake")} />)}
+      {pane("sweepstake", <PearlyView active={tab === "sweepstake"} onGoLive={() => go("live")} />)}
+      {pane("markets", <MarketLinesView />)}
+      {pane("bets", <BetsView active={tab === "bets"} />)}
+      {pane("wallet", <WalletView active={tab === "wallet"} />)}
 
-      <BottomNav tab={tab} onChange={setTab} />
+      <BottomNav tab={tab} onChange={go} />
     </div>
   );
 }

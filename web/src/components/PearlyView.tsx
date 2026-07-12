@@ -3,7 +3,7 @@ import { usePrivy, useLogin } from "@privy-io/react-auth";
 import { usePrivySigner } from "../hooks/usePrivySigner.ts";
 import { buildEnterTx, buildClaimContestTx } from "../lib/anchorClient.ts";
 import {
-  getCard, getContestLive, getContestEntries,
+  getCard, getContestEntries,
   type Card, type ContestEntry,
 } from "../lib/api.ts";
 import { SOL, fmtSol } from "../lib/odds.ts";
@@ -11,7 +11,10 @@ import {
   mapPearlyCard, walletHoldsCard, type PearlyCardVM, type PearlyLegVM, type PearlyLegState,
 } from "../lib/pearlyCard.ts";
 import { snapshotForAlerts, diffCardAlerts, type AlertSnapshot, type PearlyAlert } from "../lib/pearlyAlerts.ts";
+import { buildTicketModel } from "../lib/pearlyTicket.ts";
+import { shareTicketPng } from "../lib/ticketCanvas.ts";
 import { notificationsSupported, notificationsEnabled, requestNotifications, pushNotifications } from "../lib/notify.ts";
+import { flagUrl, teamInitials } from "../lib/flags.ts";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Streak — 🃏 The Daily Pearly (spec: docs/superpowers/specs/
@@ -40,13 +43,14 @@ function legChip(state: PearlyLegState): { icon: string; label: string; tone: st
     case "open": return { icon: "⏳", label: "open", tone: "neutral" };
     case "locked": return { icon: "🔒", label: "locked", tone: "neutral" };
     case "live": return { icon: "🔒", label: "locked · in play", tone: "warn" };
+    case "final": return { icon: "🏁", label: "final · settling", tone: "neutral" };
     case "won": return { icon: "✓", label: "hit", tone: "good" };
     case "lost": return { icon: "✗", label: "dead", tone: "bad" };
     case "voided": return { icon: "∅", label: "voided", tone: "neutral" };
   }
 }
 
-export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
+export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void; active?: boolean } = {}) {
   const { ready, authenticated } = usePrivy();
   const { login } = useLogin();
   const { address, signAndSend } = usePrivySigner();
@@ -56,6 +60,7 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
   const [entry, setEntry] = useState<ContestEntry>(); // nonce-0 entry (claimable/payout live here)
   const [picks, setPicks] = useState<Record<number, number>>({}); // picker draft: legIndex → bucket
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [msg, setMsg] = useState<string>();
   const [msgErr, setMsgErr] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -90,33 +95,32 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
   function flash(t: string, err = false) { setMsg(t); setMsgErr(err); }
 
   async function refresh() {
+    // The card gates the whole view (picker vs. HUD), so paint it the instant it
+    // lands. Per-leg won/lost now rides ON the card itself — each leg carries its
+    // own `winningBucket` (the engine's readLegWinningBuckets: Settled OR
+    // voided-with-bucket, the SAME source as myCard.alive), so a leg's chip and
+    // the card's alive/dead state can never disagree. This replaces the old
+    // /api/contest/live join, whose contest-level winning_buckets stay null until
+    // the WHOLE card settles — which left a provably-dead leg reading "in play".
     const c = await getCard(address ?? undefined).catch(() => undefined);
     if (c === undefined) return; // transient fetch failure — keep the last good state on screen
     setCard(c);
     if (!c) { setWinningBuckets([]); setEntry(undefined); return; }
+    setWinningBuckets(c.legs.map((l) => l.winningBucket ?? null));
 
-    // Per-leg winning buckets: /api/card's own leg DTOs don't carry one (see
-    // pearlyCard.ts's mapPearlyCard doc comment) — join against
-    // /api/contest/live by contestId, same as SweepstakeView.tsx. Best-effort:
-    // a hiccup here just means legs read "live" instead of hit/dead until the
-    // next poll, never a crash.
-    try {
-      const lives = await getContestLive();
-      const live = lives.find((l) => l.contestId === c.contestId);
-      setWinningBuckets(live ? live.legs.map((l) => l.winningBucket) : []);
-    } catch { setWinningBuckets([]); }
-
+    // Wallet's chain entry (the picker cross-check / claim source) — fold in
+    // whenever it lands; it never gates the card render.
     if (address) {
-      try {
-        const es = await getContestEntries(address, c.contestId);
-        setEntry(es.find((e) => e.nonce === PEARLY_NONCE));
-      } catch { setEntry(undefined); }
+      getContestEntries(address, c.contestId)
+        .then((es) => setEntry(es.find((e) => e.nonce === PEARLY_NONCE)))
+        .catch(() => setEntry(undefined));
     } else {
       setEntry(undefined);
     }
   }
 
   useEffect(() => {
+    if (!active) return; // backgrounded tab: keep last data, stop polling the slow scan
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
@@ -129,11 +133,16 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
       // below), instead of sitting on the slower steady-state cadence.
       timer = setTimeout(tick, confirmingEntry ? CONFIRM_POLL_MS : POLL_MS);
     };
-    tick();
+    tick(); // re-activating a mounted tab refreshes immediately, then resumes polling
     return () => { alive = false; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, confirmingEntry]);
-  useEffect(() => { const t = setInterval(() => setNowMs(Date.now()), 15_000); return () => clearInterval(t); }, []);
+  }, [address, confirmingEntry, active]);
+  useEffect(() => {
+    if (!active) return;
+    setNowMs(Date.now()); // resync time-based labels the moment the tab is shown
+    const t = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, [active]);
 
   const vm = mapPearlyCard(card ?? null, card?.myCard, nowMs, winningBuckets);
 
@@ -182,14 +191,14 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertSnapKey]);
 
-  if (card === undefined || !ready) return <div className="card empty-card">Loading today's Pearly…</div>;
+  if (card === undefined || !ready) return <div className="card empty-card">Loading today's Sweep…</div>;
 
   // ── Empty: no card composed today ─────────────────────────────────────────
   if (vm.empty) {
     return (
       <div className="card empty-card">
         <div style={{ fontSize: 28, marginBottom: 8 }}>🃏</div>
-        No Pearly card today yet — the next card composes at 08:00 UTC. Check back soon.
+        No Sweep card today yet — the next card composes at 08:00 UTC. Check back soon.
       </div>
     );
   }
@@ -248,6 +257,25 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
 
   // 🔔 toggle: requestNotifications resolves immediately (no prompt) when the
   // permission is already granted/denied, so the await stays gesture-safe.
+  async function onShare() {
+    // effectiveVm can be null pre-first-confirmed-poll; buildTicketModel also
+    // returns null for any state without a held card — both mean no ticket.
+    const model = effectiveVm ? buildTicketModel(effectiveVm, { nowMs, wallet: address }) : null;
+    if (!model) return;
+    setSharing(true);
+    try {
+      const how = await shareTicketPng(model);
+      if (how === "clipboard") flash("Ticket copied — paste it anywhere.");
+      else if (how === "download") flash("Ticket saved.");
+      else if (how === "share") flash("Shared 🐂");
+      // "cancelled": user closed the share sheet — stay quiet.
+    } catch (e) {
+      flash(`Share failed: ${(e as Error).message}`, true);
+    } finally {
+      setSharing(false);
+    }
+  }
+
   async function onToggleAlerts() {
     const ok = await requestNotifications();
     setAlertsOn(ok);
@@ -259,6 +287,7 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
     return (
       <SettledCard
         card={card!} vm={effectiveVm} entry={entry} busy={busy} onClaim={onClaim}
+        onShare={onShare} sharing={sharing}
         msg={msg} msgErr={msgErr}
       />
     );
@@ -270,7 +299,7 @@ export function PearlyView({ onGoLive }: { onGoLive?: () => void } = {}) {
       <MyCardHud
         card={card!} vm={effectiveVm} msg={msg} msgErr={msgErr}
         alerts={alerts} alertsOn={alertsOn} onToggleAlerts={onToggleAlerts}
-        onGoLive={onGoLive}
+        onGoLive={onGoLive} onShare={onShare} sharing={sharing}
       />
     );
   }
@@ -315,40 +344,45 @@ function PickerCard({
   // 1:1 order — see mapPearlyCard's doc comment) — track "made" only against
   // PICKABLE indices, since a locked leg is disabled and can never receive a
   // pick, so it must never count toward (or block) the "all picked" gate.
+  const [info, setInfo] = useState(false);
   const pickableIdx = vm.legs.reduce<number[]>((acc, l, i) => (l.pickable ? [...acc, i] : acc), []);
   const made = pickableIdx.filter((i) => picks[i] != null).length;
   const priceSol = fmtSol(card.entryPrice);
   const entriesClosed = !vm.entriesOpen;
 
+  // Group legs by match (fixture) so a match with several markets is ONE card,
+  // not N stacked boxes. Original leg index is preserved for picks/onPick.
+  const groups: MatchGroupVM[] = [];
+  vm.legs.forEach((leg, i) => {
+    let g = groups.find((x) => x.fixtureId === leg.fixtureId);
+    if (!g) {
+      g = { fixtureId: leg.fixtureId, home: leg.home, away: leg.away, kickoffText: leg.kickoffText, markets: [] };
+      groups.push(g);
+    }
+    g.markets.push({ leg, idx: i });
+  });
+
   return (
     <div className="pearly">
-      <div className="pearly-lobby">
-        <div className="pl-tag">The Daily Pearly</div>
-        <div className="pl-h">Every match.<br />One perfect card.</div>
-        <div className="pl-sub">Pick all six legs. Perfect cards split the pot — <b className="pl-gold">bigger multiplier, bigger share</b>.</div>
-        <div className="pl-weightrow">
-          <span className="pl-schip pl-now">enter now · {pickableIdx.length} legs · <b>{vm.weightPreviewLabel}</b></span>
-          <span className="pl-schip">🚫 <b>no buy-backs</b> · one card a day</span>
-        </div>
-        <div className="pl-explainer">Every leg still open doubles your prize. Join early, carry more legs, win bigger.</div>
-        <div className="pl-fine">
-          entries open all day (min 3 open legs) — each leg locks at its own kickoff<br />
-          <b className="pl-acc">perfect or nothing:</b> no perfect card → the whole pot rolls to tomorrow<br />
-          🏆 pot {vm.potText}{vm.potRolledText ? ` · ${vm.potRolledText}` : ""} · {vm.aliveText} cards in
-        </div>
+      <div className="pearly-head">
+        <div className="ph-title">The Daily Sweep</div>
+        <button className="ph-info" aria-label="How the Daily Sweep works" onClick={() => setInfo(true)}>i</button>
+      </div>
+      <div className="pearly-stats">
+        <div className="ps"><b>{vm.potText}</b><span>pot{vm.potRolledText ? " · rolled" : ""}</span></div>
+        <div className="ps"><b>{vm.weightPreviewLabel}</b><span>multiplier</span></div>
+        <div className="ps"><b>{pickableIdx.length}</b><span>open legs</span></div>
       </div>
 
       {entriesClosed && (
         <div className="pearly-closed-note">Entries have closed for today's card — fewer than 3 legs remain open.</div>
       )}
 
-      {vm.legs.map((leg, i) => (
-        <PickerLegRow
-          key={`${leg.fixtureId}-${i}`}
-          leg={leg} legIdx={i} pick={picks[i]}
-          onPick={(bucket) => onPick(i, bucket)}
-        />
+      {groups.map((g) => (
+        <MatchGroup key={g.fixtureId} group={g} picks={picks} onPick={onPick} />
       ))}
+
+      {info && <PearlyInfoModal vm={vm} openLegs={pickableIdx.length} onClose={() => setInfo(false)} />}
 
       <div className="pearly-enterbar">
         <button
@@ -361,7 +395,7 @@ function PickerCard({
             : !address ? "Log in to play"
             : entriesClosed ? "Entries closed"
             : made < pickableIdx.length ? `Pick all ${pickableIdx.length} legs to enter (${made}/${pickableIdx.length})`
-            : `Enter the Pearly · ${priceSol} ${SOL} · full card ${vm.weightPreviewLabel}`}
+            : `Enter the Sweep · ${priceSol} ${SOL} · full card ${vm.weightPreviewLabel}`}
         </button>
       </div>
       {!authenticated && !address && (
@@ -373,30 +407,96 @@ function PickerCard({
   );
 }
 
-function PickerLegRow({
-  leg, legIdx, pick, onPick,
-}: { leg: PearlyLegVM; legIdx: number; pick: number | undefined; onPick: (bucket: number) => void }) {
-  const chip = legChip(leg.state);
+// One match = one card with all its markets inside (legs sharing a fixtureId).
+interface MatchGroupVM {
+  fixtureId: number;
+  home: string;
+  away: string;
+  kickoffText: string;
+  markets: { leg: PearlyLegVM; idx: number }[];
+}
+
+/** A team crest: real flag when we have one, else an initials blob. */
+function TeamFlag({ name }: { name: string }) {
+  const url = flagUrl(name);
+  if (url) return <img className="pm-flag" src={url} alt="" aria-hidden="true" />;
+  return <span className="pm-flag pm-flag-blob" aria-hidden="true">{teamInitials(name)}</span>;
+}
+
+/** Flag for a 3-way result option (bucket 0 = home, 2 = away); null otherwise. */
+function optionFlag(leg: PearlyLegVM, bucket: number): string | null {
+  if (leg.buckets !== 3) return null;
+  if (bucket === 0) return flagUrl(leg.home);
+  if (bucket === 2) return flagUrl(leg.away);
+  return null;
+}
+
+function MatchGroup({ group, picks, onPick }: {
+  group: MatchGroupVM; picks: Record<number, number>; onPick: (legIdx: number, bucket: number) => void;
+}) {
   return (
-    <div className={`pleg${leg.pickable ? "" : " pleg-locked"}`}>
-      <div className="pleg-h1">
-        <span className="pleg-m">{leg.matchLabel}</span>
-        <span className="pleg-ko">{leg.kickoffText ? `KO ${leg.kickoffText}` : ""}</span>
-        <span className={`pleg-st tone-${chip.tone}`}>leg {legIdx + 1}{leg.pickable ? "" : " · already kicked off — not on your card"}</span>
+    <div className="pmatch">
+      {group.kickoffText && <span className="pm-ko">KO {group.kickoffText}</span>}
+      <div className="pmatch-h">
+        <div className="pm-team"><TeamFlag name={group.home} /><span className="pm-name">{group.home}</span></div>
+        <span className="pm-vs">v</span>
+        <div className="pm-team pm-away"><span className="pm-name">{group.away || "TBD"}</span><TeamFlag name={group.away} /></div>
       </div>
-      <div className="pleg-q">{leg.marketLabel}</div>
-      <div className="pleg-opts">
-        {leg.options.map((o) => (
-          <button
-            key={o.bucket}
-            className={`plopt${pick === o.bucket ? " sel" : ""}`}
-            disabled={!leg.pickable}
-            aria-pressed={pick === o.bucket}
-            onClick={() => onPick(o.bucket)}
-          >
-            {o.label}
-          </button>
-        ))}
+      {group.markets.map(({ leg, idx }) => (
+        <MarketRow key={idx} leg={leg} pick={picks[idx]} onPick={(b) => onPick(idx, b)} />
+      ))}
+    </div>
+  );
+}
+
+function MarketRow({ leg, pick, onPick }: {
+  leg: PearlyLegVM; pick: number | undefined; onPick: (bucket: number) => void;
+}) {
+  return (
+    <div className={`pmkt${leg.pickable ? "" : " pmkt-locked"}`}>
+      <div className="pmkt-q">
+        <span>{leg.marketLabel}</span>
+        {!leg.pickable && <span className="pmkt-lock">🔒 kicked off</span>}
+      </div>
+      <div className="pmkt-opts">
+        {leg.options.map((o) => {
+          const fl = optionFlag(leg, o.bucket);
+          return (
+            <button
+              key={o.bucket}
+              className={`popt${pick === o.bucket ? " sel" : ""}`}
+              disabled={!leg.pickable}
+              aria-pressed={pick === o.bucket}
+              onClick={() => onPick(o.bucket)}
+            >
+              {fl && <img className="popt-fl" src={fl} alt="" aria-hidden="true" />}
+              <span>{o.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** The rules/how-it-works, tucked behind the (i) button so the picker stays clean. */
+function PearlyInfoModal({ vm, openLegs, onClose }: {
+  vm: PearlyCardVM; openLegs: number; onClose: () => void;
+}) {
+  return (
+    <div className="pl-modal" role="dialog" aria-modal="true" aria-label="How the Daily Sweep works" onClick={onClose}>
+      <div className="pl-modal-card" onClick={(e) => e.stopPropagation()}>
+        <button className="pl-modal-x" aria-label="Close" onClick={onClose}>✕</button>
+        <div className="pl-h">Every match.<br />One perfect card.</div>
+        <p className="pl-sub">Pick a leg on the matches you fancy. <b>Perfect cards split the pot</b> — bigger multiplier, bigger share.</p>
+        <ul className="pl-rules">
+          <li>Enter any time while at least <b>3 legs</b> are still open ({openLegs} open now). Each leg locks at its own kickoff.</li>
+          <li>Every leg still open when you join <b>doubles your prize</b> — join early, carry more, win bigger.</li>
+          <li>🚫 <b>No buy-backs.</b> One card a day.</li>
+          <li><b>Perfect or nothing:</b> no perfect card → the whole pot rolls to tomorrow.</li>
+        </ul>
+        <div className="pl-modal-pot">🏆 pot {vm.potText}{vm.potRolledText ? ` · ${vm.potRolledText}` : ""} · {vm.aliveText} cards in</div>
+        <div className="card-foot"><span className="dia">◆</span> Settled on-chain · TxLINE proofs</div>
       </div>
     </div>
   );
@@ -404,9 +504,10 @@ function PickerLegRow({
 
 // ── My-card HUD (entered — alive or dead-spectating; mockup 17 #hud) ───────
 
-function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, onGoLive }: {
+function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, onGoLive, onShare, sharing }: {
   card: Card; vm: PearlyCardVM; msg: string | undefined; msgErr: boolean;
   alerts: PearlyAlert[]; alertsOn: boolean; onToggleAlerts: () => void; onGoLive?: () => void;
+  onShare: () => void; sharing: boolean;
 }) {
   const dead = vm.myCardState === "dead";
   return (
@@ -475,6 +576,10 @@ function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, on
         <MyCardLegRow key={`${leg.fixtureId}-${i}`} leg={leg} />
       ))}
 
+      <button className="pl-share" disabled={sharing} onClick={onShare} aria-busy={sharing}>
+        {sharing ? "…" : "Share my card ↗"}
+      </button>
+
       {vm.canEdit && (
         <div className="pl-hint">You can still edit your card — no carried leg has kicked off yet.</div>
       )}
@@ -512,10 +617,11 @@ function bucketLabelSafe(leg: PearlyLegVM, bucket: number): string {
 // ── Settled: perfect (claim) or rollover (mockup 17 #over) ─────────────────
 
 function SettledCard({
-  card, vm, entry, busy, onClaim, msg, msgErr,
+  card, vm, entry, busy, onClaim, onShare, sharing, msg, msgErr,
 }: {
   card: Card; vm: PearlyCardVM; entry: ContestEntry | undefined; busy: boolean;
-  onClaim: () => void; msg: string | undefined; msgErr: boolean;
+  onClaim: () => void; onShare: () => void; sharing: boolean;
+  msg: string | undefined; msgErr: boolean;
 }) {
   const perfect = vm.myCardState === "settled-won";
   const rolledOver = card.status === "rolledOver";
@@ -528,7 +634,7 @@ function SettledCard({
           <div className="pearly-roll-sub">
             {rolledOver
               ? `The whole pot (${vm.potText}) rolls into tomorrow's jackpot.`
-              : "Today's Pearly has settled. You sat this one out."}
+              : "Today's Sweep has settled. You sat this one out."}
           </div>
         </div>
         <div className="pl-hint">Next card composes at 08:00 UTC.</div>
@@ -566,6 +672,10 @@ function SettledCard({
       ) : perfect ? (
         <div className="cta-sub" style={{ marginTop: 14 }}>Payout claimed.</div>
       ) : null}
+
+      <button className="pl-share" disabled={sharing} onClick={onShare} aria-busy={sharing}>
+        {sharing ? "…" : perfect ? "Share the perfect card ↗" : "Share my card ↗"}
+      </button>
       {msg && <p className={`msg ${msgErr ? "err" : ""}`} role="status" aria-live="polite">{msg}</p>}
       <div className="card-foot"><span className="dia">◆</span> Settled on-chain · TxLINE proofs</div>
     </div>

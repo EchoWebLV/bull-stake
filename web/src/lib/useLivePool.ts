@@ -24,8 +24,9 @@ export interface LivePoolState {
   refresh: () => Promise<void>;
 }
 
-/** `test=true` polls the TEST audience (/api/live/next?test=1 — the /test page). */
-export function useLivePool(wallet: string | null, test = false): LivePoolState {
+/** `test=true` polls the TEST audience (/api/live/next?test=1 — the /test page).
+ *  `active=false` keeps the last state but pauses polling (backgrounded tab). */
+export function useLivePool(wallet: string | null, test = false, active = true): LivePoolState {
   const [state, setState] = useState<Omit<LivePoolState, "refresh">>({
     loading: true, data: null, entry: null,
   });
@@ -63,6 +64,7 @@ export function useLivePool(wallet: string | null, test = false): LivePoolState 
   }, [wallet, test]);
 
   useEffect(() => {
+    if (!active) return; // backgrounded: hold the last state, stop polling
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
@@ -71,9 +73,9 @@ export function useLivePool(wallet: string | null, test = false): LivePoolState 
       if (!alive) return;
       timer = setTimeout(tick, lastHadPool.current ? POLL_POOL_MS : POLL_IDLE_MS);
     };
-    tick();
+    tick(); // re-activating refreshes immediately, then resumes cadence
     return () => { alive = false; clearTimeout(timer); };
-  }, [refresh]);
+  }, [refresh, active]);
 
   return { ...state, refresh };
 }

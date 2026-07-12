@@ -63,18 +63,24 @@ describe("legState", () => {
     expect(legState(l, NOW, 0, false, 2)).toBe("lost");
   });
 
-  it("stays 'live' at full-time when winningBucket isn't known yet (settle lags FT)", () => {
+  it("is 'final' (match over, not 'in play') at full-time when winningBucket isn't known yet (settle lags FT)", () => {
     const l = leg({ lockTs: NOW - 10, live: { home: 2, away: 0, minute: null, phase: "ft" } });
-    expect(legState(l, NOW, 0, false, null)).toBe("live");
+    expect(legState(l, NOW, 0, false, null)).toBe("final");
   });
 
   it("is 'voided' when the card status is voided, overriding any other state", () => {
     expect(legState(leg({ lockTs: NOW - 10 }), NOW, 0, true, null)).toBe("voided");
   });
 
+  it("resolves won/lost from a known winningBucket even when the live feed still says 'live' (on-chain wins over feed lag)", () => {
+    const l = leg({ lockTs: NOW - 10, live: { home: 0, away: 1, minute: 90, phase: "live" } });
+    expect(legState(l, NOW, 0, false, 2)).toBe("lost"); // pick 0 ≠ resolved 2, despite phase "live"
+    expect(legState(l, NOW, 2, false, 2)).toBe("won");
+  });
+
   it("with no pick given (picker view), full-time+winningBucket still isn't won/lost", () => {
     const l = leg({ lockTs: NOW - 10, live: { home: 2, away: 0, minute: null, phase: "ft" } });
-    expect(legState(l, NOW, undefined, false, 0)).toBe("live");
+    expect(legState(l, NOW, undefined, false, 0)).toBe("final");
   });
 });
 
@@ -318,6 +324,12 @@ describe("mapPearlyCard — my-card HUD (entered, alive)", () => {
     const c = card({ entriesCloseTs: NOW + 99999, aliveCount: undefined });
     const vm = mapPearlyCard(c, null, NOW_MS);
     expect(vm.aliveText).toBe("—");
+  });
+
+  it("exposes each leg's marketId on the VM (ticket + chaos badge consumers)", () => {
+    const c = card({ legs: [leg({ marketId: 12 }), leg({ marketId: 17, buckets: 2 })] });
+    const vm = mapPearlyCard(c, null, NOW_MS);
+    expect(vm.legs.map((l) => l.marketId)).toEqual([12, 17]);
   });
 });
 

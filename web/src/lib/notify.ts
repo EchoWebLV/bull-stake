@@ -26,7 +26,7 @@ export function pushNotifications(alerts: PearlyAlert[]): void {
   if (!notificationsEnabled() || document.visibilityState !== "hidden") return;
   for (const a of alerts) {
     try {
-      new Notification("Streak · Daily Pearly", { body: a.text, tag: a.id, icon: "/pwa-192x192.png" });
+      new Notification("Bull Stake · Daily Sweep", { body: a.text, tag: a.id, icon: "/pwa-192x192.png" });
     } catch {
       // Android Chrome / iOS throw "Illegal constructor" in page context
       // (notifications are SW-only there) — mobile gets native push only when

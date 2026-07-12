@@ -37,7 +37,7 @@ const LAMPORTS = 1_000_000_000;
  *  1 = No, per engine/src/markets.ts RED_CARD_DEF. Every other 2-bucket market
  *  (goals/corners/cards O/U) reads Over/Under; every 3-bucket market reads
  *  home team / Draw / away team. */
-const CHAOS_MARKET_ID = 17;
+export const CHAOS_MARKET_ID = 17;
 
 /** Label for one bucket of a leg's pick options, sensitive to the leg's market
  *  shape: 3-way Result → team names + Draw; the chaos Y/N leg → Yes/No; every
@@ -50,18 +50,23 @@ export function bucketLabel(leg: CardLeg, bucket: number): string {
 
 // ── per-leg state (open / locked / live / won / lost / voided) ─────────────
 
-export type PearlyLegState = "open" | "locked" | "live" | "won" | "lost" | "voided";
+export type PearlyLegState = "open" | "locked" | "live" | "final" | "won" | "lost" | "voided";
 
 /**
- * A leg's current state, derived (never stored): `voided` overrides everything
- * (the whole card voids together — §3, no per-leg void this cycle); then a live
- * block with phase live/ht wins (the fixture is actually playing); FT resolves
- * to won/lost ONLY once `winningBucket` is known (settle can lag kickoff's FT
- * event by the keeper's settle-wave cadence — an unresolved FT reads as `live`,
- * never a silently-wrong `lost`); otherwise it's `locked` once past its own
- * `lockTs`, else `open`. Absent `lockTs` (v1 engine) is treated as still open —
- * the caller has no better signal, and false-open is safer than false-locked
- * (which would incorrectly greyed out a pickable leg).
+ * A leg's current state, derived (never stored): `voided` (whole card voids
+ * together — §3, no per-leg void this cycle) overrides everything. Then the
+ * ON-CHAIN RESULT wins: once the leg's own market has resolved (`winningBucket`
+ * known) and we have a pick, it's won/lost — even if the live board still reports
+ * the match "in play", which happens on feed lag or a transient re-read after an
+ * engine restart. The on-chain result is authoritative because settle needs a
+ * final-time proof, so a known bucket means the match IS over regardless of the
+ * feed's phase. Only WITHOUT a known result do we fall back to the live phase:
+ * live/ht → `live` (actually playing); FT → `final` (match OVER, result not on
+ * chain yet — deliberately NOT `live`, so a finished match never reads "in play"
+ * and an unresolved FT never reads a silently-wrong `lost`). Otherwise `locked`
+ * once past its own `lockTs`, else `open`. Absent `lockTs` (v1 engine) is treated
+ * as still open — false-open is safer than false-locked (which would grey out a
+ * pickable leg).
  */
 export function legState(
   leg: CardLeg,
@@ -71,11 +76,11 @@ export function legState(
   winningBucket: number | null = null,
 ): PearlyLegState {
   if (cardVoided) return "voided";
+  // On-chain result beats the live feed's phase (see doc): a resolved leg is
+  // won/lost even if the board still says "live".
+  if (winningBucket != null && pick != null) return pick === winningBucket ? "won" : "lost";
   if (leg.live && (leg.live.phase === "live" || leg.live.phase === "ht")) return "live";
-  if (leg.live?.phase === "ft") {
-    if (winningBucket == null || pick == null) return "live"; // FT reached, settle hasn't landed yet
-    return pick === winningBucket ? "won" : "lost";
-  }
+  if (leg.live?.phase === "ft") return "final"; // match over; on-chain result not in yet (or no pick)
   const lockTs = leg.lockTs;
   if (lockTs != null && nowSec >= lockTs) return "locked";
   return "open";
@@ -196,6 +201,9 @@ export function walletHoldsCard(chainEntry: unknown, lastKnownMyCard: unknown): 
  *  server shapes past this boundary. */
 export interface PearlyLegVM {
   fixtureId: number;
+  marketId: number;         // catalog market id (17 = the day's chaos leg)
+  home: string;             // home team name (for flags / grouping by match)
+  away: string;             // away team name ("" when unresolved)
   matchLabel: string;       // "Brazil v Spain" or "Brazil" when away is unknown
   marketLabel: string;      // catalog label, e.g. "Total Goals O/U 2.5"
   kickoffText: string;      // local HH:MM, or "" when unknown
@@ -336,6 +344,9 @@ export function mapPearlyCard(
     const options = legOptions(leg);
     return {
       fixtureId: leg.fixtureId,
+      marketId: leg.marketId,
+      home: leg.home,
+      away: leg.away,
       matchLabel: matchLabel(leg),
       marketLabel: leg.label || (leg.buckets === 3 ? "Result" : "O/U"),
       kickoffText: fmtKick(leg.lockTs ?? leg.kickoffTs),

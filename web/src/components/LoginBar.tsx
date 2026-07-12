@@ -13,6 +13,7 @@ export function LoginBar() {
   const { login } = useLogin();
   const address = useSolanaAddress();
   const [copied, setCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   if (!ready) return null;
 
   async function copyAddr() {
@@ -28,28 +29,37 @@ export function LoginBar() {
 
   return (
     <header className="header">
-      <span className="kicker">
-        <span className="dot" /> World Cup companion
-      </span>
       <div className="row">
         <div className="brand">
-          Strea<span className="accent">k</span>
+          Bull Sta<span className="accent">ke</span>
         </div>
         {authenticated ? (
-          <div className="row" style={{ gap: 8 }}>
-            {address && (
-              <button
-                className="btn alt wallet-chip"
-                style={{ width: "auto" }}
-                onClick={copyAddr}
-                title={`Copy ${address}`}
-              >
-                {copied ? "copied!" : `${address.slice(0, 4)}…${address.slice(-4)} ⧉`}
-              </button>
-            )}
-            <button className="btn alt" style={{ width: "auto" }} onClick={logout}>
-              Log out
+          <div className="wallet-wrap">
+            <button
+              className="btn alt wallet-chip"
+              style={{ width: "auto" }}
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              {address ? `${address.slice(0, 4)}…${address.slice(-4)}` : "Wallet"}
+              <span className="wallet-caret" aria-hidden="true">▾</span>
             </button>
+            {menuOpen && (
+              <>
+                <div className="wallet-backdrop" onClick={() => setMenuOpen(false)} />
+                <div className="wallet-menu" role="menu">
+                  {address && (
+                    <button role="menuitem" onClick={copyAddr}>
+                      {copied ? "Copied!" : "Copy address ⧉"}
+                    </button>
+                  )}
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); logout(); }}>
+                    Log out
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <button className="btn" style={{ width: "auto" }} onClick={() => login()}>

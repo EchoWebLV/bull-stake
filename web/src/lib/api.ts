@@ -136,6 +136,11 @@ export interface CardLeg {
    *  time through the day rather than all at once. OPTIONAL: absent on a v1
    *  engine response, which locked every leg together at `Card.lockTs`. */
   lockTs?: number;
+  /** This leg's own on-chain RESULT bucket once resolved — Settled OR a
+   *  voided-with-bucket leg-oracle Market (the SAME source as `aliveCount` /
+   *  `myCard.alive`; see the engine's readLegWinningBuckets). null while the
+   *  leg's match is unresolved; absent on a v1 engine response. */
+  winningBucket?: number | null;
 }
 /** `GET /api/card?wallet=` — the wallet's own entry on today's card. Present
  *  fields mirror the on-chain Entry (see routes.ts's route doc for the full

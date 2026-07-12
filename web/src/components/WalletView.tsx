@@ -6,14 +6,14 @@ import { useSolanaAddress } from "./LoginBar.tsx";
 
 const LAMPORTS = 1_000_000_000;
 
-export function WalletView() {
+export function WalletView({ active = true }: { active?: boolean } = {}) {
   const { logout } = usePrivy();
   const address = useSolanaAddress();
   const [balance, setBalance] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!address) return;
+    if (!address || !active) return; // paused while backgrounded; refreshes on return
     let alive = true;
     const load = () =>
       connection.getBalance(new PublicKey(address))
@@ -22,7 +22,7 @@ export function WalletView() {
     load();
     const id = setInterval(load, 10_000);
     return () => { alive = false; clearInterval(id); };
-  }, [address]);
+  }, [address, active]);
 
   async function copyAddr() {
     if (!address) return;

@@ -36,13 +36,14 @@ const ICONS: Record<Tab, React.ReactNode> = {
   ),
 };
 
-const LABELS: Record<Tab, string> = { live: "Live", sweepstake: "🃏 Pearly", markets: "Market", bets: "My Bets", wallet: "Wallet" };
+const LABELS: Record<Tab, string> = { live: "Live", sweepstake: "Sweep", markets: "Market", bets: "My Bets", wallet: "Wallet" };
 // The `sweepstake` slot (formerly the hidden single-match Parlay) is reborn as
-// 🃏 The Daily Pearly (spec §1/§7) — App.tsx now renders PearlyView.tsx there.
+// The Daily Pearly (spec §1/§7) — App.tsx now renders PearlyView.tsx there.
 // SweepstakeView.tsx itself stays in the tree hidden-not-deleted (unrouted; the
 // old daily-card create cron is paused, DAILY_CARD_CREATE=0) per repo convention.
-// The markets slot is the Beat-the-Market day game.
-const TABS: Tab[] = ["live", "sweepstake", "markets", "bets", "wallet"];
+// `markets` (Beat-the-Market day game) is hidden-not-deleted: pulled from the nav
+// but still routed in App.tsx and reachable if re-added here.
+const TABS: Tab[] = ["live", "sweepstake", "bets", "wallet"];
 
 export function BottomNav({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   return (

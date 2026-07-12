@@ -28,16 +28,19 @@ import { stripForFixture } from "../lib/pearlyStrip.ts";
 /** `test` pins this view to the TEST audience (/test page): only synthetic-fixture
  *  pools are featured there, and the main Live tab never shows them.
  *  `onGoPearly` switches to the Pearly tab (the rides-strip cross-link). */
-export function LiveMatchView({ test = false, onGoPearly }: { test?: boolean; onGoPearly?: () => void } = {}) {
+export function LiveMatchView({ test = false, active = true, onGoPearly }: { test?: boolean; active?: boolean; onGoPearly?: () => void } = {}) {
   const { address, signAndSend, signAndSendEr } = usePrivySigner();
-  const { data, entry, refresh } = useLivePool(address ?? null, test);
+  const { data, entry, refresh } = useLivePool(address ?? null, test, active);
 
-  // Heartbeat: bump nowMs 150ms so the countdown ticks between 2s polls.
+  // Heartbeat: bump nowMs 150ms so the countdown ticks between 2s polls. Paused
+  // while the tab is backgrounded (no point re-rendering a hidden view 7×/s).
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
+    if (!active) return;
+    setNowMs(Date.now());
     const id = setInterval(() => setNowMs(Date.now()), 150);
     return () => clearInterval(id);
-  }, []);
+  }, [active]);
 
   const snap = useMemo(
     () => snapshotFromChain(data, entry, address ?? null, nowMs),
@@ -48,18 +51,20 @@ export function LiveMatchView({ test = false, onGoPearly }: { test?: boolean; on
   const [flashMsg, setFlashMsg] = useState<string>("");
   const flash = (msg: string) => setFlashMsg(msg);
 
-  // Pearly cross-link (spec §1): a slow, independent /api/card poll — tabs are
-  // conditionally mounted, so no card state can be shared with PearlyView. 60s
+  // Pearly cross-link (spec §1): a slow, independent /api/card poll — each tab
+  // keeps its own card state (PearlyView isn't mounted until first visited). 60s
   // is plenty: the strip only names picks; the live scores come from `data`.
+  // Paused while backgrounded so it never competes with the active tab's polls.
   const [pearlyCard, setPearlyCard] = useState<Card | null>(null);
   useEffect(() => {
     if (!address) { setPearlyCard(null); return; }
+    if (!active) return;
     let alive = true;
     const tick = () => { getCard(address).then((c) => { if (alive) setPearlyCard(c); }).catch(() => {}); };
     tick();
     const t = setInterval(tick, 60_000);
     return () => { alive = false; clearInterval(t); };
-  }, [address]);
+  }, [address, active]);
 
   const pool = data?.pool ?? null;
   const openCall = data?.openCall ?? null;
@@ -308,7 +313,7 @@ function PreGameCard({ pre, test, busy, canJoin, loggedIn, onJoin }: {
         </>
       ) : (
         <div className="lg-pre-hint">
-          Join opens {pre.joinOpensTs ? `at ${hm(pre.joinOpensTs * 1000)}` : "45 min before kick-off"}
+          Join opens as soon as the game lines up
         </div>
       )}
     </div>

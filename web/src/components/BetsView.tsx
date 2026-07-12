@@ -125,7 +125,7 @@ function Receipt({ entry, onClaimed }: { entry: HistoryEntry; onClaimed: () => v
   );
 }
 
-export function BetsView() {
+export function BetsView({ active = true }: { active?: boolean } = {}) {
   const address = useSolanaAddress();
   const [entries, setEntries] = useState<HistoryEntry[]>();
   const [err, setErr] = useState(false);
@@ -137,13 +137,15 @@ export function BetsView() {
       .catch(() => setErr(true));
   }, [address]);
 
+  // Clear stale history when the wallet changes (don't flash the old wallet's bets).
+  useEffect(() => { setEntries(undefined); }, [address]);
+
   useEffect(() => {
-    if (!address) return;
-    setEntries(undefined);
+    if (!address || !active) return; // paused while backgrounded; refreshes on return
     load();
     const id = setInterval(load, 15_000);
     return () => clearInterval(id);
-  }, [address, load]);
+  }, [address, active, load]);
 
   if (!address) {
     return (
