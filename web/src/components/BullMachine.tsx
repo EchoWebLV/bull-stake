@@ -19,7 +19,7 @@ type Phase =
   | { k: "rolled"; traits: number[]; img: string; creditsLeft: number }
   | { k: "cashing"; note: string }
   | { k: "done"; mints: MintResult[]; imgs: Record<string, string> }
-  | { k: "error"; msg: string; retry?: () => void };
+  | { k: "error"; msg: string; retry?: () => void; isCashOutRetry?: boolean };
 
 const GRID_CATS = [0, 1, 2, 3, 4, 5, 6, 7, 8]; // 3×3 = first 9 manifest categories
 
@@ -115,9 +115,11 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
     setPhase({ k: "spinning" });
     try {
       const traits = await client.pollRolled(slot);
-      const img = await composeBull(traits, 512);
+      // State BEFORE compose: if composeBull throws, `state` already reflects
+      // the rolled slot, so the error panel's cash-out gate sees it.
       const st = await client.fetchState();
       setState(st);
+      const img = await composeBull(traits, 512);
       setPhase({ k: "rolled", traits, img, creditsLeft: st.exists ? st.creditsLeft : 0 });
     } catch (e) {
       setPhase({ k: "error", msg: (e as Error).message, retry: () => finishSpin(slot) });
@@ -148,7 +150,8 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
       setPhase({ k: "done", mints, imgs });
       setState(await client.fetchState());
     } catch (e) {
-      setPhase({ k: "error", msg: (e as Error).message, retry: cashOut });
+      // isCashOutRetry: "Try again" IS the cash-out — don't render a duplicate button
+      setPhase({ k: "error", msg: (e as Error).message, retry: cashOut, isCashOutRetry: true });
     }
   }
 
@@ -241,7 +244,7 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
           <div className="bullm-panel">
             <div className="bullm-copy bullm-err">{phase.msg}</div>
             {phase.retry && <button className="btn bullm-cta" onClick={phase.retry}>Try again</button>}
-            {canCashOut && <button className="btn bullm-cta" onClick={cashOut}>Cash out anyway</button>}
+            {canCashOut && !phase.isCashOutRetry && <button className="btn bullm-cta" onClick={cashOut}>Cash out anyway</button>}
           </div>
         )}
       </div>

@@ -204,8 +204,13 @@ export class BullMachineClient {
     return this.cfg;
   }
 
-  private async rawSession(c: Connection): Promise<{ owner: PublicKey; data: SessionData } | null> {
-    const acc = await c.getAccountInfo(sessionPda(this.player), "confirmed").catch(() => null);
+  /** Default: fetch errors collapse to null (callers treat null as "not there
+   *  yet"). `throwOnFetchError` propagates them instead so a withRetry wrapper
+   *  can retry the transient ones — a missing/short account is still null. */
+  private async rawSession(c: Connection, opts?: { throwOnFetchError?: boolean }): Promise<{ owner: PublicKey; data: SessionData } | null> {
+    const acc = opts?.throwOnFetchError
+      ? await c.getAccountInfo(sessionPda(this.player), "confirmed")
+      : await c.getAccountInfo(sessionPda(this.player), "confirmed").catch(() => null);
     if (!acc || acc.data.length < SES_LEN) return null;
     return { owner: acc.owner, data: decodeSession(acc.data) };
   }
@@ -336,7 +341,9 @@ export class BullMachineClient {
       data: Buffer.from(spinDisc),
     });
     await sendLocal(er, [ix], [this.sessionKey], "spin (ER)");
-    const after = await this.rawSession(er);
+    // The credit is spent — a transient blip on this read must be retried HERE,
+    // not surfaced (the UI's surface-level retry re-spins and burns a credit).
+    const after = await withRetry(() => this.rawSession(er, { throwOnFetchError: true }), "spin after-read");
     if (!after) throw new Error("session unreadable on the ER after spin");
     const i = after.data.spins.findIndex((sp, k) =>
       sp.status !== STATUS.EMPTY && before.data.spins[k].status === STATUS.EMPTY);
