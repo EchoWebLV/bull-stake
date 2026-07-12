@@ -39,3 +39,6 @@ test-ledger/
 # TxLINE auth token cache
 .txline-auth.json
 **/.txline-auth.json
+
+# brainstorming visual companion sessions
+.superpowers/
