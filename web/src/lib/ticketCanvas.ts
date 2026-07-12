@@ -27,6 +27,20 @@ async function ensureFonts(): Promise<void> {
   } catch { /* draw with the fallback stack */ }
 }
 
+/** Largest font size in [minPx, startPx] at which `text` fits `avail` px for
+ *  the given font template (`px` is interpolated). Returns the chosen size. */
+function fitPx(
+  ctx: CanvasRenderingContext2D, text: string, avail: number,
+  startPx: number, minPx: number, font: (px: number) => string,
+): number {
+  let px = startPx;
+  for (; px > minPx; px--) {
+    ctx.font = font(px);
+    if (ctx.measureText(text).width <= avail) break;
+  }
+  return px;
+}
+
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -78,8 +92,10 @@ export async function renderTicketPng(model: TicketModel): Promise<Blob> {
   ctx.setLineDash([]);
   ctx.font = `700 56px ${DISP}`; ctx.fillStyle = INK;
   ctx.fillText(model.matchLine, L, y + 8);
-  ctx.font = `400 34px ${BODY}`; ctx.textAlign = "right";
+  const toneSpace = R - (L + ctx.measureText(model.matchLine).width + 36);
+  ctx.textAlign = "right";
   ctx.fillStyle = model.tone === "busted" ? "#a3322a" : model.tone === "perfect" ? "#1d7c44" : PINK;
+  ctx.font = `400 ${fitPx(ctx, model.toneLine, toneSpace, 34, 20, (px) => `400 ${px}px ${BODY}`)}px ${BODY}`;
   ctx.fillText(model.toneLine, R, y + 4); ctx.textAlign = "left"; ctx.fillStyle = INK;
   y += 44;
   ctx.setLineDash([14, 12]); ctx.strokeStyle = "rgba(23,19,15,.4)";
@@ -97,16 +113,22 @@ export async function renderTicketPng(model: TicketModel): Promise<Blob> {
     y += rowGap;
   }
 
-  // bottom block: big multiplier + money line + footer
+  // bottom block: big multiplier left, money + footer right. The right block
+  // shrinks to fit the space the multiplier leaves (×64 vs ×256 vary a lot),
+  // so the two can never collide.
   const by = H - M - 150;
   ctx.setLineDash([14, 12]); ctx.strokeStyle = "rgba(23,19,15,.4)";
   ctx.beginPath(); ctx.moveTo(L, by - 84); ctx.lineTo(R, by - 84); ctx.stroke(); ctx.setLineDash([]);
   ctx.font = `700 130px ${DISP}`; ctx.fillStyle = PINK;
   ctx.fillText(model.multiplierLabel, L, by + 26);
+  const rightSpace = R - (L + ctx.measureText(model.multiplierLabel).width + 44);
   ctx.textAlign = "right"; ctx.fillStyle = INK;
-  ctx.font = `700 36px ${BODY}`; ctx.fillText(model.moneyLine, R, by - 14);
-  ctx.globalAlpha = 0.72; ctx.font = `400 32px ${BODY}`;
-  ctx.fillText(model.footer + " 🔒", R, by + 34);
+  ctx.font = `700 ${fitPx(ctx, model.moneyLine, rightSpace, 36, 22, (px) => `700 ${px}px ${BODY}`)}px ${BODY}`;
+  ctx.fillText(model.moneyLine, R, by - 14);
+  ctx.globalAlpha = 0.72;
+  const footText = model.footer + " 🔒";
+  ctx.font = `400 ${fitPx(ctx, footText, rightSpace, 32, 20, (px) => `400 ${px}px ${BODY}`)}px ${BODY}`;
+  ctx.fillText(footText, R, by + 34);
   ctx.globalAlpha = 1; ctx.textAlign = "left";
 
   return await new Promise<Blob>((resolve, reject) =>
