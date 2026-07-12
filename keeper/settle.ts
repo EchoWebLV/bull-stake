@@ -76,6 +76,18 @@ export type SettleResult =
   | { action: "dry-run-settle"; winningBucket: number; lhs: number }
   | { action: "dry-run-void" };
 
+/** Anchor enum object → its key ("open" / "settled" / "voided"). Anything
+ *  missing or unrecognized reads "open": proceeding lets the program be the
+ *  authority (it rejects invalid settles), whereas a false "skip" would
+ *  silently drop real work. Pure — unit-tested in test/settle-skip.test.ts. */
+export function marketStatusKey(status: unknown): "open" | "settled" | "voided" {
+  if (status && typeof status === "object") {
+    const key = Object.keys(status)[0];
+    if (key === "settled" || key === "voided") return key;
+  }
+  return "open";
+}
+
 /**
  * Reusable core: settle (or void) a single market by its on-chain public key.
  *
@@ -97,6 +109,15 @@ export async function settleMarketByPubkey(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const market: any = await (proofbet.account as any).market.fetch(marketPubkey);
+
+  // Honor the documented idempotence: a market that already resolved (settled,
+  // or voided-with-bucket — every zero-pool Sweep leg voids on settle) must be
+  // a no-op, not a MarketNotOpen revert. Re-runs over partially-settled
+  // contests hit this constantly (2026-07-12: contests 777020638/639/640).
+  const statusKey = marketStatusKey(market.status);
+  if (statusKey !== "open") {
+    return { action: "skipped", reason: `already ${statusKey}` };
+  }
 
   if (!market.settleAuthority.equals(ctx.wallet.publicKey)) {
     console.warn(`WARNING: wallet ${ctx.wallet.publicKey.toBase58()} is not the settle_authority ` +
