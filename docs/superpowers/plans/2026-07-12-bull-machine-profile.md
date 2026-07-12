@@ -12,6 +12,36 @@
 
 ---
 
+## Execution log (2026-07-12)
+
+Tasks 1–7 landed on `feat/streak-pivot`, each through spec + code-quality review (subagent-driven). Task 8 (devnet e2e) is blocked on user input — see below.
+
+| Task | Commits | Notes |
+|---|---|---|
+| 1 vendor assets | `0a80154` | IDL `CHRm6pgBYXHSW1xWYT8YKNfKXhM1LorGm2yMKxLdQy6i`; 181 layers + 181 tiles + manifest (9 categories) at `/bull/` |
+| 2 bullArt | `e1dfa5b` | mapping + compositor; 4 TDD tests |
+| 3 bullMachine pure | `3e3886d` | 592-byte session decode, PDAs (pinned base58), open-cost math |
+| 4 client | `14ee10d`, `1480e2a` | full ER bridge port; review fixes: key compare-and-delete, pre-open rescue sweep, tolerant post-open discovery, spin before-read guard |
+| 5 profile store | `f53bc92`, `a03ed42` | per-wallet PFP + `usePfp`; shape-guard on read |
+| 6 overlay | `8e04e74`, `4991849`, `6e29226` | hand-drawn 3×3; review fixes: resumable session states, tail-only spin retry, per-bull compose isolation, state-first finishSpin |
+| 7 profile wiring | `b932756` | WalletView Profile section + machine entry; LoginBar chip thumb; `.profile-*` CSS |
+
+**Suites:** web tsc clean, **187/187** vitest green after every task.
+
+**Browser verification (Task 7, logged-out — no Privy needed), port 5173:**
+- App builds + loads clean, zero console errors; hand-drawn light theme intact.
+- Wallet tab renders (the new `Mascot`/`usePfp`/`composeBull`/`BullMachine` imports resolve; module graph does not crash).
+- `/bull/manifest.json` (9 categories) + layer PNGs serve `200`.
+- **`composeBull` proven end-to-end in a real browser** — the canvas compositor the node suite structurally cannot cover: 9 layers stacked → valid 512×512 PNG data URL (167 KB), rendered and screenshotted as a correct bull (background + body + collar + jersey + gum + horns). This is the exact path that produces the PFP after a mint.
+
+**Task 8 (devnet e2e) — BLOCKED on user, two dependencies:**
+1. **Privy login + devnet SOL** in the running app (open Wallet → "Spin for your Bull" → one approval → PULL → reveal → Cash out → "Use as profile picture" → verify the mpl-core asset in the wallet on explorer → reload persists the PFP). Only the user can drive the wallet.
+2. **A working RPC.** Per the current project state the shared Helius key hit its usage cap and all `.env`s were switched to public devnet RPC; the machine's `config()` fetch + all session reads need a non-throttled endpoint. Mint a fresh Helius key (or another provider) into `web/.env` `VITE_RPC_URL` before the e2e — the public devnet RPC 429s under the machine's read pattern.
+
+Everything code-side is complete and verified; Task 8 is a guided manual run the user performs.
+
+---
+
 ## Preconditions & deviations (authoritative)
 
 - **P1 — Run AFTER the current working tree is committed** (TxODDS WS1). Do not mix this feature's commits with the pending rename/perf work. Capture windows (Jul 14/15 19:00 UTC) take absolute precedence over this plan on any conflict.
