@@ -48,6 +48,15 @@ Work (keeper/engine only, TDD): widen the menu (+10 corners, +13 yellows; 14 opt
 
 This is also the "fun on thin days" unlock: the semifinal card becomes six calls on the one match everyone is watching.
 
+### WS0.5 — Gap levers (approved 2026-07-12)
+
+Verified 07-12 by an unfiltered feed scan (service level 1): the free tier carries a **Friendlies** competition alongside the World Cup — Vietnam v Myanmar **Jul 18 15:00 UTC**, plus Australia v Brazil twice in late September. Jul 12–13 have zero fixtures of any competition (nothing can fill a day world football skips).
+
+1. **Friendlies in the slate**: widen `COMPETITION_ALLOWLIST` (engine config) so friendlies flow into the composer and live pools. Jul 18 becomes a low-stakes full-stack rehearsal window on submission day (don't burn a semifinal debugging), and the September friendlies make the post-Cup continuity story concrete for judges. Verify: composer behavior on a mixed WC+friendly day (Jul 18 = friendly + bronze).
+2. **Match-eve card drop**: compose the next day's card the evening before (keeper create-job timing; the slate fetch already spans tomorrow, per-leg locks make early entries safe). Verify how `selectTodaysCard` binds a card to a day before shipping. Payoff: semifinal eve (Jul 13) has a live card, overnight entries, growing field split, and a "card is live" alert. **Must land before Jul 13 evening to matter.**
+
+Rejected this round: history-powered recap timelines (garnish; revisit only if everything else lands early).
+
 ### WS1 — Lock in + public repo
 
 - Commit the current green tree as logical commits (engine SWR bundle; web rename/keep-alive/wallet-menu; keeper settle/schedule changes; flags/fonts/Mascot/lib; mockups; `.gitignore`). `keeper/audit-owners.tmp.ts` stays untracked.
@@ -99,12 +108,13 @@ This is also the "fun on thin days" unlock: the semifinal card becomes six calls
 
 | When (UTC) | What must be true |
 |---|---|
-| Jul 12–13 | WS0 pre-flight done; tree committed; repo public; Railway deploy live; video script written |
-| Jul 14 08:00 | Keeper composes the semi-1 card on the deployed stack — verify |
+| Jul 12–13 | WS0 pre-flight + WS0.5 gap levers done; tree committed; repo public; Railway deploy live; video script written |
+| Jul 13 evening | Semi-1 card drops early (match-eve compose) — entries open overnight |
+| Jul 14 08:00 | Card live on the deployed stack — verify (composed the evening before) |
 | Jul 14 19:00 | Semi 1: dress rehearsal on deployed app; safety capture; enter real card + live pool |
 | Jul 15 19:00 | Semi 2: hero capture on the polished skin |
 | Jul 16–17 | Edit video; docs; fixes from rehearsal findings; post-cup recap state verified |
-| Jul 18 | Bronze = buffer capture; **submit** |
+| Jul 18 | Vietnam–Myanmar friendly 15:00 UTC = full-stack rehearsal; bronze = buffer capture; **submit** |
 | Jul 19 | Final = bonus footage only; deadline 23:59 |
 
 ## Cut list (protects the deadline)
