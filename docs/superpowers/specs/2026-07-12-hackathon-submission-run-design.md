@@ -74,6 +74,9 @@ This is also the "fun on thin days" unlock: the semifinal card becomes six calls
 - **Quiet-day / post-tournament state** (one component, two modes): no card + fixtures ahead → countdown to the next card drop + jackpot ticker + your past cards ("trophy room"); no fixtures ever again → recap (final jackpot total, settled history, the self-resolving one-liner, next-tournament hook). Judges see the recap mode Jul 20+.
 - **Endgame framing**: "only N cards left this World Cup" counter + copy; the rollover jackpot is the drama arc of finals week — make it loud. If the last card rolls imperfect, the recap tells it straight: the pot survived the Cup and rolls to the next tournament (retention + commercial story, zero mechanic changes).
 - **One-match concentration**: with one fixture per day, everyone shares the same live pool and the same card — surface pot size and entrant count prominently in Live and Sweep.
+- **Field-split bars** (approved 07-12): show the crowd's money per bucket in the Sweep picker/HUD — engine exposes per-leg bucket totals on `/api/card`, web renders % bars. Parimutuel odds ARE content; watching the split move pre-lock is the between-hours game.
+- **Share-your-card ticket** (approved 07-12): render the entered card as a shareable image (mascot + picks + multiplier + jackpot) with Web Share / copy-image fallback. Web-only.
+- Interactive reference for all of the above: `mockups/26-semifinal-one-match-card.html` (fillable one-match semifinal card: field bars, endgame strip, enter flow, HUD, share ticket; untracked by repo convention).
 - Copy pass: multiplier framing everywhere; judge-proof onboarding (logged-out state, zero-balance state pointing at a devnet faucet with copy-address).
 - Definition of done: every screen a judge can reach looks intentional in the hand-drawn identity, including logged-out/empty/post-cup states.
 
