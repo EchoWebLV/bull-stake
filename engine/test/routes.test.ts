@@ -534,7 +534,7 @@ describe("GET /api/card", () => {
     expect(body.legs[0]).toEqual({
       fixtureId: 101, home: "Brazil", away: "Spain", kickoffTs: 1_700_000_000,
       marketId: 10, label: "Total Corners O/U 9.5", group: "corners", line: 9.5, buckets: 2,
-      lockTs: 9999999999,
+      lockTs: 9999999999, winningBucket: null,
       live: { home: 0, away: 0, minute: null, phase: "pre" },
     });
     // Three-way result market (line 0) carries buckets:3.
@@ -730,6 +730,66 @@ describe("GET /api/card", () => {
     expect(body.myCard.weight).toBe(64); // entered pre-lock on every leg → 2^6
     expect(body.myCard.picks).toHaveLength(6);
     expect(body.myCard.alive).toBe(true);
+    // Per-leg winning buckets are exposed on the leg DTOs (same source as
+    // aliveCount): the settled leg 0 carries its bucket, unresolved legs null.
+    expect(body.legs[0].winningBucket).toBe(1);
+    expect(body.legs[1].winningBucket).toBeNull();
+    await app.close();
+  });
+
+  it("a VOIDED-but-resolved leg market disqualifies the card (mirrors on-chain settle_contest)", async () => {
+    // Regression: a leg oracle Market with NO direct bets VOIDS on settle rather
+    // than Settles, but settle.rs records the real winning_bucket on it — and
+    // on-chain settle_contest reads that bucket. The engine used to treat any
+    // non-"settled" market as unresolved, so a provably-dead card kept showing
+    // "still perfect". Here leg 0 is VOIDED with winning_bucket 2; the wallet
+    // picked 0 on that (active) leg → it must read DEAD, not alive.
+    const WALLET = "So11111111111111111111111111111111111111112";
+    const fixtures = [301, 302, 303, 304, 305, 306];
+    const marketIds = [12, 12, 12, 12, 12, 12];
+    const legLockTs = [100, 200, 300, 400, 500, 600];
+    vi.mocked(readLiveContests).mockResolvedValueOnce([
+      {
+        pubkey: "Contest998", contestId: 40002,
+        settleAuthority: "Keep1111111111111111111111111111111111111111",
+        feeRecipient: "Fee11111111111111111111111111111111111111111",
+        fixtures, marketIds, numLegs: 6,
+        legs: fixtures.map((fixtureId, i) => ({
+          marketId: marketIds[i], label: "Match Result", group: "result",
+          numBuckets: 3, fixtureId, winningBucket: null,
+        })),
+        entryPrice: "20000000", lockTs: 100,
+        legLockTs, entriesCloseTs: 100, settleAfterTs: 9999999999,
+        feeBps: 500, status: "open", winningBuckets: [0, 0, 0, 0, 0, 0],
+        entryCount: 1, perfectCount: 0, perfectWeight: "0", pot: "20000000", distributable: "0",
+        claimedCount: 0, claimedTotal: "0", settledTs: 0,
+      },
+    ]);
+    const voidedLegPda = deriveMarketPda(PROGRAM_ID, 301, 12).toBase58();
+    vi.mocked(readMarket).mockImplementation(async (pubkey: string) => {
+      if (pubkey === voidedLegPda) {
+        return {
+          pubkey, status: "voided", fixtureId: 301, marketId: 12, numBuckets: 3,
+          bucketTotals: ["0", "0", "0"], totalPool: "0", feeBps: 0, feeCollected: "0",
+          winningBucket: 2, entryCloseTs: 100, settledValue: 0,
+        };
+      }
+      return {
+        pubkey, status: "open", fixtureId: 0, marketId: 12, numBuckets: 3,
+        bucketTotals: ["0", "0", "0"], totalPool: "0", feeBps: 0, feeCollected: "0",
+        winningBucket: null, entryCloseTs: 9999999999, settledValue: 0,
+      };
+    });
+    // Wallet picked 0 on the voided-to-2 leg → wrong → dead.
+    vi.mocked(listRawEntriesForContest).mockResolvedValueOnce([
+      { pubkey: "EntryW", bettor: WALLET, nonce: 0, picks: [0, 0, 0, 0, 0, 0], amount: "20000000", entryTs: 1 },
+    ]);
+    const app = buildServer(makeMockStore());
+    const res = await app.inject({ url: `/api/card?wallet=${WALLET}` });
+    const body = res.json();
+    expect(body.legs[0].winningBucket).toBe(2);   // voided-with-bucket surfaced
+    expect(body.myCard.alive).toBe(false);         // pick 0 ≠ 2 on an active leg → DEAD
+    expect(body.aliveCount).toBe(0);
     await app.close();
   });
 

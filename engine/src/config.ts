@@ -35,8 +35,13 @@ export const LAMPORTS_PER_SOL = 1_000_000_000;
  * pool at T-minus this (its own JOIN_AHEAD_MIN mirrors it), and /api/live/next
  * reports `joinOpensTs` from it so the countdown can say when Join lights up.
  * On-chain, joins hard-close at lock_ts (= kickoff); this only sets the OPEN edge.
+ *
+ * Default 1440 (24h): a game becomes JOINABLE as soon as it's on the board for the
+ * day, not just in the final 45 min before kickoff — you can buy in any time that
+ * day. The keeper's slate fetch spans today+tomorrow, so bump this to 2880 to also
+ * open tomorrow's fixtures a full day ahead.
  */
-export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 45);
+export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 1440);
 
 /**
  * Fixture ids at/above this are TEST MATCHES (keeper/run-test-match.ts mints

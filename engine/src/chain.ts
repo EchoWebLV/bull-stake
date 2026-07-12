@@ -473,19 +473,24 @@ export async function readLiveContests(): Promise<ContestView[]> {
     return []; // total RPC failure / discriminator miss → no live contests (route degrades gracefully)
   }
 
-  const out: ContestView[] = [];
-  for (const item of raw) {
-    if (item.account.data.length !== contestSize) continue; // defensive: skip wrong-size (stale v1) accounts even if the RPC ignored the dataSize filter
-    let decoded: unknown;
-    try {
-      decoded = coder.decode("contest", item.account.data); // throws on stale v1 layout
-    } catch {
-      continue; // skip undecodable account, keep the rest
-    }
-    const pot = await readContestPot(program, item.pubkey);
-    out.push(toContestView(item.pubkey, decoded, pot));
-  }
-  return out;
+  // Decode each account in its own try/catch (a stale v1 layout decodes to
+  // GARBAGE or throws — skip it), THEN read every surviving contest's pot in
+  // PARALLEL. The pot reads used to be a serial await-in-loop: N devnet
+  // round-trips stacked back-to-back, the dominant cost of this scan (and, via
+  // /api/card, the reason the Sweep tab felt frozen). One Promise.all collapses
+  // them to a single round-trip's latency; order is preserved so pots[i] aligns.
+  const decoded = raw
+    .map((item) => {
+      if (item.account.data.length !== contestSize) return null; // defensive: wrong-size (stale v1) account, even if the RPC ignored the dataSize filter
+      try {
+        return { pubkey: item.pubkey, view: coder.decode("contest", item.account.data) }; // throws on stale v1 layout
+      } catch {
+        return null; // undecodable account — skip, keep the rest
+      }
+    })
+    .filter((d): d is { pubkey: PublicKey; view: unknown } => d !== null);
+  const pots = await Promise.all(decoded.map((d) => readContestPot(program, d.pubkey)));
+  return decoded.map((d, i) => toContestView(d.pubkey, d.view, pots[i]));
 }
 
 // ── Live-match readers (Slice 4) ────────────────────────────────────────────

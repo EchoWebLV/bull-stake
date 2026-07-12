@@ -99,7 +99,7 @@ import {
   toLiveEntryView,
   toLiveCursorView,
 } from "../src/chain.ts";
-import { PROGRAM_ID } from "../src/config.ts";
+import { PROGRAM_ID, JOIN_AHEAD_MIN } from "../src/config.ts";
 import { PublicKey } from "@solana/web3.js";
 
 // ── BN mock helper (mirrors the mocked @coral-xyz/anchor BN above) ───────────
@@ -1148,7 +1148,7 @@ describe("GET /api/live/next", () => {
     const body = res.json();
     expect(body.pool.poolId).toBe(1);
     expect(body.kickoffMs).toBe(LOCK * 1000);        // falls back to lockTs (no board row)
-    expect(body.joinOpensTs).toBe(LOCK - 45 * 60);   // kickoff − JOIN_AHEAD_MIN
+    expect(body.joinOpensTs).toBe(LOCK - JOIN_AHEAD_MIN * 60);   // kickoff − JOIN_AHEAD_MIN
     await app.close();
     nowSpy.mockRestore();
   });
@@ -1215,7 +1215,7 @@ describe("GET /api/live/next", () => {
     expect(body.pool).toBeNull();
     expect(body.match.fixtureId).toBe(8); // soonest upcoming (Spain–France), not ft/later
     expect(body.kickoffMs).toBe(KICK);
-    expect(body.joinOpensTs).toBe(Math.floor(KICK / 1000) - 45 * 60);
+    expect(body.joinOpensTs).toBe(Math.floor(KICK / 1000) - JOIN_AHEAD_MIN * 60);
     await app.close();
     nowSpy.mockRestore();
   });

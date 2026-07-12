@@ -83,7 +83,19 @@ async function readLegWinningBuckets(
       try {
         const pda = deriveMarketPda(PROGRAM_ID, leg.fixtureId, leg.marketId).toBase58();
         const m = await readMarket(pda);
-        return m.status === "settled" ? m.winningBucket : null;
+        // Accept Settled OR a Voided market that still recorded a
+        // proof-determined winning_bucket — a leg-result Market with NO direct
+        // bets (bucketTotals all 0, which every Sweep/parlay leg oracle is)
+        // VOIDS on settle rather than Settles, but settle.rs still writes the
+        // real winning_bucket onto it. The on-chain settle_contest reads exactly
+        // this ("Settled OR a zero-winner Voided market that recorded its
+        // winning_bucket" — settle_contest.rs), so this read MUST mirror it:
+        // treating a voided-with-bucket leg as "unresolved" (null) is what let a
+        // provably-dead card keep showing "still perfect". A voided leg with NO
+        // bucket (a true abandonment) stays null — it can't score a card, exactly
+        // as on-chain (settle_contest errors ResultMarketNotSettled on it).
+        const resolved = m.status === "settled" || m.status === "voided";
+        return resolved && m.winningBucket != null ? m.winningBucket : null;
       } catch {
         failed = true; // this leg's outcome is UNKNOWN (not "unsettled") — degrade visibly
         return null;
@@ -288,7 +300,9 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
   app.get("/api/contest/live", async (_req, reply) => {
     let contests;
     try {
-      contests = await readLiveContests();
+      // Shared SWR scan (see the live-bundle block above): served instantly from
+      // the last-good bundle, 502 only on a cold miss whose scan actually fails.
+      contests = (await getLiveBundle()).contests;
     } catch (e) {
       reply.code(502);
       return { error: `contest read failed: ${(e as Error).message}` };
@@ -336,17 +350,85 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
     });
   });
 
-  // /api/card alive-tracking micro-cache: the web Pearly tab polls this route
-  // every few seconds and each poll costs one Entry getProgramAccounts scan +
-  // numLegs Market fetches. Same idiom as `linesCache` below — per-server
-  // instance (test-safe), single slot (one live card at a time), short TTL.
-  // Keyed by contestId; ONLY successful reads are cached, so a blip retries on
-  // the very next poll instead of pinning `degraded: true` for a whole TTL.
-  // myCard needs no extra caching: it derives from the same cached entry scan
-  // (the per-wallet filter is pure CPU per request).
-  const CARD_SCAN_TTL_MS = 4_000;
-  let cardBucketsCache: { contestId: number; at: number; data: (number | null)[] } | null = null;
-  let cardEntriesCache: { contestId: number; at: number; data: RawEntryView[] } | null = null;
+  // Shared live-scan bundle (stale-while-revalidate). BOTH /api/card and
+  // /api/contest/live run the identical `readLiveContests()` getProgramAccounts
+  // scan (+ each contest's pot), which takes 5–15s on devnet and intermittently
+  // 429s. The web polls both every ~5s, so before this every poll blocked on —
+  // and re-issued — that scan: the tab felt frozen, flashed empty (a slow/failed
+  // scan couldn't surface your entry until it happened to succeed), and the two
+  // routes DOUBLED the RPC load feeding the rate-limit storm. Now ONE scan feeds
+  // both routes: the whole slow bundle (contests + selected card + its jackpot,
+  // per-leg winning buckets and entry scan) is cached per-server-instance (single
+  // slot — one live card at a time, so test-safe like the old micro-caches) and
+  // served STALE the instant it's older than the TTL, with at most one refresh in
+  // flight behind it. Only the CHEAP per-request parts stay live: the myCard
+  // wallet filter (pure CPU over cached entries) and the leg name/score join
+  // (in-memory `store`), so live drama never goes stale on a served-stale bundle.
+  const LIVE_BUNDLE_TTL_MS = 5_000;
+  type LiveBundle = {
+    at: number;
+    contests: ContestView[];       // full live set — /api/contest/live
+    card: ContestView | null;      // selectTodaysCard(contests) — /api/card
+    jackpot: string;
+    winningBuckets: (number | null)[];
+    rawEntries: RawEntryView[];
+    legsFailed: boolean;
+    entriesFailed: boolean;
+  };
+  let liveBundle: LiveBundle | null = null;
+  let liveBundleInFlight: Promise<LiveBundle> | null = null;
+
+  // One full slow-read pass. Rejects ONLY when the CONTEST scan itself fails —
+  // that's the one read with no safe degraded value (no contests today ≠ scan
+  // failed), and the one both routes turn into a 502 on a cold miss. Every other
+  // read fails soft into a flag (legsFailed / entriesFailed) so a partial blip
+  // still yields a usable, visibly-degraded bundle. `readLegWinningBuckets` never
+  // rejects (it sets `.failed`); the entry scan and jackpot are wrapped.
+  async function loadLiveBundle(): Promise<LiveBundle> {
+    const at = Date.now();
+    const contests = await readLiveContests();
+    const card = selectTodaysCard(contests);
+    let jackpot = "0";
+    try { jackpot = (await readJackpot()).pot; } catch { jackpot = "0"; }
+    let winningBuckets: (number | null)[] = [];
+    let rawEntries: RawEntryView[] = [];
+    let legsFailed = false;
+    let entriesFailed = false;
+    if (card) {
+      const r = await readLegWinningBuckets(card);
+      winningBuckets = r.buckets;
+      legsFailed = r.failed;
+      try {
+        rawEntries = await listRawEntriesForContest(card.pubkey);
+      } catch {
+        entriesFailed = true; // fail-soft, but VISIBLY: degraded + aliveCount null, myCard OMITTED
+      }
+    }
+    return { at, contests, card, jackpot, winningBuckets, rawEntries, legsFailed, entriesFailed };
+  }
+
+  // In-flight dedup: many polls (across both routes) can land during one 5–15s
+  // scan; they all share the single refresh rather than stacking N concurrent
+  // scans on an already rate-limited RPC.
+  function refreshLiveBundle(): Promise<LiveBundle> {
+    if (!liveBundleInFlight) {
+      liveBundleInFlight = loadLiveBundle()
+        .then((b) => { liveBundle = b; return b; })
+        .finally(() => { liveBundleInFlight = null; });
+    }
+    return liveBundleInFlight;
+  }
+
+  // SWR accessor shared by both routes: hand back the last-good bundle instantly
+  // and refresh behind it once stale; block ONLY on a cold miss (whose scan
+  // failure the caller renders as a 502). A failed background refresh just leaves
+  // the last-good bundle in place until the next poll (never surfaces here).
+  async function getLiveBundle(): Promise<LiveBundle> {
+    const now = Date.now();
+    if (!liveBundle) return await refreshLiveBundle();
+    if (now - liveBundle.at >= LIVE_BUNDLE_TTL_MS) void refreshLiveBundle().catch(() => {});
+    return liveBundle;
+  }
 
   /**
    * GET /api/card[?wallet=<base58>]
@@ -400,55 +482,26 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
    * A genuine RPC failure on the CONTEST read itself still 502s.
    */
   app.get("/api/card", async (req, reply) => {
-    let contests;
+    let bundle: LiveBundle;
     try {
-      contests = await readLiveContests();
+      // Shared SWR scan (see the live-bundle block above): served instantly from
+      // the last-good bundle, 502 only on a cold miss whose scan actually fails.
+      bundle = await getLiveBundle();
     } catch (e) {
       reply.code(502);
       return { error: `card read failed: ${(e as Error).message}` };
     }
 
-    const card = selectTodaysCard(contests);
+    const card = bundle.card;
     if (!card) return { card: null }; // 200 + null sentinel: no card for today (yet)
 
-    // Jackpot is its own escrow; fold its pot in (best-effort — a jackpot RPC
-    // hiccup shouldn't blank out an otherwise-good card, so degrade to "0").
-    let jackpot = "0";
-    try {
-      jackpot = (await readJackpot()).pot;
-    } catch {
-      jackpot = "0";
-    }
-
-    // Alive-tracking inputs: each leg's OWN market + every raw entry on this
-    // card, both behind the short-TTL success-only caches declared above.
-    const now = Date.now();
-    let winningBuckets: (number | null)[];
-    let legsFailed = false;
-    if (cardBucketsCache && cardBucketsCache.contestId === card.contestId && now - cardBucketsCache.at < CARD_SCAN_TTL_MS) {
-      winningBuckets = cardBucketsCache.data;
-    } else {
-      const r = await readLegWinningBuckets(card); // never rejects; failures flip r.failed
-      winningBuckets = r.buckets;
-      legsFailed = r.failed;
-      if (!legsFailed) cardBucketsCache = { contestId: card.contestId, at: now, data: winningBuckets };
-    }
-
-    let rawEntries: RawEntryView[] = [];
-    let scanFailed = false;
-    if (cardEntriesCache && cardEntriesCache.contestId === card.contestId && now - cardEntriesCache.at < CARD_SCAN_TTL_MS) {
-      rawEntries = cardEntriesCache.data;
-    } else {
-      try {
-        rawEntries = await listRawEntriesForContest(card.pubkey);
-        cardEntriesCache = { contestId: card.contestId, at: now, data: rawEntries };
-      } catch {
-        scanFailed = true; // fail-soft, but VISIBLY: degraded + aliveCount null below
-      }
-    }
+    const jackpot = bundle.jackpot;
+    const winningBuckets = bundle.winningBuckets;
+    const rawEntries = bundle.rawEntries;
+    const scanFailed = bundle.entriesFailed;
 
     // degraded → aliveCount null ("couldn't compute"), never a misleading 0.
-    const degraded = legsFailed || scanFailed;
+    const degraded = bundle.legsFailed || bundle.entriesFailed;
     const aliveCount = degraded
       ? null
       : rawEntries.filter((e) =>
@@ -529,6 +582,13 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
         ...(line !== undefined ? { line } : {}),
         buckets: leg.numBuckets,
         lockTs: card.legLockTs[i],
+        // Per-leg on-chain result: the leg's OWN Market winning_bucket once it's
+        // resolved (Settled or voided-with-bucket — see readLegWinningBuckets),
+        // else null. This is the SAME array `aliveCount`/`myCard.alive` are
+        // computed from, so the web reads won/lost per leg here — consistent with
+        // the card's alive/dead state — instead of the contest-level
+        // winning_buckets, which only populate once the WHOLE card settles.
+        winningBucket: winningBuckets[i] ?? null,
         ...liveField,
       };
     });
