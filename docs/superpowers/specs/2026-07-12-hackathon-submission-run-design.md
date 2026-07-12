@@ -35,10 +35,18 @@ Standing directives that bind this plan: **real-money framing only** (never demo
 
 ### WS0 — Pre-flight: semi-day card composition (do first, blocks everything demo-shaped)
 
-The Sweep composer has only ever run against multi-fixture days. **Jul 14 and Jul 15 each have exactly ONE fixture.** If `create-daily-pearly` can't compose a 6-leg card from a one-match slate (multiple markets + chaos leg on the same fixture), there is no Sweep card during either capture window — the demo's centerpiece vanishes.
+**Jul 14 and Jul 15 each have exactly ONE fixture**, and the composer was tuned for multi-fixture days. Verified 07-12:
 
-- Dry-run the composer locally against the Jul 14 slate window today. If it under-fills or refuses, fix allocator config/leg-count fallback (keeper-side only) + tests.
-- Definition of done: a composed card for a one-fixture day, with legs/locks printed and sane.
+- The program accepts 3–6 legs (`contest_state.rs`: `num_legs 3..=6`) — no program change needed.
+- `MARKET_TEMPLATE` (engine/src/markets.ts) already defines **7 per-fixture markets** (10 corners O/U 9.5, 11 goals O/U 2.5, 12 result, 13 yellows O/U 3.5, 14 HT corners, 15 HT goals, 16 HT result) + chaos 17 (red card Y/N).
+- But `DEFAULT_MENU = [12, 11, 16, 15]` (allocator.ts:36) — corners/yellows are never carded — and the allocator's wrap-fill doesn't skip already-taken legs, so a one-fixture day composes a card with a **duplicate leg** (e.g. Goals O/U twice) while distinct markets sit unused.
+- `create-daily-pearly`'s ensure-markets step follows the menu, so widening the menu also creates the new markets on the semifinal fixtures at compose time.
+
+Work (keeper/engine only, TDD): widen the menu (+10 corners, +13 yellows; 14 optional), make wrap-fill prefer untaken (fixture, market) pairs before repeating, dry-run against the real Jul 14 slate.
+
+- Definition of done: dry-run prints a **6-distinct-leg** one-fixture card (result, goals, corners, cards, HT story + chaos) with sane locks; allocator/keeper suites green.
+
+This is also the "fun on thin days" unlock: the semifinal card becomes six calls on the one match everyone is watching.
 
 ### WS1 — Lock in + public repo
 
@@ -63,7 +71,9 @@ The Sweep composer has only ever run against multi-fixture days. **Jul 14 and Ju
 - Flags into `LiveMatchView` (Sweep already wired).
 - Finish the hand-drawn `App.css` pass (in-flight, large diff already in tree).
 - **First-run tour**: 3 panels (mockup 20 as reference), localStorage-gated.
-- **Post-tournament recap state**: when the slate is empty and no card is live → recap (final jackpot total, your settled cards, the self-resolving one-liner). This is what judges see Jul 20+.
+- **Quiet-day / post-tournament state** (one component, two modes): no card + fixtures ahead → countdown to the next card drop + jackpot ticker + your past cards ("trophy room"); no fixtures ever again → recap (final jackpot total, settled history, the self-resolving one-liner, next-tournament hook). Judges see the recap mode Jul 20+.
+- **Endgame framing**: "only N cards left this World Cup" counter + copy; the rollover jackpot is the drama arc of finals week — make it loud. If the last card rolls imperfect, the recap tells it straight: the pot survived the Cup and rolls to the next tournament (retention + commercial story, zero mechanic changes).
+- **One-match concentration**: with one fixture per day, everyone shares the same live pool and the same card — surface pot size and entrant count prominently in Live and Sweep.
 - Copy pass: multiplier framing everywhere; judge-proof onboarding (logged-out state, zero-balance state pointing at a devnet faucet with copy-address).
 - Definition of done: every screen a judge can reach looks intentional in the hand-drawn identity, including logged-out/empty/post-cup states.
 
@@ -101,7 +111,7 @@ No bank-or-ride mechanic · no new markets · no leaderboard · no SSE · Market
 ## Risks & mitigations
 
 - **MagicBlock undelegation intermittence** during a capture window → keeper is handback-gated + idempotent; `void-live-pool.ts` refund path proven; the Sweep card carries the demo if Live wobbles.
-- **One-fixture semi days break the composer** → WS0 pre-flight today, keeper-side fix if needed.
+- **One-fixture semi days mis-compose the card** (verified: duplicate-leg wrap + narrow menu) → WS0 fix + dry-run before Jul 14.
 - **Bronze/final missing from slate until teams known** → re-check after semi 2; plan never depends on them.
 - **Public-repo secret leak** → history scan gates the push; rotate on hit.
 - **RPC rate limits under judge traffic** → SWR bundle already collapses scans; Helius key server-side.
