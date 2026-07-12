@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePrivy, useLogin } from "@privy-io/react-auth";
 import { useWallets } from "@privy-io/react-auth/solana";
 import { pickPrivyWallet } from "../lib/wallet.ts";
+import { usePfp } from "../lib/profile.ts";
+import { composeBull } from "../lib/bullArt.ts";
 
 export function useSolanaAddress(): string | undefined {
   const { wallets } = useWallets();
@@ -14,6 +16,16 @@ export function LoginBar() {
   const address = useSolanaAddress();
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const pfp = usePfp(address ?? undefined);
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (!pfp) { setThumb(null); return; }
+    composeBull(pfp.traits, 64).then((u) => { if (alive) setThumb(u); }).catch(() => {});
+    return () => { alive = false; };
+    // recompose only when the chosen bull changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pfp?.asset]);
   if (!ready) return null;
 
   async function copyAddr() {
@@ -42,6 +54,7 @@ export function LoginBar() {
               aria-haspopup="menu"
               aria-expanded={menuOpen}
             >
+              {thumb && <img src={thumb} alt="" style={{ width: 20, height: 20, borderRadius: "50%", marginRight: 6, verticalAlign: "-4px" }} />}
               {address ? `${address.slice(0, 4)}…${address.slice(-4)}` : "Wallet"}
               <span className="wallet-caret" aria-hidden="true">▾</span>
             </button>

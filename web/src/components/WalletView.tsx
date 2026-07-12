@@ -3,6 +3,10 @@ import { PublicKey } from "@solana/web3.js";
 import { usePrivy } from "@privy-io/react-auth";
 import { connection } from "../lib/anchorClient.ts";
 import { useSolanaAddress } from "./LoginBar.tsx";
+import { Mascot } from "./Mascot.tsx";
+import { usePfp } from "../lib/profile.ts";
+import { composeBull } from "../lib/bullArt.ts";
+import { BullMachine } from "./BullMachine.tsx";
 
 const LAMPORTS = 1_000_000_000;
 
@@ -11,6 +15,18 @@ export function WalletView({ active = true }: { active?: boolean } = {}) {
   const address = useSolanaAddress();
   const [balance, setBalance] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const pfp = usePfp(address ?? undefined);
+  const [pfpImg, setPfpImg] = useState<string | null>(null);
+  const [machineOpen, setMachineOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    if (!pfp) { setPfpImg(null); return; }
+    composeBull(pfp.traits, 256).then((url) => { if (alive) setPfpImg(url); }).catch(() => {});
+    return () => { alive = false; };
+    // recompose only when the chosen bull changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pfp?.asset]);
 
   useEffect(() => {
     if (!address || !active) return; // paused while backgrounded; refreshes on return
@@ -46,9 +62,23 @@ export function WalletView({ active = true }: { active?: boolean } = {}) {
 
   return (
     <>
-      <div className="section"><h3>Wallet</h3>
+      <div className="section"><h3>Profile</h3>
         <span className="tag">devnet</span>
       </div>
+
+      <div className="profile-card">
+        {pfpImg
+          ? <img className="profile-pfp" src={pfpImg} alt="Your bull" />
+          : <Mascot seed={address} size={72} title="Your mascot (spin for a bull!)" />}
+        <div className="profile-meta">
+          <div className="profile-name">{pfp ? "Bull holder" : "No bull yet"}</div>
+          <button className="btn" onClick={() => setMachineOpen(true)}>
+            {pfp ? "Spin again 🎰" : "Spin for your Bull 🎰"}
+          </button>
+        </div>
+      </div>
+
+      {machineOpen && <BullMachine onClose={() => setMachineOpen(false)} />}
 
       <div className="wallet-card">
         <div className="wallet-k">Balance</div>
