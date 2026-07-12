@@ -1,0 +1,1555 @@
+{
+  "address": "CHRm6pgBYXHSW1xWYT8YKNfKXhM1LorGm2yMKxLdQy6i",
+  "metadata": {
+    "name": "bull_machine",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "SOL Bulls 9-reel slot machine NFT minter"
+  },
+  "instructions": [
+    {
+      "name": "cancel_spin",
+      "discriminator": [
+        12,
+        123,
+        214,
+        19,
+        23,
+        69,
+        77,
+        88
+      ],
+      "accounts": [
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "docs": [
+            "crank may clear a timed-out PENDING slot); the player need not sign."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "spin_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "close_session",
+      "discriminator": [
+        68,
+        114,
+        178,
+        140,
+        222,
+        38,
+        248,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "closer",
+          "docs": [
+            "The player any time, or anyone after expiry (permissionless cleanup —",
+            "refunds still go to the player)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_collection",
+      "discriminator": [
+        156,
+        251,
+        92,
+        54,
+        233,
+        2,
+        16,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collection",
+          "docs": [
+            "New Core collection account — fresh Keypair from the deploy script,",
+            "co-signs the transaction (mpl-core requires collection to sign)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "collection_authority",
+          "docs": [
+            "later signs asset mints via invoke_signed."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_session",
+      "discriminator": [
+        242,
+        193,
+        143,
+        179,
+        150,
+        25,
+        122,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "docs": [
+            "One active session per player. Rent is the player's; close_session",
+            "returns it (plus unused credits) via `close = player`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "session_key",
+          "docs": [
+            "generates browser-side. create_session funds it SESSION_KEY_TOPUP_LAMPORTS",
+            "so it can pay in-ER spin fees; no owner check (a fresh keypair, funded",
+            "here). `address = authorized_key` binds the funded account to the recorded",
+            "arg, so a client can't fund one key while authorizing another. Its pubkey",
+            "is recorded in session.session_key and future spins must be signed by it",
+            "(enforced at spin, Task 14)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "n_spins",
+          "type": "u8"
+        },
+        {
+          "name": "session_key",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "delegate_session",
+      "docs": [
+        "Delegate the caller's Session PDA to the ER — the one-time delegation that",
+        "the client bundles into the single create_session approval. #[delegate]",
+        "injects the delegation accounts (no hand-declared Program<X> needed — proven",
+        "by er_probe's DelegateProbe). The seeds bind the PDA to [b\"session\", player],",
+        "so a stranger cannot delegate another player's session. Behavior verified on",
+        "devnet in the Phase-0 spikes (Task 1), not in litesvm."
+      ],
+      "discriminator": [
+        82,
+        83,
+        119,
+        119,
+        196,
+        219,
+        5,
+        197
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "docs": [
+            "The player — must own the session; the seeds passed to the delegate CPI",
+            "([b\"session\", player]) bind this to the correct PDA, so a stranger can't",
+            "delegate someone else's session."
+          ],
+          "signer": true
+        },
+        {
+          "name": "buffer_session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                167,
+                165,
+                216,
+                131,
+                79,
+                42,
+                88,
+                119,
+                24,
+                221,
+                63,
+                133,
+                201,
+                89,
+                215,
+                160,
+                235,
+                255,
+                150,
+                197,
+                183,
+                245,
+                125,
+                85,
+                69,
+                193,
+                42,
+                129,
+                251,
+                177,
+                56,
+                163
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "session",
+          "docs": [
+            "buffer_session / delegation_record_session / delegation_metadata_session /",
+            "owner_program / delegation_program / system_program — no hand-declared",
+            "Program<X> needed (proven: er_probe's DelegateProbe compiled without it)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "CHRm6pgBYXHSW1xWYT8YKNfKXhM1LorGm2yMKxLdQy6i"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "discard_spin",
+      "docs": [
+        "Clear a spin stuck at ROLLED because its combo duplicates an already-minted",
+        "one (the loser of a settle race). Precondition: the ComboClaim PDA for the",
+        "spin's traits ALREADY exists and is owned by this program — proof another",
+        "spin minted it, so this one is a true duplicate and safe to discard.",
+        "PERMISSIONLESS (D1) — mirrors cancel_spin: sets the slot EMPTY and refunds",
+        "the credit; `reserved` is left for close_session to release (decrementing",
+        "here double-counts)."
+      ],
+      "discriminator": [
+        222,
+        134,
+        203,
+        160,
+        49,
+        159,
+        94,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "docs": [
+            "crank may clear a duplicate-combo ROLLED slot); the player need not sign."
+          ]
+        },
+        {
+          "name": "claim",
+          "docs": [
+            "spin's traits (address) AND owned by this program (existence proof), else",
+            "ComboNotDuplicate. UncheckedAccount so a non-existent claim (owner =",
+            "System) can be passed and cleanly rejected rather than tripping anchor",
+            "deserialization first."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "spin_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "finalize",
+      "docs": [
+        "Commit the session's rolls back to L1 and undelegate it from the ER.",
+        "Permissionless: any fee-payer (session key or a crank) may finalize — the",
+        "L1 undelegate is validator-signed, so no player signature is required.",
+        "The L1 owner only returns to `bull_machine` some slots later (async, §5.4),",
+        "so settle_mint/close run on a later, undelegated pass."
+      ],
+      "discriminator": [
+        171,
+        61,
+        218,
+        56,
+        127,
+        115,
+        12,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Permissionless fee-payer (session key OR a crank keypair). Not `mut` and",
+            "not the player — mirrors the probe's proven CommitProbe.player."
+          ],
+          "signer": true
+        },
+        {
+          "name": "session",
+          "docs": [
+            "Seeds derive from session.player (no signer PDA): the crank never holds",
+            "the player key. In-ER this deserializes normally (the ER owns the",
+            "delegated account); on L1 finalize only ever runs inside the ER."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "docs": [
+            "`Program<'info, MagicProgram>` — that typed Program needs `Id` from the",
+            "SDK's anchor-lang 0.32 (mpl-core→kaigan), which cannot satisfy our 0.31",
+            "bound (same cross-crate split as DoSpin's vrf_program). Address +",
+            "executable checks are equivalent. `magic_context` (plain AccountInfo, no",
+            "such bound) is left to the macro to inject."
+          ],
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_config",
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "collection_authority",
+          "docs": [
+            "only its bump is recorded here."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer"
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "settle_mint",
+      "discriminator": [
+        201,
+        168,
+        164,
+        233,
+        170,
+        82,
+        40,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Anyone may crank settlement (permissionless): they pay tx fee, claim",
+            "rent, asset rent, and the 0.0015 SOL mpl-core create fee. Phase A: the",
+            "web page settles (payer == player); the Phase C crank reuses this as-is."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "docs": [
+            "cranker can only settle correctly."
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "claim",
+          "docs": [
+            "On-chain uniqueness: PDA seeded by the 9 trait indices — a",
+            "duplicate combo fails account creation."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.spins [spin_index as usize].traits",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset",
+          "docs": [
+            "New Core asset — fresh Keypair generated by whoever settles; must co-sign."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "collection",
+          "writable": true
+        },
+        {
+          "name": "collection_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "mpl_core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        }
+      ],
+      "args": [
+        {
+          "name": "spin_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "spin",
+      "discriminator": [
+        87,
+        64,
+        120,
+        10,
+        25,
+        224,
+        122,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "session_signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle_queue",
+          "docs": [
+            "/ local DEFAULT_EPHEMERAL_TEST_QUEUE). The L1 DEFAULT_QUEUE is intentionally",
+            "NOT accepted — spins run inside the rollup."
+          ],
+          "writable": true
+        },
+        {
+          "name": "program_identity",
+          "docs": [
+            "invoke_signed (seeds must stay [b\"identity\"] — the SDK hardcodes them)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "vrf_callback",
+      "discriminator": [
+        248,
+        224,
+        55,
+        227,
+        56,
+        10,
+        108,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "vrf_program_identity",
+          "docs": [
+            "Scoped VRF identity PDA, bound to this program. Its presence as a signer proves",
+            "the callback was issued by the VRF program for this program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "session",
+          "docs": [
+            "Matches accounts_metas[0] from spin(). Seeds re-checked as defense-in-depth."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.player",
+                "account": "Session"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "spin_index",
+          "type": "u8"
+        },
+        {
+          "name": "requested_at",
+          "type": "i64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "ComboClaim",
+      "discriminator": [
+        204,
+        15,
+        59,
+        243,
+        200,
+        74,
+        135,
+        75
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Session",
+      "discriminator": [
+        243,
+        81,
+        72,
+        115,
+        214,
+        188,
+        72,
+        144
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "SupplyTooLarge",
+      "msg": "max_supply exceeds the supply ceiling"
+    },
+    {
+      "code": 6001,
+      "name": "BaseUriTooLong",
+      "msg": "base_uri longer than 128 bytes"
+    },
+    {
+      "code": 6002,
+      "name": "AlreadyInitialized",
+      "msg": "already initialized"
+    },
+    {
+      "code": 6003,
+      "name": "CollectionAlreadySet",
+      "msg": "collection already created"
+    },
+    {
+      "code": 6004,
+      "name": "NotStarted",
+      "msg": "minting has not started yet"
+    },
+    {
+      "code": 6005,
+      "name": "SoldOut",
+      "msg": "sold out (supply cap reached including reservations)"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidSpinCount",
+      "msg": "n_spins must be 1..=10"
+    },
+    {
+      "code": 6007,
+      "name": "WalletLimit",
+      "msg": "exceeds per-wallet spin limit"
+    },
+    {
+      "code": 6008,
+      "name": "NoCredits",
+      "msg": "no spin credits left in this session"
+    },
+    {
+      "code": 6009,
+      "name": "NoFreeSlot",
+      "msg": "no free spin slot"
+    },
+    {
+      "code": 6010,
+      "name": "SessionExpired",
+      "msg": "session expired"
+    },
+    {
+      "code": 6011,
+      "name": "BadQueue",
+      "msg": "unknown oracle queue"
+    },
+    {
+      "code": 6012,
+      "name": "BadSpinIndex",
+      "msg": "spin index out of range"
+    },
+    {
+      "code": 6013,
+      "name": "SpinNotPending",
+      "msg": "spin is not pending"
+    },
+    {
+      "code": 6014,
+      "name": "SpinNotRolled",
+      "msg": "spin is not rolled"
+    },
+    {
+      "code": 6015,
+      "name": "RegistryFull",
+      "msg": "combo registry is full"
+    },
+    {
+      "code": 6016,
+      "name": "RerollExhausted",
+      "msg": "could not find a unique combo (astronomically unlikely)"
+    },
+    {
+      "code": 6017,
+      "name": "TimeoutNotReached",
+      "msg": "pending timeout not reached"
+    },
+    {
+      "code": 6018,
+      "name": "UnresolvedSpins",
+      "msg": "session has pending or unsettled spins"
+    },
+    {
+      "code": 6019,
+      "name": "NotExpired",
+      "msg": "only the player may close before expiry"
+    },
+    {
+      "code": 6020,
+      "name": "MplStubBuild",
+      "msg": "binary built without the mpl feature (idl-build stub)"
+    },
+    {
+      "code": 6021,
+      "name": "BadBaseUri",
+      "msg": "base_uri must not end with '/'"
+    },
+    {
+      "code": 6022,
+      "name": "StaleCallback",
+      "msg": "callback does not match the current request for this slot"
+    },
+    {
+      "code": 6023,
+      "name": "BadSessionKey",
+      "msg": "spin signer is not the session key"
+    },
+    {
+      "code": 6024,
+      "name": "SpinStillPending",
+      "msg": "cannot finalize while a spin is pending before the idle deadline"
+    },
+    {
+      "code": 6025,
+      "name": "ComboNotDuplicate",
+      "msg": "discard_spin requires an existing claim proving a duplicate"
+    }
+  ],
+  "types": [
+    {
+      "name": "ComboClaim",
+      "docs": [
+        "On-chain uniqueness guarantee: PDA seeded by the 9 trait indices,",
+        "init at settlement — a duplicate combo fails account creation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "collection",
+            "type": "pubkey"
+          },
+          {
+            "name": "spin_price",
+            "type": "u64"
+          },
+          {
+            "name": "max_supply",
+            "type": "u32"
+          },
+          {
+            "name": "minted",
+            "type": "u32"
+          },
+          {
+            "name": "reserved",
+            "type": "u32"
+          },
+          {
+            "name": "start_time",
+            "type": "i64"
+          },
+          {
+            "name": "max_spins_per_wallet",
+            "type": "u16"
+          },
+          {
+            "name": "base_uri",
+            "type": "string"
+          },
+          {
+            "name": "manifest_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "spin_price",
+            "type": "u64"
+          },
+          {
+            "name": "max_supply",
+            "type": "u32"
+          },
+          {
+            "name": "start_time",
+            "type": "i64"
+          },
+          {
+            "name": "max_spins_per_wallet",
+            "type": "u16"
+          },
+          {
+            "name": "base_uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Session",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "credits_total",
+            "type": "u8"
+          },
+          {
+            "name": "credits_used",
+            "type": "u8"
+          },
+          {
+            "name": "settled",
+            "type": "u8"
+          },
+          {
+            "name": "spins",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Spin"
+                  }
+                },
+                10
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Spin",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "traits",
+            "type": {
+              "array": [
+                "u8",
+                9
+              ]
+            }
+          },
+          {
+            "name": "requested_at",
+            "type": "i64"
+          },
+          {
+            "name": "randomness",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "spin_price",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "start_time",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "treasury",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "base_uri",
+            "type": {
+              "option": "string"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
