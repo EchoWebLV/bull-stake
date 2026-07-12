@@ -10,7 +10,7 @@
  *
  *   - already exists on-chain → skip (idempotent; safe to re-run every 5 min)
  *   - kickoff already passed  → skip (joins are closed on-chain; rent would be wasted)
- *   - outside the window      → skip (created on a later pass as T-45 arrives)
+ *   - outside the window      → skip (created on a later pass once the window opens)
  *   - overlapping fixtures    → each gets its own pool (the engine picks the featured one)
  *
  * IMPORTS mirror create-match-pool.ts / create-daily-card.ts: spike getFixtures
@@ -36,8 +36,11 @@ const LAMPORTS_PER_SOL = 1_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Minutes before kickoff that the pool is created (the join window). Mirrors the
- *  engine's JOIN_AHEAD_MIN so the web's "join opens at…" line matches reality. */
-export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 45);
+ *  engine's JOIN_AHEAD_MIN so the web's "join opens at…" line matches reality.
+ *  Default 1440 (24h): pools line up a full day ahead, so a game is joinable as
+ *  soon as it's on the board — not only in the last 45 min. (Slate spans
+ *  today+tomorrow; set 2880 to open tomorrow's fixtures a day early too.) */
+export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 1440);
 
 /** Mirrors engine/src/config.ts COMPETITION_ALLOWLIST (inlined — see header). */
 const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup")
@@ -64,6 +67,7 @@ export function selectPoolsToCreate(
   aheadMin: number = JOIN_AHEAD_MIN,
   allowlist: string[] = COMPETITION_ALLOWLIST,
 ): SlateFixture[] {
+  const seen = new Set<number>();
   return fixtures
     .filter(
       (f) =>
@@ -72,7 +76,12 @@ export function selectPoolsToCreate(
         nowMs < f.kickoffMs &&
         !hasPool.has(f.fixtureId),
     )
-    .sort((a, b) => a.kickoffMs - b.kickoffMs);
+    .sort((a, b) => a.kickoffMs - b.kickoffMs)
+    // De-dupe by fixtureId: with a day-wide window a kickoff near midnight UTC
+    // lands in BOTH the today and tomorrow slate fetches, so the same fixture
+    // can appear twice — keep the first (earliest) and drop the rest, else we'd
+    // issue a redundant create_live_pool that reverts "account already in use".
+    .filter((f) => (seen.has(f.fixtureId) ? false : (seen.add(f.fixtureId), true)));
 }
 
 /** Injected I/O seams so the pass is hermetically testable. */

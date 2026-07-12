@@ -50,6 +50,19 @@ describe("selectPoolsToCreate — the 45-min join-window filter (pure)", () => {
     expect(picked.map((f) => f.fixtureId)).toEqual([1]); // 2 wrong comp, 3 pooled
   });
 
+  it("de-dupes a fixture that appears in both the today and tomorrow slate fetches", () => {
+    // A kickoff near midnight UTC comes back from both getFixtures calls — the
+    // wide (day) window surfaces both copies; the selector must keep just one.
+    const now = KICK - 2 * 3600_000;
+    const picked = selectPoolsToCreate(
+      [fx(1, KICK), fx(1, KICK), fx(2, KICK + 60_000)],
+      new Set(),
+      now,
+      1440,
+    );
+    expect(picked.map((f) => f.fixtureId)).toEqual([1, 2]);
+  });
+
   it("orders overlapping fixtures earliest-kickoff first", () => {
     const now = KICK - 5 * 60_000;
     const picked = selectPoolsToCreate(
@@ -98,7 +111,7 @@ describe("runSchedulePass — orchestration through injected seams", () => {
   });
 
   it("creates nothing when no fixture is inside the window", async () => {
-    const s = seams({ now: () => KICK - 4 * 3600_000 }); // T-4h — too early
+    const s = seams({ now: () => KICK - 30 * 3600_000 }); // T-30h — beyond the 24h default window
     expect(await runSchedulePass(s)).toEqual([]);
     expect(s.createPool).not.toHaveBeenCalled();
   });

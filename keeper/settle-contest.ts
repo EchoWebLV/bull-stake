@@ -150,10 +150,13 @@ async function settleOneContest(
   }
   const settleAfterTs = Number(c.settleAfterTs);
   const nowSec = Math.floor(Date.now() / 1000);
-  if (nowSec < settleAfterTs) {
-    console.log(`contest ${contestId}: settle window opens at ${settleAfterTs} (now ${nowSec}) — too early; nothing to do yet.`);
-    return "skipped-too-early";
-  }
+  // NOTE: we deliberately do NOT bail here when the contest-wide settle window is
+  // still in the future. A Sweep card spans MULTIPLE matches with staggered
+  // kickoffs, so a leg whose OWN match is already final can — and should — settle
+  // NOW (eager, per-leg, self-resolving), even hours before the LAST match (and
+  // thus settle_after_ts) arrives. The per-leg wave pass below only touches legs
+  // whose own fixture is final; the whole-contest settle_contest call remains
+  // gated on settle_after_ts, re-checked after the readiness classification.
 
   const numLegs = Number(c.numLegs);
   const fixtures: number[] = (c.fixtures as { toNumber(): number }[]).slice(0, numLegs).map((f) => f.toNumber());
@@ -163,9 +166,10 @@ async function settleOneContest(
   const legTuples = legMarketsInOrder(fixtures, marketIds, numLegs);
   const legMarkets: PublicKey[] = legTuples.map((t) => deriveMarketPda(programId, t.fixtureId, t.marketId));
 
-  // 2. Two-wave: resolve the (single) fixture's phase once, then decide which legs
-  //    settle now. All legs share one fixture, so one phase resolution covers them.
-  //    (If a future card spans fixtures this loop would resolve per distinct fixture.)
+  // 2. Two-wave, MULTI-FIXTURE: resolve EACH distinct fixture's phase (a Sweep
+  //    card spans several matches), then decide which legs settle now. A leg
+  //    settles as soon as its OWN fixture's wave (HT/FT) is final — independent of
+  //    the other matches, so an early match resolves hours before the last one.
   const fixturePhase = new Map<number, number | null>();
   for (const fid of new Set(fixtures)) {
     const events = await getScoreHistory(ctx, auth, fid);
@@ -235,6 +239,18 @@ async function settleOneContest(
       legStatuses, aborted: "abandoned", dryRun,
     }, null, 2));
     return "aborted-void";
+  }
+
+  // 3b. Whole-contest settle-window gate. The per-leg markets above are now
+  //     settled as far as their own fixtures allow (eager, self-resolving). The
+  //     WHOLE-CONTEST settle (payout / rollover) still waits for the contest-wide
+  //     window — bail here, AFTER the eager per-leg pass, if it hasn't opened.
+  //     In practice readiness is "ready" only once every leg is final, by which
+  //     point settle_after_ts (last match FT + buffer) has passed; this guards
+  //     the edge and preserves the on-chain SettleTooEarly contract.
+  if (nowSec < settleAfterTs) {
+    console.log(`contest ${contestId}: legs settled as available; whole-contest settle window opens at ${settleAfterTs} (now ${nowSec}) — waiting.`);
+    return "skipped-too-early";
   }
 
   // 4. Count perfect entries off-chain, WEIGHTED (entry.contest is at offset 8 + 32 = 40).
@@ -417,10 +433,19 @@ async function main() {
   const due = decoded.filter((x) => {
     const st = x.account.status;
     const isOpen = st && typeof st === "object" && "open" in st;
+    if (!isOpen) return false;
     const settleAfter = Number(x.account.settleAfterTs);
-    return isOpen && settleAfter <= nowSec;
+    // Process an Open contest when its whole-contest window is open OR any leg has
+    // already kicked off — a multi-match Sweep card settles each leg at its OWN
+    // full-time (settleOneContest's eager per-leg pass), so a card whose earliest
+    // match is done must be picked up long before the last match's settle window.
+    const numLegs = Number(x.account.numLegs);
+    const legLockTs = (x.account.legLockTs as { toString(): string }[])
+      .slice(0, numLegs)
+      .map((b) => Number(b.toString()));
+    return settleAfter <= nowSec || legLockTs.some((t) => t > 0 && t <= nowSec);
   });
-  console.log(`[settle-contest] ${due.length} of ${decoded.length} contest(s) Open and due`);
+  console.log(`[settle-contest] ${due.length} of ${decoded.length} contest(s) Open with a settleable leg or due`);
   for (const x of due) {
     console.log(`[settle-contest] === contest ${x.contestId} ===`);
     try {
