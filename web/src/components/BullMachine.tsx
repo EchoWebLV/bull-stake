@@ -42,11 +42,30 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!client) return;
     let alive = true;
-    Promise.all([client.fetchState(), client.config()])
-      .then(([st, cfg]) => { if (!alive) return; setState(st); setPrice(cfg.spinPrice);
-        if (st.exists && st.delegated && st.sessionKeyHeld && st.creditsLeft > 0) setPhase({ k: "ready", creditsLeft: st.creditsLeft });
-      })
-      .catch((e) => alive && setPhase({ k: "error", msg: (e as Error).message }));
+    const load = () => {
+      Promise.all([client.fetchState(), client.config()])
+        .then(([st, cfg]) => {
+          if (!alive) return;
+          setState(st); setPrice(cfg.spinPrice);
+          // Resume gate — a held key with anything actionable re-enters `ready`:
+          // spins left (delegated), OR rolled bulls awaiting cash-out (even
+          // undelegated / out of credits — the states `open` would refuse).
+          // Functional update so a slow load never stomps an in-flight phase.
+          setPhase((p) => {
+            if (p.k !== "idle" && p.k !== "error") return p;
+            if (st.exists && st.sessionKeyHeld && ((st.delegated && st.creditsLeft > 0) || st.rolledUnsettled > 0)) {
+              return { k: "ready", creditsLeft: st.delegated ? st.creditsLeft : 0 };
+            }
+            return { k: "idle" };
+          });
+        })
+        .catch((e) => {
+          if (!alive) return;
+          setPhase((p) => (p.k === "idle" || p.k === "error"
+            ? { k: "error", msg: (e as Error).message, retry: load } : p));
+        });
+    };
+    load();
     return () => { alive = false; };
   }, [client]);
 
@@ -79,15 +98,29 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
   async function pullLever() {
     if (!client) return;
     setPhase({ k: "spinning" });
+    let slot: number;
     try {
-      const slot = await client.spin();
+      slot = await client.spin();
+    } catch (e) {
+      // spin() itself failed — no credit is stranded, a fresh pull is safe
+      setPhase({ k: "error", msg: (e as Error).message, retry: pullLever });
+      return;
+    }
+    await finishSpin(slot);
+  }
+
+  /** Tail of a spin whose credit is already spent — retrying this NEVER re-spins. */
+  async function finishSpin(slot: number) {
+    if (!client) return;
+    setPhase({ k: "spinning" });
+    try {
       const traits = await client.pollRolled(slot);
       const img = await composeBull(traits, 512);
       const st = await client.fetchState();
       setState(st);
       setPhase({ k: "rolled", traits, img, creditsLeft: st.exists ? st.creditsLeft : 0 });
     } catch (e) {
-      setPhase({ k: "error", msg: (e as Error).message, retry: pullLever });
+      setPhase({ k: "error", msg: (e as Error).message, retry: () => finishSpin(slot) });
     }
   }
 
@@ -106,7 +139,12 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
         if (stage !== "done") setPhase({ k: "cashing", note: notes[stage] ?? stage });
       });
       const imgs: Record<string, string> = {};
-      for (const m of mints) if (m.asset && m.traits) imgs[m.asset] = await composeBull(m.traits, 512);
+      for (const m of mints) {
+        if (!m.asset || !m.traits) continue;
+        // Per-bull isolation: the bulls are minted — one failed compose skips
+        // that preview only, never the PFP offer or the other bulls.
+        try { imgs[m.asset] = await composeBull(m.traits, 512); } catch { /* image-less card */ }
+      }
       setPhase({ k: "done", mints, imgs });
       setState(await client.fetchState());
     } catch (e) {
@@ -114,16 +152,19 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
     }
   }
 
-  function useAsPfp(m: MintResult) {
+  function applyPfp(m: MintResult) {
     if (!m.asset || !m.traits || !address) return;
     setPfp(address, { asset: m.asset, traits: m.traits });
     onClose();
   }
 
   const rolledWaiting = state?.exists ? state.rolledUnsettled : 0;
+  const canCashOut = state?.exists ? state.sessionKeyHeld && state.rolledUnsettled > 0 : false;
+  // Mid-action the backdrop must not dismiss (the ✕ always works)
+  const busy = phase.k === "opening" || phase.k === "spinning" || phase.k === "cashing";
 
   return (
-    <div className="bullm-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="bullm-backdrop" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="bullm" role="dialog" aria-label="Bull Machine">
         <div className="bullm-head">
           <div className="bullm-title">The Bull Machine</div>
@@ -159,7 +200,7 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
 
         {phase.k === "ready" && (
           <div className="bullm-panel">
-            <button className="bullm-lever" onClick={pullLever}>PULL</button>
+            {phase.creditsLeft > 0 && <button className="bullm-lever" onClick={pullLever}>PULL</button>}
             <div className="bullm-fine">{phase.creditsLeft} spin{phase.creditsLeft === 1 ? "" : "s"} left · no popups, straight to the rollup</div>
             {rolledWaiting > 0 && <button className="btn bullm-cta" onClick={cashOut}>Cash out · mint {rolledWaiting} bull{rolledWaiting > 1 ? "s" : ""}</button>}
           </div>
@@ -187,7 +228,7 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
               {phase.mints.filter((m) => m.asset).map((m) => (
                 <div key={m.asset} className="bullm-mint">
                   {m.asset && phase.imgs[m.asset] && <img src={phase.imgs[m.asset]} alt={`Bull ${m.dna}`} />}
-                  <button className="btn" onClick={() => useAsPfp(m)}>Use as profile picture</button>
+                  <button className="btn" onClick={() => applyPfp(m)}>Use as profile picture</button>
                   <a href={bullExplorerUrl(m.asset!)} target="_blank" rel="noreferrer" className="bullm-fine">view on explorer ↗</a>
                 </div>
               ))}
@@ -200,6 +241,7 @@ export function BullMachine({ onClose }: { onClose: () => void }) {
           <div className="bullm-panel">
             <div className="bullm-copy bullm-err">{phase.msg}</div>
             {phase.retry && <button className="btn bullm-cta" onClick={phase.retry}>Try again</button>}
+            {canCashOut && <button className="btn bullm-cta" onClick={cashOut}>Cash out anyway</button>}
           </div>
         )}
       </div>
