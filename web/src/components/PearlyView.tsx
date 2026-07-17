@@ -61,6 +61,7 @@ export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void;
   const [picks, setPicks] = useState<Record<number, number>>({}); // picker draft: legIndex → bucket
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [failedPolls, setFailedPolls] = useState(0); // consecutive /api/card failures (reset on any success)
   const [msg, setMsg] = useState<string>();
   const [msgErr, setMsgErr] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -103,7 +104,15 @@ export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void;
     // /api/contest/live join, whose contest-level winning_buckets stay null until
     // the WHOLE card settles — which left a provably-dead leg reading "in play".
     const c = await getCard(address ?? undefined).catch(() => undefined);
-    if (c === undefined) return; // transient fetch failure — keep the last good state on screen
+    if (c === undefined) {
+      // Transient fetch failure — keep the last good state on screen, but COUNT
+      // it: with no data at all yet, consecutive failures flip the loading card
+      // to an honest "can't reach the server" (an engine that isn't running
+      // otherwise reads as an infinite "Loading…" — the 07-12 stuck report).
+      setFailedPolls((n) => n + 1);
+      return;
+    }
+    setFailedPolls(0);
     setCard(c);
     if (!c) { setWinningBuckets([]); setEntry(undefined); return; }
     setWinningBuckets(c.legs.map((l) => l.winningBucket ?? null));
@@ -191,7 +200,17 @@ export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertSnapKey]);
 
-  if (card === undefined || !ready) return <div className="card empty-card">Loading today's Sweep…</div>;
+  if (card === undefined || !ready) {
+    // Never had data: after a couple of failed polls this is a connectivity
+    // problem, not a slow scan — say so instead of loading forever.
+    return (
+      <div className="card empty-card">
+        {ready && failedPolls >= 2
+          ? <>Can't reach the game server — retrying…</>
+          : <>Loading today's Sweep…</>}
+      </div>
+    );
+  }
 
   // ── Empty: no card composed today ─────────────────────────────────────────
   if (vm.empty) {
