@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bull Stake — 3D machine (perspective cabinet × cylinder reels)</title>
+<!--
+  Mockup 27c — the SOL bulls machine's 3D FEEL mixed with the hand-drawn style,
+  done robustly: a perspective-tilted cabinet (real depth) with reels that scroll
+  flat inside CLIPPED windows and are shaded to read as curved cylinders (top/
+  bottom fall into shadow, gloss band in the middle). Nine reels = nine real
+  trait categories; a pull spins them, they cascade + lock, and the 9 landed
+  traits compose into your bull. (True CSS-3D drums can't be clipped to a window
+  — overflow flattens the 3D — so the curve is shaded, not geometric.)
+  Loads art from bull/ next to this file.
+-->
+<style>
+  :root{
+    --bg:#141019; --cab:#2b2334; --cab-d:#1d1727; --cab-dd:#120d18;
+    --ink:#f4ecd8; --yellow:#f5e33d; --pink:#e59be0; --red:#e2564d;
+    --green:#54d98c; --tan:#cbb986; --gold:#f5c542; --chrome:#c4c2cf; --neon:#8f7bff;
+    --disp:"Marker Felt","Chalkboard SE","Comic Sans MS",system-ui,sans-serif;
+    --body:ui-rounded,"SF Pro Rounded","Chalkboard SE",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:radial-gradient(1200px 720px at 50% -10%, #2a1f3d 0%, transparent 60%),var(--bg);
+    color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;min-height:100%;
+    display:flex;flex-direction:column;align-items:center;padding:18px 16px 40px;gap:12px;overflow-x:hidden}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+    background:radial-gradient(rgba(244,236,216,.05) 1px,transparent 1.5px) 0 0/14px 14px}
+  .caps{text-transform:uppercase;letter-spacing:.06em}
+  .kick{font-size:12px;font-weight:800;opacity:.6}.kick b{color:var(--yellow)}
+
+  /* the cabinet is one plane, tilted in real perspective for 3D depth */
+  .stage{position:relative;perspective:1500px;perspective-origin:56% 40%;margin:12px 30px 22px 0;z-index:1}
+  .cab{position:relative;width:322px;transform:rotateX(4deg) rotateY(-11deg);
+    border:3px solid var(--ink);border-radius:20px;padding:15px 15px 17px;
+    background:linear-gradient(180deg,#33294a,#221a30);
+    box-shadow:
+      3px 3px 0 #000, 8px 9px 0 var(--cab-d), 13px 16px 0 var(--cab-d),
+      18px 23px 0 var(--cab-dd), 23px 30px 0 var(--cab-dd), 26px 36px 34px rgba(0,0,0,.5);}
+  .cab::before{content:"";position:absolute;left:12px;right:2px;top:-10px;height:12px;
+    border:3px solid var(--ink);border-bottom:none;border-radius:13px 13px 0 0;background:#40355a;
+    transform:skewX(-26deg);transform-origin:left bottom}
+  .cab::after{content:"";position:absolute;top:8px;bottom:12px;right:-11px;width:12px;
+    border:3px solid var(--ink);border-left:none;border-radius:0 12px 12px 0;background:#241b34;
+    transform:skewY(-22deg);transform-origin:left top}
+
+  .crest{position:absolute;top:-58px;left:50%;transform:translateX(-54%);width:80px;height:72px;z-index:5;filter:drop-shadow(3px 4px 0 #000)}
+  .marquee{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;
+    border:3px solid var(--ink);border-radius:13px;background:var(--yellow);color:#17130f;
+    padding:7px 10px 8px;box-shadow:3px 3px 0 #000;transform:rotate(-1.4deg);margin-bottom:10px}
+  .marquee b{font-family:var(--disp);font-size:20px;line-height:1}
+  .bulb{width:9px;height:9px;border-radius:50%;background:#fff;border:2px solid #17130f;
+    box-shadow:0 0 8px 2px rgba(255,255,255,.7);animation:bulb 1.1s steps(1) infinite}
+  .bulb.b2{animation-delay:.55s}
+  @keyframes bulb{0%{background:#fff}50%{background:var(--red)}}
+  .subcap{text-align:center;font-size:9.5px;font-weight:900;letter-spacing:.14em;opacity:.5;margin-bottom:8px}
+
+  /* neon-framed reel bank */
+  .screen{position:relative;border:3px solid var(--ink);border-radius:14px;background:#0c0913;padding:9px;
+    box-shadow:inset 0 0 0 3px #000, inset 0 0 26px rgba(0,0,0,.9)}
+  .screen.live{box-shadow:inset 0 0 0 3px #000, inset 0 0 26px rgba(0,0,0,.9), 0 0 15px 1px rgba(143,123,255,.5)}
+  .grid{display:grid;grid-template-columns:repeat(3,92px);grid-auto-rows:92px;gap:7px;justify-content:center}
+
+  /* one reel per cell — flat scroll, CLIPPED, shaded to look cylindrical */
+  .cell{position:relative;overflow:hidden;border-radius:10px;border:2px solid rgba(244,236,216,.22);background:#141019}
+  .cell.win{border-color:var(--green);box-shadow:0 0 10px rgba(84,217,140,.5)}
+  .strip{position:absolute;top:0;left:0;right:0;will-change:transform}
+  .strip.blur{filter:blur(1.4px)}
+  .tile{height:92px;display:flex;align-items:center;justify-content:center}
+  .tile img{width:92px;height:92px;object-fit:cover;display:block}
+  /* cylinder shading: top+bottom fall into shadow, gloss band across the middle */
+  .cyl{position:absolute;inset:0;pointer-events:none;border-radius:10px;
+    background:
+      linear-gradient(180deg,#0a0710 0%,rgba(10,7,16,.72) 13%,rgba(10,7,16,0) 40%,rgba(10,7,16,0) 60%,rgba(10,7,16,.72) 87%,#0a0710 100%),
+      linear-gradient(180deg,transparent 40%,rgba(255,255,255,.10) 50%,transparent 60%)}
+
+  .readout{display:flex;align-items:center;gap:9px;margin-top:12px}
+  .jack{flex:1;border:3px solid var(--ink);border-radius:11px;background:#0c0913;color:var(--gold);
+    box-shadow:inset 0 0 0 2px #000;padding:6px 11px;display:flex;align-items:baseline;gap:7px}
+  .jack .lab{font-size:9px;font-weight:900;letter-spacing:.12em;opacity:.7;color:var(--ink)}
+  .jack b{font-family:var(--disp);font-size:22px;line-height:.9;margin-left:auto;text-shadow:0 0 10px rgba(245,197,66,.6)}
+  .credits{border:3px solid var(--ink);border-radius:11px;background:var(--pink);color:#17130f;
+    box-shadow:3px 3px 0 #000;padding:6px 11px;text-align:center}
+  .credits b{font-family:var(--disp);font-size:19px;display:block;line-height:.95}
+  .credits span{font-size:8px;font-weight:900;letter-spacing:.1em}
+  .console{margin-top:11px;border:3px solid var(--ink);border-radius:12px;background:#241d30;
+    box-shadow:inset 0 3px 10px rgba(0,0,0,.5);padding:9px 11px;display:flex;align-items:center;gap:10px}
+  .coinslot{width:34px;height:34px;border:3px solid var(--ink);border-radius:8px;background:#0c0913;flex:none;
+    display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 2px #000}
+  .coinslot::after{content:"";width:15px;height:4px;background:var(--ink);border-radius:2px}
+  .emblem{font-family:var(--disp);font-size:15px;line-height:1.05}
+  .emblem small{display:block;font-family:var(--body);font-size:10px;font-weight:800;opacity:.6}
+  .tray{margin-top:10px;height:22px;border:3px solid var(--ink);border-radius:8px;background:#0c0913;box-shadow:inset 0 6px 10px rgba(0,0,0,.7)}
+
+  /* lever — sibling of .cab, 2D pull, placed to meet the right cheek */
+  .mount{position:absolute;right:2px;top:190px;width:36px;height:36px;border-radius:50%;z-index:6;
+    background:radial-gradient(circle at 35% 32%,#544d63,#221d2b);border:3px solid var(--ink);box-shadow:3px 4px 0 #000}
+  .mount::after{content:"";position:absolute;inset:11px;border-radius:50%;background:#17131b;border:2px solid #000}
+  .lever{position:absolute;right:17px;top:208px;width:14px;height:0;transform-origin:50% 100%;
+    transform:rotate(-18deg);z-index:5;cursor:grab;touch-action:none}
+  .lever.grab{cursor:grabbing}
+  .shaft{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:15px;height:124px;border-radius:8px;
+    border:3px solid var(--ink);background:linear-gradient(90deg,#928f9f,var(--chrome) 42%,#6e6b7a);box-shadow:2px 2px 0 rgba(0,0,0,.45)}
+  .shaft::after{content:"";position:absolute;left:3px;top:6px;width:3px;bottom:6px;border-radius:2px;background:rgba(255,255,255,.6)}
+  .ball{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);width:44px;height:44px;border-radius:50%;
+    border:3px solid var(--ink);background:radial-gradient(circle at 33% 28%,#ff938a,var(--red) 52%,#a5332b);box-shadow:3px 5px 0 #000}
+  .ball::after{content:"";position:absolute;left:10px;top:7px;width:13px;height:9px;border-radius:50%;background:rgba(255,255,255,.72);transform:rotate(-18deg)}
+  .lever.snap{transition:transform .5s cubic-bezier(.34,1.7,.5,1)}
+  .lever.throw{transition:transform .16s ease-in}
+  .hint{position:absolute;right:-26px;top:150px;z-index:7;font-family:var(--disp);font-size:15px;color:var(--yellow);
+    text-shadow:2px 2px 0 #000;animation:hb 1s ease-in-out infinite;pointer-events:none}
+  .hint span{display:block;font-size:20px;text-align:center;line-height:.7}
+  @keyframes hb{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+  .hidden{display:none!important}
+
+  .toast{margin-top:6px;min-height:34px;display:flex;align-items:center;justify-content:center;gap:12px;opacity:0;transition:opacity .28s}
+  .toast.show{opacity:1}
+  .portrait{width:82px;height:82px;border-radius:13px;border:3px solid var(--ink);box-shadow:3px 4px 0 #000;object-fit:cover;
+    animation:pop .45s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes pop{0%{transform:scale(.3) rotate(-12deg);opacity:0}100%{transform:none;opacity:1}}
+  .toast .txt{font-family:var(--disp);font-size:16px;line-height:1.1}
+  .toast .txt small{display:block;font-family:var(--body);font-size:11px;font-weight:800;opacity:.6}
+  .toast .mint{border:3px solid var(--ink);border-radius:11px;background:var(--yellow);color:#17130f;
+    font-family:var(--disp);font-size:15px;padding:7px 13px;box-shadow:3px 3px 0 #000;cursor:pointer}
+  .toast .mint:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+  .foot{font-size:12px;font-weight:700;opacity:.6;text-align:center;max-width:340px}
+  .foot kbd{border:2px solid var(--ink);border-radius:6px;padding:0 6px;font-size:11px;background:#241d30;box-shadow:1px 1px 0 #000}
+</style>
+</head>
+<body>
+  <div class="kick caps">Bull Stake · <b>The Bull Machine</b> · 3D</div>
+
+  <div class="stage" id="stage">
+    <div class="cab" id="cab">
+      <svg class="crest" viewBox="0 0 78 70" aria-hidden="true">
+        <path d="M14 66 C8 60 10 46 12 40 C12 30 16 22 26 19 C24 13 27 9 32 11 C36 13 35 18 33 23
+                 C45 21 56 26 60 35 L67 41 C69 44 64 47 59 45 L49 45 C46 50 48 59 51 66 Z"
+              fill="var(--tan)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
+        <circle cx="43" cy="33" r="3" fill="#17130f"/>
+      </svg>
+      <div class="marquee"><span class="bulb"></span><b>BULL STAKE</b><span class="bulb b2"></span></div>
+      <div class="subcap caps">9 traits · one pull builds your bull</div>
+
+      <div class="screen" id="screen"><div class="grid" id="grid"></div></div>
+
+      <div class="readout">
+        <div class="jack"><span class="lab caps">Jackpot</span><b>◎0.07</b></div>
+        <div class="credits"><b id="cred">3</b><span class="caps">credits</span></div>
+      </div>
+      <div class="console">
+        <div class="coinslot"></div>
+        <div class="emblem">PULL TO SPIN<small>nine reels · minted to you</small></div>
+      </div>
+      <div class="tray"></div>
+    </div>
+
+    <div class="mount"></div>
+    <div class="lever snap" id="lever"><div class="shaft"></div><div class="ball"></div></div>
+    <div class="hint" id="hint">PULL<span>↓</span></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="foot">Drag the red ball <b>down</b> &nbsp;·&nbsp; or click it &nbsp;·&nbsp; or press <kbd>Space</kbd></div>
+
+<script>
+const CELL = 92, STRIP = 13, LAST = STRIP - 1, LANDING = -LAST * CELL;
+const rnd = (n)=>Math.floor(Math.random()*n);
+const grid = document.getElementById('grid');
+const screen = document.getElementById('screen');
+const credEl = document.getElementById('cred');
+const toast = document.getElementById('toast');
+const hint = document.getElementById('hint');
+let manifest=null, strips=[], credits=3, spinning=false;
+
+const tileSrc  = (ci,ti)=> 'bull/' + manifest[ci].traits[ti].tile;
+const layerSrc = (ci,ti)=> 'bull/' + manifest[ci].traits[ti].layer;
+const loadImg = (src)=> new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(src); i.src=src; });
+const tileHTML = (ci,ti)=> `<div class="tile"><img src="${tileSrc(ci,ti)}" alt=""></div>`;
+
+async function boot(){
+  manifest = await fetch('bull/manifest.json').then(r=>r.json());
+  for(let ci=0; ci<9; ci++){
+    const cell = document.createElement('div'); cell.className='cell';
+    const strip = document.createElement('div'); strip.className='strip';
+    const cyl = document.createElement('div'); cyl.className='cyl';
+    cell.append(strip, cyl); grid.appendChild(cell);
+    strips.push(strip);
+    strip.innerHTML = tileHTML(ci, rnd(manifest[ci].traits.length));
+    strip.style.transform='translateY(0)';
+  }
+}
+
+function doSpin(){
+  if(spinning || !manifest || credits<=0) return;
+  spinning=true; credits--; credEl.textContent=credits;
+  hint.classList.add('hidden'); toast.classList.remove('show'); toast.innerHTML='';
+  grid.querySelectorAll('.cell').forEach(c=>c.classList.remove('win'));
+  screen.classList.add('live');
+
+  const targets = new Array(9);
+  for(let ci=0; ci<9; ci++){
+    const n = manifest[ci].traits.length;
+    const target = rnd(n); targets[ci]=target;
+    const strip = strips[ci];
+    let html=''; for(let k=0;k<STRIP-1;k++) html += tileHTML(ci, rnd(n));
+    html += tileHTML(ci, target);
+    strip.innerHTML = html;
+    strip.classList.add('blur');
+    strip.style.transition='none'; strip.style.transform='translateY(0)';
+    void strip.offsetHeight;
+    const col = ci % 3;
+    strip.style.transition = `transform ${1.25 + col*0.22}s cubic-bezier(.16,.85,.28,1) ${col*0.15}s`;
+    strip.style.transform = `translateY(${LANDING}px)`;
+    setTimeout(()=>{ strip.classList.remove('blur'); grid.children[ci].classList.add('win');
+      strip.animate([{transform:`translateY(${LANDING+7}px)`},{transform:`translateY(${LANDING}px)`}],{duration:150,easing:'ease-out'});
+    }, (1.25 + col*0.22)*1000 + col*150);
+  }
+
+  const settleAt = 1250 + 2*220 + 2*150 + 220;
+  setTimeout(async ()=>{
+    strips.forEach(s=>s.classList.remove('blur'));
+    screen.classList.remove('live');
+    await reveal(targets);
+    spinning=false;
+    if(credits<=0) setTimeout(()=>{ credits=3; credEl.textContent=credits; }, 500);
+  }, settleAt);
+}
+
+async function reveal(targets){
+  let url='';
+  try{
+    const imgs = await Promise.all(manifest.map((_,ci)=>loadImg(layerSrc(ci,targets[ci]))));
+    const c=document.createElement('canvas'); c.width=c.height=512; const ctx=c.getContext('2d');
+    for(const img of imgs) ctx.drawImage(img,0,0,512,512);
+    url=c.toDataURL('image/png');
+  }catch(e){}
+  toast.innerHTML =
+    (url?`<img class="portrait" src="${url}" alt="Your bull">`:'') +
+    `<div class="txt">Your bull!<small>9 traits · 1-of-1</small></div>` +
+    `<button class="mint" onclick="alert('(demo) → cash out mints THIS bull to your wallet')">Mint it →</button>`;
+  toast.classList.add('show');
+}
+
+/* lever: drag down / click / Space */
+const lever=document.getElementById('lever');
+const UP=-18, DOWN=48, THRESH=26;
+let dragging=false,startY=0,angle=UP,downAt=0;
+const setAngle=(a)=>{ angle=a; lever.style.transform=`rotate(${a}deg)`; };
+function throwLever(){ if(spinning) return;
+  lever.classList.remove('snap'); lever.classList.add('throw'); setAngle(DOWN);
+  setTimeout(()=>{ doSpin(); lever.classList.remove('throw'); lever.classList.add('snap'); setAngle(UP); },170); }
+lever.addEventListener('pointerdown',(e)=>{ if(spinning) return; dragging=true; startY=e.clientY; downAt=performance.now();
+  lever.classList.remove('snap'); lever.classList.add('grab'); lever.setPointerCapture(e.pointerId); });
+lever.addEventListener('pointermove',(e)=>{ if(!dragging) return; setAngle(Math.max(UP,Math.min(DOWN,UP+(e.clientY-startY)*0.42))); });
+function endDrag(e){ if(!dragging) return; dragging=false; lever.classList.remove('grab');
+  try{ lever.releasePointerCapture(e.pointerId); }catch{}
+  if(angle>=THRESH){ lever.classList.add('throw'); setAngle(DOWN);
+    setTimeout(()=>{ doSpin(); lever.classList.remove('throw'); lever.classList.add('snap'); setAngle(UP); },140); }
+  else { lever.classList.add('snap'); setAngle(UP); } }
+lever.addEventListener('pointerup',endDrag); lever.addEventListener('pointercancel',endDrag);
+lever.addEventListener('click',()=>{ if(!spinning && performance.now()-downAt<250 && Math.abs(angle-UP)<3) throwLever(); });
+addEventListener('keydown',(e)=>{ if(e.code==='Space'){ e.preventDefault(); throwLever(); }});
+setAngle(UP); boot();
+</script>
+</body>
+</html>

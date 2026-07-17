@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streak — live · hand-drawn DARK (v4b)</title>
+<style>
+  :root{
+    --paper:#17131b; --ink:#f0e7d4; --line:#f0e7d4; --card:#241e2b; --onY:#17130f;
+    --yellow:#f5e33d; --green:#54d98c; --pink:#e59be0; --tan:#cbb986; --gray:#9a9aa2;
+    --home:#3f7fe0; --away:#e2564d;
+    --disp:"Marker Felt","Chalkboard SE","Comic Sans MS",system-ui,sans-serif;
+    --body:ui-rounded,"SF Pro Rounded","Chalkboard SE",system-ui,-apple-system,sans-serif;
+    --sh:3px 3px 0 #000;
+    --sh2:4px 4px 0 #000;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0c0a10;display:flex;justify-content:center;padding:22px 0;
+    font-family:var(--body);color:var(--ink);-webkit-font-smoothing:antialiased}
+
+  .phone{width:390px;height:844px;background:var(--paper);border:3px solid var(--ink);
+    border-radius:30px;overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:0 26px 60px rgba(0,0,0,.4);position:relative}
+  /* faint paper speckle */
+  .phone::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background:radial-gradient(rgba(240,231,212,.05) 1px,transparent 1.4px) 0 0/13px 13px}
+
+  .wrap{flex:1;min-height:0;display:flex;flex-direction:column;gap:11px;padding:13px 13px 6px;position:relative;z-index:1}
+  .caps{text-transform:uppercase;letter-spacing:.03em}
+  .ink{border:3px solid var(--ink)}
+
+  /* ── header: your mascot identity + live badge ───────── */
+  .head{display:flex;align-items:center;gap:11px}
+  .av{width:56px;height:56px;flex:none;border:3px solid var(--ink);border-radius:50%;
+    background:var(--card);display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:var(--sh)}
+  .av .mascot{width:50px;height:50px;display:block;margin-top:7px}
+  .av.tan{color:var(--tan)} .av.green{color:var(--green)} .av.pink{color:var(--pink)} .av.gray{color:var(--gray)}
+  .who{flex:1;min-width:0}
+  .who .name{font-family:var(--disp);font-size:23px;line-height:1}
+  .who .sub{margin-top:3px;font-size:12.5px;font-weight:700;opacity:.72}
+  .pts{flex:none;border:3px solid var(--ink);border-radius:13px;background:var(--yellow);
+    padding:6px 12px 7px;text-align:center;box-shadow:var(--sh);transform:rotate(2deg)}
+  .pts b{display:block;font-family:var(--disp);font-size:22px;line-height:.9}
+  .pts span{font-size:9px;font-weight:800;letter-spacing:.12em}
+
+  /* ── match scorecard ─────────────────────────────────── */
+  .match{border:3px solid var(--ink);border-radius:16px;background:var(--card);box-shadow:var(--sh2);
+    display:flex;align-items:center;padding:9px 13px;gap:8px}
+  .team{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .team.b{justify-content:flex-end}
+  .blob{width:20px;height:20px;border-radius:7px;border:2.5px solid var(--ink);flex:none}
+  .tn{font-family:var(--disp);font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sc{font-family:var(--disp);font-size:26px;flex:none;padding:0 4px}
+  .live{position:absolute;top:-10px;right:12px;transform:rotate(-2deg);
+    border:2.5px solid var(--ink);background:var(--green);border-radius:20px;
+    padding:2px 11px;font-size:10px;font-weight:900;letter-spacing:.08em;box-shadow:2px 2px 0 #000}
+  .matchWrap{position:relative}
+  .min{margin-left:6px;font-weight:900;font-size:13px;flex:none}
+
+  /* ── the call: hero ──────────────────────────────────── */
+  .call{flex:1;min-height:0;border:3px solid var(--ink);border-radius:20px;background:var(--yellow);
+    box-shadow:var(--sh2);padding:14px 15px 15px;display:flex;flex-direction:column;position:relative}
+  .callTop{display:flex;align-items:center;justify-content:space-between}
+  .chip{border:2.5px solid var(--ink);background:var(--card);border-radius:20px;padding:5px 12px;
+    font-size:11px;font-weight:900;letter-spacing:.05em;box-shadow:2px 2px 0 var(--ink)}
+  .timer{font-family:var(--disp);font-size:22px}
+  .q{font-family:var(--disp);font-size:33px;line-height:1.02;margin:12px 1px 0}
+  .bar{height:9px;border:2.5px solid var(--ink);border-radius:20px;background:var(--card);overflow:hidden;margin:12px 0 13px}
+  .bar>i{display:block;height:100%;background:var(--ink);transition:width .15s linear}
+  .opts{display:flex;flex-direction:column;gap:9px;margin-top:auto}
+  .opt{display:flex;align-items:center;gap:12px;width:100%;border:3px solid var(--ink);
+    background:var(--card);border-radius:15px;padding:12px 13px;cursor:pointer;font-family:var(--body);
+    box-shadow:var(--sh);transition:transform .08s,box-shadow .08s}
+  .opt:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+  .oc{width:30px;height:30px;border-radius:9px;border:2.5px solid var(--ink);flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#fff}
+  .ot{font-family:var(--disp);font-size:19px}
+  .op{margin-left:auto;font-weight:900;font-size:13px;opacity:.75}
+
+  /* ── pool chips ──────────────────────────────────────── */
+  .pool{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}
+  .chip2{border:3px solid var(--ink);border-radius:14px;background:var(--card);box-shadow:var(--sh);
+    padding:9px 4px 8px;text-align:center}
+  .chip2 b{display:block;font-family:var(--disp);font-size:19px;line-height:1}
+  .chip2 span{font-size:9px;font-weight:800;letter-spacing:.05em;opacity:.7}
+  .chip2.hl{background:var(--yellow)}
+
+  /* ── leaderboard: a row of little creatures ──────────── */
+  .board{border:3px solid var(--ink);border-radius:16px;background:var(--card);box-shadow:var(--sh2);
+    display:flex;padding:9px 6px}
+  .bc{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative}
+  .bc + .bc::before{content:"";position:absolute;left:0;top:12px;bottom:6px;width:2.5px;background:var(--ink);opacity:.15}
+  .bc .av{width:36px;height:36px;box-shadow:2px 2px 0 var(--ink)}
+  .bc .av .mascot{width:32px;height:32px;margin-top:5px}
+  .bc .r{font-size:9px;font-weight:900;letter-spacing:.06em;opacity:.65}
+  .bc .p{font-family:var(--disp);font-size:16px;line-height:1}
+  .bc.me .p{background:var(--yellow);border:2px solid var(--ink);border-radius:7px;padding:1px 6px}
+
+  /* ── nav ─────────────────────────────────────────────── */
+  .nav{flex:none;display:flex;justify-content:space-around;align-items:center;
+    border-top:3px solid var(--ink);background:var(--paper);padding:9px 8px 12px;position:relative;z-index:1}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;font-weight:900;
+    letter-spacing:.04em;color:var(--ink);opacity:.42;text-transform:uppercase}
+  .ni svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  .ni.on{opacity:1}
+  .ni.on .ico{border:2.5px solid var(--ink);background:var(--yellow);border-radius:11px;padding:4px;box-shadow:2px 2px 0 #000}
+
+  /* dark-canvas fixes ─ the yellow .call panel is a LIGHT island: its interior
+     (chip, bar, option buttons) stays white w/ dark text in BOTH themes.
+     Page-level cards go dark; yellow/green accents carry dark text. */
+  .av{background:#f4ecd8}                 /* mascots sit on a light disc, like the sketch art */
+  .pts, .pts b, .pts span{color:var(--onY)}
+  .chip{background:#fff;color:var(--onY)}
+  .call .q, .call .timer{color:var(--onY)}
+  .bar{background:#fff} .bar>i{background:var(--onY)}
+  .opt{background:#fff;color:var(--onY)}
+  .chip2.hl, .chip2.hl b, .chip2.hl span{color:var(--onY)}
+  .bc.me .p{color:var(--onY)}
+  .live{color:var(--onY)}
+  .ni.on .ico svg{stroke:var(--onY)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="mascot" viewBox="0 0 48 48"><path d="M13 46 C9 42 10 33 11 29 C11 22 13 16 19 14 C18 10 20 8 23 9 C25 10 25 13 24 16 C31 15 38 18 41 24 L45 28 C46 30 43 32 40 31 L33 31 C31 34 32 40 34 46 Z" fill="currentColor" stroke="#17130f" stroke-width="2.5" stroke-linejoin="round"/></symbol></svg>
+
+<div class="phone">
+  <div class="wrap">
+
+    <!-- header: you -->
+    <div class="head">
+      <span class="av tan"><svg class="mascot"><use href="#mascot"/></svg></span>
+      <div class="who">
+        <div class="name">you</div>
+        <div class="sub caps">Rank #3 · 24 playing</div>
+      </div>
+      <div class="pts"><b>12</b><span class="caps">pts</span></div>
+    </div>
+
+    <!-- match -->
+    <div class="matchWrap">
+      <div class="live caps">● Live · 63'</div>
+      <div class="match">
+        <div class="team"><span class="blob" style="background:var(--home)"></span><span class="tn">Arsenal</span></div>
+        <span class="sc">2–1</span>
+        <div class="team b"><span class="tn">Chelsea</span><span class="blob" style="background:var(--away)"></span></div>
+      </div>
+    </div>
+
+    <!-- the call -->
+    <div class="call">
+      <div class="callTop">
+        <span class="chip caps">⚡ Next goal</span>
+        <span class="timer" id="t">7.4s</span>
+      </div>
+      <div class="q">Who scores<br>next?</div>
+      <div class="bar"><i id="f" style="width:62%"></i></div>
+      <div class="opts">
+        <button class="opt"><span class="oc" style="background:var(--home)">ARS</span><span class="ot">Arsenal</span><span class="op">3 pts</span></button>
+        <button class="opt"><span class="oc" style="background:#6b6b73">—</span><span class="ot">No goal</span><span class="op">1 pt</span></button>
+        <button class="opt"><span class="oc" style="background:var(--away)">CHE</span><span class="ot">Chelsea</span><span class="op">3 pts</span></button>
+      </div>
+    </div>
+
+    <!-- pool -->
+    <div class="pool">
+      <div class="chip2 hl"><b>0.84◎</b><span class="caps">Pot</span></div>
+      <div class="chip2"><b>#3</b><span class="caps">Your rank</span></div>
+      <div class="chip2"><b>24</b><span class="caps">Playing</span></div>
+    </div>
+
+    <!-- leaderboard: creatures -->
+    <div class="board">
+      <div class="bc"><span class="av green"><svg class="mascot"><use href="#mascot"/></svg></span><span class="r caps">1st 👑</span><span class="p">14</span></div>
+      <div class="bc"><span class="av pink"><svg class="mascot"><use href="#mascot"/></svg></span><span class="r caps">2nd</span><span class="p">13</span></div>
+      <div class="bc"><span class="av gray"><svg class="mascot"><use href="#mascot"/></svg></span><span class="r caps">4th</span><span class="p">10</span></div>
+      <div class="bc me"><span class="av tan"><svg class="mascot"><use href="#mascot"/></svg></span><span class="r caps">You · 3rd</span><span class="p">12</span></div>
+    </div>
+
+  </div>
+
+  <!-- nav -->
+  <div class="nav">
+    <div class="ni on"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.5 9l4 3-4 3z" fill="currentColor" stroke="none"/></svg></span>Live</div>
+    <div class="ni"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M12 12v4M9 20h6"/></svg>Pearly</div>
+    <div class="ni"><svg viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12" rx="3"/><circle cx="16" cy="13" r="1.4" fill="currentColor" stroke="none"/></svg>Wallet</div>
+  </div>
+</div>
+
+<script>
+  let ms=7400; const total=12000;
+  const t=document.getElementById('t'), f=document.getElementById('f');
+  setInterval(()=>{ ms-=150; if(ms<=0) ms=7400;
+    t.textContent=(ms/1000).toFixed(1)+'s';
+    f.style.width=Math.max(0,Math.min(100,(ms/total)*100))+'%'; },150);
+</script>
+</body>
+</html>

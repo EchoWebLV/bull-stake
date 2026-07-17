@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streak — stats zone, 4 treatments</title>
+<style>
+  :root{
+    --bg:#0b0b0e; --card:#131318; --panel:#1a1a21; --line:#2a2a33;
+    --txt:#f2f2ee; --dim:#8b8b96; --yellow:#f5e33d; --green:#3ddc84;
+    --pitch:#1f6d43; --teal:#3fd6c0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#26262b;font-family:-apple-system,"Helvetica Neue",Inter,Arial,sans-serif;
+       color:var(--txt);-webkit-font-smoothing:antialiased;
+       display:flex;flex-direction:column;align-items:center;gap:26px;padding:30px 0 60px}
+  .caps{text-transform:uppercase;letter-spacing:.14em;font-weight:700}
+  .mono{font-variant-numeric:tabular-nums}
+
+  .opt{width:390px}
+  .tag{display:inline-flex;align-items:center;gap:8px;margin:0 0 10px 4px;
+       font-size:12px;letter-spacing:.14em;font-weight:800;text-transform:uppercase;color:#c9c9cf}
+  .tag b{display:inline-flex;width:24px;height:24px;border-radius:7px;background:var(--yellow);
+       color:#111;align-items:center;justify-content:center;font-size:13px}
+  .frame{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 16px 20px}
+
+  /* shared context: countdown above, CTA below */
+  .window .lbl{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);
+       letter-spacing:.14em;margin-bottom:7px}
+  .bar{height:6px;border-radius:3px;background:#23232b;overflow:hidden;margin-bottom:16px}
+  .fill{height:100%;width:58%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow))}
+  .cta{width:100%;border:0;border-radius:999px;padding:15px 0;margin-top:16px;
+       background:var(--yellow);color:#111;font-size:14px;font-weight:900;
+       letter-spacing:.12em;text-transform:uppercase;font-style:italic}
+
+  /* ── A · faithful 2x2 (current) ───────────────── */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .tile{border:1px solid var(--line);border-radius:15px;padding:16px 18px;min-width:0}
+  .tile .k{font-size:11px;color:var(--dim);margin-bottom:8px}
+  .tile .v{font-size:22px;font-weight:800;line-height:1;letter-spacing:-.02em;white-space:nowrap}
+  .v.green{color:var(--green)}
+  .sfx{font-size:.62em;font-weight:700;color:var(--dim);margin-left:2px;vertical-align:.08em}
+  .meter{width:44px;height:3px;border-radius:2px;background:var(--line);margin-top:9px;overflow:hidden}
+  .meter i{display:block;height:100%;border-radius:2px;background:var(--txt);width:30.4%}
+
+  /* ── B · scoreboard strip ─────────────────────── */
+  .sb{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:15px}
+  .sb-cell{min-width:0;display:flex;flex-direction:column;align-items:center;
+       padding:15px 4px 14px;position:relative}
+  .sb-cell + .sb-cell::before{content:"";position:absolute;left:0;top:50%;
+       transform:translateY(-50%);width:1px;height:30px;background:var(--line)}
+  .sb-label{font-size:11px;line-height:1;color:var(--dim);margin-bottom:9px;margin-right:-.14em}
+  .sb-value{font-size:22px;font-weight:800;line-height:1;letter-spacing:-.02em;white-space:nowrap}
+  .sb-value.green{color:var(--green)}
+  .sb-meter{width:44px;height:3px;border-radius:2px;background:#23232b;margin-top:9px;overflow:hidden}
+  .sb-meter i{display:block;height:100%;border-radius:2px;background:var(--txt);width:30.4%}
+
+  /* ── C · boxless ledger ───────────────────────── */
+  .lgr{display:grid;grid-template-columns:1fr 1fr;padding:2px 4px}
+  .lgr-cell{min-width:0}
+  .lgr-r1{padding-bottom:16px}
+  .lgr-r2{padding-top:16px;border-top:1px solid var(--line)}
+  .lgr-c1{padding-right:18px}
+  .lgr-c2{padding-left:18px;border-left:1px solid var(--line)}
+  .lgr-label{font-size:11px;color:var(--dim);line-height:1;margin-bottom:8px}
+  .lgr-value{font-size:22px;font-weight:800;line-height:1;letter-spacing:-.02em}
+  .lgr-dots{display:flex;gap:2px;margin-top:10px}
+  .lgr-dots i{flex:none;width:4px;height:4px;border-radius:50%;background:var(--line)}
+  .lgr-dots i.on{background:var(--txt)}
+
+  /* ── D · pot-hero hybrid ──────────────────────── */
+  .ph{display:flex;flex-direction:column;gap:12px}
+  .ph-hero{display:flex;align-items:flex-end;justify-content:space-between;
+       border:1px solid var(--line);border-radius:16px;padding:16px 18px 17px}
+  .ph-label{font-size:11px;color:var(--dim)}
+  .ph-heroval{margin-top:8px;font-size:28px;font-weight:800;line-height:1;letter-spacing:-.01em}
+  .ph-side{text-align:right;padding-bottom:2px}
+  .ph-bar{width:92px;height:3px;border-radius:2px;background:#23232b;overflow:hidden;margin-left:auto}
+  .ph-bar i{display:block;width:30.4%;height:100%;border-radius:2px;background:var(--txt)}
+  .ph-sidelabel{margin-top:7px;font-size:10px;color:var(--dim);letter-spacing:.12em}
+  .ph-row{display:grid;grid-template-columns:1fr 1fr;padding-top:2px}
+  .ph-col{position:relative;text-align:center;padding:2px 6px}
+  .ph-col + .ph-col::before{content:"";position:absolute;left:0;top:50%;
+       transform:translateY(-50%);width:1px;height:30px;background:var(--line)}
+  .ph-val{margin-top:8px;font-size:22px;font-weight:800;line-height:1;letter-spacing:-.01em}
+  .ph-val.green{color:var(--green)}
+</style>
+</head>
+<body>
+
+  <div class="opt">
+    <div class="tag"><b>A</b> Faithful 2×2 — what's there now</div>
+    <div class="frame">
+      <div class="window"><div class="lbl caps"><span>Call window</span><span class="mono">0:38</span></div></div>
+      <div class="bar"><div class="fill"></div></div>
+      <div class="grid">
+        <div class="tile"><div class="k caps">Pot</div><div class="v mono">2.41<span class="sfx">◎</span></div></div>
+        <div class="tile"><div class="k caps">Streak</div><div class="v green mono">4</div></div>
+        <div class="tile"><div class="k caps">Entry</div><div class="v mono">0.035<span class="sfx">◎</span></div></div>
+        <div class="tile"><div class="k caps">Alive</div><div class="v mono">7<span class="sfx">/23</span></div>
+          <div class="meter"><i></i></div></div>
+      </div>
+      <button class="cta">⚡ Call it — Arsenal next</button>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="tag"><b>B</b> Scoreboard strip — broadcast DNA</div>
+    <div class="frame">
+      <div class="window"><div class="lbl caps"><span>Call window</span><span class="mono">0:38</span></div></div>
+      <div class="bar"><div class="fill"></div></div>
+      <div class="sb">
+        <div class="sb-cell"><span class="sb-label caps">Pot</span>
+          <span class="sb-value mono">2.41<span class="sfx">◎</span></span></div>
+        <div class="sb-cell"><span class="sb-label caps">Entry</span>
+          <span class="sb-value mono">0.035<span class="sfx">◎</span></span></div>
+        <div class="sb-cell"><span class="sb-label caps">Streak</span>
+          <span class="sb-value green mono">4</span></div>
+        <div class="sb-cell"><span class="sb-label caps">Alive</span>
+          <span class="sb-value mono">7<span class="sfx">/23</span></span>
+          <span class="sb-meter"><i></i></span></div>
+      </div>
+      <button class="cta">⚡ Call it — Arsenal next</button>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="tag"><b>C</b> Boxless ledger — zero chrome, max air</div>
+    <div class="frame">
+      <div class="window"><div class="lbl caps"><span>Call window</span><span class="mono">0:38</span></div></div>
+      <div class="bar"><div class="fill"></div></div>
+      <div class="lgr">
+        <div class="lgr-cell lgr-r1 lgr-c1"><div class="lgr-label caps">Pot</div>
+          <div class="lgr-value mono">2.41<span class="sfx">◎</span></div></div>
+        <div class="lgr-cell lgr-r1 lgr-c2"><div class="lgr-label caps">Entry</div>
+          <div class="lgr-value mono">0.035<span class="sfx">◎</span></div></div>
+        <div class="lgr-cell lgr-r2 lgr-c1"><div class="lgr-label caps">Streak</div>
+          <div class="lgr-value mono" style="color:var(--green)">4</div></div>
+        <div class="lgr-cell lgr-r2 lgr-c2"><div class="lgr-label caps">Alive</div>
+          <div class="lgr-value mono">7<span class="sfx">/23</span></div>
+          <div class="lgr-dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      </div>
+      <button class="cta">⚡ Call it — Arsenal next</button>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div class="tag"><b>D</b> Pot hero — the prize is the story</div>
+    <div class="frame">
+      <div class="window"><div class="lbl caps"><span>Call window</span><span class="mono">0:38</span></div></div>
+      <div class="bar"><div class="fill"></div></div>
+      <div class="ph">
+        <div class="ph-hero">
+          <div>
+            <div class="ph-label caps">Pot</div>
+            <div class="ph-heroval mono">2.41<span class="sfx">◎</span></div>
+          </div>
+          <div class="ph-side">
+            <div class="ph-bar"><i></i></div>
+            <div class="ph-sidelabel caps">7 of 23 alive</div>
+          </div>
+        </div>
+        <div class="ph-row">
+          <div class="ph-col"><div class="ph-label caps">Entry</div>
+            <div class="ph-val mono">0.035<span class="sfx">◎</span></div></div>
+          <div class="ph-col"><div class="ph-label caps">Streak</div>
+            <div class="ph-val green mono">4</div></div>
+        </div>
+      </div>
+      <button class="cta">⚡ Call it — Arsenal next</button>
+    </div>
+  </div>
+
+</body>
+</html>

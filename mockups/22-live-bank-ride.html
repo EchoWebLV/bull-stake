@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streak — live · bank or ride (v2)</title>
+<style>
+  :root{
+    --bg:#0b0b0e; --card:#131318; --panel:#1a1a21; --line:#2a2a33;
+    --txt:#f2f2ee; --dim:#8b8b96;
+    --yellow:#f5e33d; --green:#3ddc84; --red:#ff6b6b;
+    --home:#0b6bcb; --away:#c62b2b; --neutral:#2b3340;
+    --f:-apple-system,"Helvetica Neue",Inter,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#26262b;display:flex;justify-content:center;padding:24px 0;
+    color:var(--txt);font:400 14px var(--f);-webkit-font-smoothing:antialiased;
+  }
+  /* hard single-screen frame: 390x844, zero scroll */
+  .phone{
+    width:390px;height:844px;background:var(--bg);border-radius:22px;overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.55);
+  }
+  .caps{text-transform:uppercase;letter-spacing:.12em}
+  .mono{font-variant-numeric:tabular-nums}
+  .sfx{font-size:.6em;color:var(--dim);margin-left:2px;vertical-align:.08em}
+
+  .card{
+    margin:10px 10px 8px;flex:1;min-height:0;display:flex;flex-direction:column;
+    background:
+      radial-gradient(120% 44% at 50% -8%, rgba(31,109,67,.22), transparent 60%),
+      var(--card);
+    border:1px solid var(--line);border-radius:18px;
+    padding:12px 14px;position:relative;overflow:hidden;
+  }
+
+  /* ── 1 · micro status row ─────────────────────────────── */
+  .status{display:flex;justify-content:space-between;align-items:center;
+        font:700 9.5px var(--f);color:var(--dim)}
+  .liveTag{display:flex;align-items:center;gap:6px;color:var(--green)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+
+  /* ── 2 · match row ────────────────────────────────────── */
+  .match{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .side{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .side.away{justify-content:flex-end}
+  .crest{width:31px;height:31px;border-radius:50%;flex:none;display:flex;align-items:center;
+        justify-content:center;font:900 9px var(--f);color:#fff}
+  .cn{font:800 13.5px var(--f);letter-spacing:.06em;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .mid{text-align:center;flex:none;padding:0 6px}
+  .score{font:900 28px/1 var(--f);white-space:nowrap}
+  .min{margin-top:3px;font:700 10px var(--f);color:var(--green);letter-spacing:.1em;
+        display:flex;align-items:center;justify-content:center;gap:5px}
+  .blip{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+
+  /* ── 3 · the call — uncontested hero, centered ────────── */
+  .call{border:1px solid rgba(245,227,61,.35);border-radius:16px;padding:14px 14px 15px;
+        margin:auto 0;background:rgba(245,227,61,.03)}
+  .callTop{display:flex;align-items:center;justify-content:space-between}
+  .kindChip{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(61,220,132,.5);
+        color:var(--green);border-radius:999px;padding:6px 13px;font:800 11px var(--f);
+        letter-spacing:.1em}
+  .timer{font:900 17px var(--f);color:var(--yellow)}
+  .q{margin:11px 2px 0;font:italic 900 29px/1.05 var(--f);letter-spacing:-.01em;
+        text-transform:uppercase}
+  .cbar{height:6px;border-radius:3px;background:#23232b;overflow:hidden;margin:12px 0}
+  .cfill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow));
+        transition:width .15s linear}
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .opt{display:flex;align-items:center;gap:12px;width:100%;border:1px solid var(--line);
+        background:#17171d;border-radius:13px;padding:14px;cursor:pointer;color:var(--txt);
+        font:inherit}
+  .opt:active{transform:scale(.985);border-color:var(--yellow)}
+  .oc{width:30px;height:30px;border-radius:9px;flex:none;display:flex;align-items:center;
+        justify-content:center;font:900 10px var(--f);color:#fff}
+  .ot{font:800 15.5px var(--f);letter-spacing:.04em;text-transform:uppercase}
+  .op{margin-left:auto;font:800 12px var(--f);color:var(--dim);white-space:nowrap}
+
+  /* ── 4 · BANK vs RIDE — the centrepiece ──────────────── */
+  .bankPanel{border:1px solid var(--line);border-radius:15px;background:var(--panel);
+        padding:12px 13px 12px;margin-top:12px}
+  .cells{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  .cell{min-width:0}
+  .cell.risk{border-left:1px solid var(--line);padding-left:14px}
+  .cTop{display:flex;align-items:baseline;gap:7px}
+  .big{font:italic 900 26px/1 var(--f)}
+  .unit{font:800 9px var(--f);color:var(--dim);letter-spacing:.1em}
+  .green{color:var(--green)}
+  #riskV{animation:heat 1.4s infinite}
+  @keyframes heat{50%{text-shadow:0 0 14px rgba(61,220,132,.75)}}
+  .multChip{font:900 11px/1 var(--f);color:var(--green);background:rgba(61,220,132,.13);
+        border:1px solid rgba(61,220,132,.4);border-radius:6px;padding:3px 6px 4px}
+  .cLab{margin-top:7px;font:800 9px var(--f);color:var(--dim);letter-spacing:.1em;
+        white-space:nowrap;text-transform:uppercase}
+  .cLab.green{color:var(--green)}
+  /* streak pips — filled = wins in a row, dashed = the next rung */
+  .pips{display:flex;align-items:center;gap:5px;margin-top:8px}
+  .pip{width:8px;height:8px;border-radius:50%;background:var(--green)}
+  .pip.next{background:transparent;border:1.5px dashed rgba(61,220,132,.6);
+        animation:pulse 1.2s infinite}
+  .plab{font:800 8.5px var(--f);color:var(--dim);letter-spacing:.1em;margin-left:3px;
+        text-transform:uppercase}
+
+  .bankBtn{width:100%;margin-top:12px;border:0;border-radius:13px;cursor:pointer;
+        background:var(--yellow);padding:12px 8px 11px;font:inherit;
+        box-shadow:0 6px 22px rgba(245,227,61,.2);animation:glowY 1.5s infinite;
+        transition:background .25s}
+  @keyframes glowY{50%{box-shadow:0 0 26px rgba(245,227,61,.42)}}
+  .bankBtn:active{transform:scale(.98)}
+  .bankMain{display:block;font:italic 900 20px/1 var(--f);letter-spacing:.04em;
+        color:#111;text-transform:uppercase}
+  .bankSub{display:block;margin-top:4px;font:800 9px var(--f);letter-spacing:.1em;
+        color:rgba(0,0,0,.62);text-transform:uppercase}
+  .bankBtn.off{background:#20202a;animation:none;box-shadow:none;cursor:default}
+  .bankBtn.off:active{transform:none}
+  .bankBtn.off .bankMain{color:var(--green)}
+  .bankBtn.off .bankSub{color:#5c5c66}
+
+  /* single danger line — the ride, in plain words */
+  .hint{margin-top:9px;text-align:center;font:700 10px var(--f);color:var(--dim);
+        letter-spacing:.08em;text-transform:uppercase}
+  .hint b{color:var(--green);font:800 10px var(--f)}
+  .hint i{color:var(--red);font-style:normal}
+
+  .pop{animation:pop .5s ease}
+  @keyframes pop{30%{transform:scale(1.3);color:var(--yellow)}}
+  .bankPanel.cold #riskV{animation:none;color:var(--dim)}
+  .bankPanel.cold .multChip,.bankPanel.cold .pips{display:none}
+  .bankPanel.cold .cLab.green{color:var(--dim)}
+
+  /* ── 5 · pool + standings — the ONE readout ──────────── */
+  .strip{display:grid;grid-template-columns:1.1fr 1fr 1fr;border:1px solid var(--line);
+        border-radius:13px;margin-top:10px}
+  .stc{min-width:0;display:flex;flex-direction:column;align-items:center;
+        padding:10px 3px 9px;position:relative}
+  .stc + .stc::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+        width:1px;height:22px;background:var(--line)}
+  .stc .v{font:800 16px/1 var(--f);white-space:nowrap}
+  .stc .l{margin-top:5px;font:700 8px var(--f);color:var(--dim);letter-spacing:.06em;
+        white-space:nowrap;text-transform:uppercase}
+
+  /* ── nav — exactly three tabs ────────────────────────── */
+  .nav{display:flex;align-items:center;justify-content:space-around;flex:none;
+        padding:9px 6px 12px;background:#0e0e12;border-top:1px solid #1c1c22}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:5px;font:800 9px var(--f);
+        letter-spacing:.12em;color:#606069;width:80px;text-transform:uppercase}
+  .ni svg{width:19px;height:19px;stroke:#606069;fill:none;stroke-width:1.8}
+  .ni.on{color:var(--yellow)}
+  .ni.on svg{stroke:var(--yellow)}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="card">
+
+    <!-- 1 · status -->
+    <div class="status caps">
+      <span>In play · 2nd half</span>
+      <span class="liveTag"><span class="dot"></span>Live</span>
+    </div>
+
+    <!-- 2 · match -->
+    <div class="match">
+      <div class="side">
+        <span class="crest" style="background:var(--home)">ARS</span>
+        <span class="cn caps">Arsenal</span>
+      </div>
+      <div class="mid">
+        <div class="score mono">2–1</div>
+        <div class="min caps"><span class="blip"></span>63'</div>
+      </div>
+      <div class="side away">
+        <span class="cn caps">Chelsea</span>
+        <span class="crest" style="background:var(--away)">CHE</span>
+      </div>
+    </div>
+
+    <!-- 3 · the call — hero -->
+    <div class="call">
+      <div class="callTop">
+        <span class="kindChip caps">⚡ Next goal</span>
+        <span class="timer mono" id="t">7.4s</span>
+      </div>
+      <div class="q">Who scores next?</div>
+      <div class="cbar"><div class="cfill" id="f" style="width:62%"></div></div>
+      <div class="opts">
+        <button class="opt">
+          <span class="oc" style="background:var(--home)">ARS</span>
+          <span class="ot">Arsenal</span>
+          <span class="op">3 pts</span>
+        </button>
+        <button class="opt">
+          <span class="oc" style="background:var(--neutral)">—</span>
+          <span class="ot">No goal</span>
+          <span class="op">1 pt</span>
+        </button>
+        <button class="opt">
+          <span class="oc" style="background:var(--away)">CHE</span>
+          <span class="ot">Chelsea</span>
+          <span class="op">3 pts</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 4 · BANK vs RIDE -->
+    <div class="bankPanel" id="panel">
+      <div class="cells">
+        <div class="cell">
+          <div class="cTop"><span class="big mono" id="safeV">12</span><span class="unit caps">pts safe</span></div>
+          <div class="cLab caps">🔒 Banked · can't be lost</div>
+        </div>
+        <div class="cell risk">
+          <div class="cTop"><span class="big mono green" id="riskV">+6</span><span class="unit caps" id="riskU">at risk</span><span class="multChip mono">×3</span></div>
+          <div class="cLab caps green" id="riskLab">🔥 Riding the streak</div>
+          <div class="pips">
+            <span class="pip"></span><span class="pip"></span><span class="pip"></span>
+            <span class="pip next"></span>
+            <span class="plab">Streak 3</span>
+          </div>
+        </div>
+      </div>
+      <button class="bankBtn" id="bankBtn">
+        <span class="bankMain" id="bMain">Bank +6</span>
+        <span class="bankSub" id="bSub">Lock it in · safe 12 → 18 · streak resets</span>
+      </button>
+    </div>
+    <div class="hint caps" id="hint">Keep riding: hit → <b>×4</b> · miss → <i>the +6 is gone</i></div>
+
+    <!-- 5 · one pot / rank / leader strip -->
+    <div class="strip">
+      <div class="stc"><div class="v mono">0.84<span class="sfx">◎</span></div><div class="l">Pot · top pts wins</div></div>
+      <div class="stc"><div class="v mono green" id="rankV">#3</div><div class="l">You · 24 in</div></div>
+      <div class="stc"><div class="v mono" id="leadV">14</div><div class="l">Leader pts</div></div>
+    </div>
+  </div>
+
+  <!-- nav · Live / Pearly / Wallet -->
+  <div class="nav">
+    <div class="ni on">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>
+      Live
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>
+      Pearly
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>
+      Wallet
+    </div>
+  </div>
+</div>
+
+<script>
+  /* call timer */
+  let ms = 7400; const total = 12000;
+  const t = document.getElementById('t'), f = document.getElementById('f');
+  setInterval(() => {
+    ms -= 150; if (ms <= 0) ms = 7400;
+    t.textContent = (ms / 1000).toFixed(1) + 's';
+    f.style.width = Math.max(0, Math.min(100, (ms / total) * 100)) + '%';
+  }, 150);
+
+  /* BANK demo: one tap locks the at-risk bonus — banking is seizing power */
+  let riding = true;
+  const $ = id => document.getElementById(id);
+  $('bankBtn').addEventListener('click', () => {
+    if (!riding) return;
+    riding = false;
+    $('safeV').textContent = '18';
+    $('safeV').classList.add('pop');
+    $('riskV').textContent = '+0';
+    $('riskV').classList.remove('green');
+    $('riskLab').textContent = 'Nothing at risk — go again';
+    $('panel').classList.add('cold');
+    $('bankBtn').classList.add('off');
+    $('bMain').textContent = 'Banked ✓';
+    $('bSub').textContent = '+6 locked · 18 pts safe';
+    $('hint').innerHTML = '18 safe · you lead — win a call to start a new ride';
+    $('rankV').textContent = '#1';
+    $('rankV').classList.add('pop');
+    $('leadV').textContent = '18';
+  });
+</script>
+</body>
+</html>

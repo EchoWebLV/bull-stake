@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bull Stake — actual 3D machine (WebGL reels × hand-drawn)</title>
+<!--
+  Mockup 27d — ACTUAL 3D. A hand-drawn CSS cabinet with a WebGL reel window:
+  three real 3D cylinder reels (rings of tile planes) that spin in true
+  perspective, tiles curving over the drum. Flat/unlit materials keep the
+  hand-drawn art looking drawn, not CGI. Mobile-first: no post-processing,
+  pixelRatio capped at 2, and the render loop runs ONLY while spinning. In the
+  app, Three.js is lazy-loaded only when the machine opens. Pull the lever /
+  click / Space → reels spin, land, and the bull composes.
+  Loads Three from lib/ and art from bull/ (both next to this file).
+-->
+<style>
+  :root{
+    --ink:#f4ecd8; --cab:#2b2334; --cab-d:#1d1727; --cab-dd:#120d18;
+    --yellow:#f5e33d; --pink:#e59be0; --red:#e2564d; --green:#54d98c;
+    --tan:#cbb986; --gold:#f5c542; --chrome:#c4c2cf;
+    --disp:"Marker Felt","Chalkboard SE","Comic Sans MS",system-ui,sans-serif;
+    --body:ui-rounded,"SF Pro Rounded","Chalkboard SE",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:radial-gradient(1100px 640px at 50% -8%, #2a1f3d 0%, transparent 60%),#141019;
+    color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;min-height:100%;
+    display:flex;flex-direction:column;align-items:center;padding:18px 16px 40px;gap:12px;overflow-x:hidden}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+    background:radial-gradient(rgba(244,236,216,.05) 1px,transparent 1.5px) 0 0/14px 14px}
+  .caps{text-transform:uppercase;letter-spacing:.06em}
+  .kick{font-size:12px;font-weight:800;opacity:.6}.kick b{color:var(--yellow)}
+
+  .stage{position:relative;margin:10px 30px 20px 4px}
+  .cab{position:relative;width:322px;border:3px solid var(--ink);border-radius:20px;padding:15px 15px 17px;
+    background:linear-gradient(180deg,#33294a,#221a30);
+    box-shadow:3px 3px 0 #000,7px 8px 0 var(--cab-d),11px 14px 0 var(--cab-dd),13px 18px 26px rgba(0,0,0,.5)}
+  .cab::before{content:"";position:absolute;left:12px;right:4px;top:-9px;height:11px;border:3px solid var(--ink);
+    border-bottom:none;border-radius:12px 12px 0 0;background:#40355a;transform:skewX(-24deg);transform-origin:left bottom}
+  .crest{position:absolute;top:-58px;left:50%;transform:translateX(-54%);width:80px;height:72px;z-index:5;filter:drop-shadow(3px 4px 0 #000)}
+  .marquee{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;border:3px solid var(--ink);
+    border-radius:13px;background:var(--yellow);color:#17130f;padding:7px 10px 8px;box-shadow:3px 3px 0 #000;transform:rotate(-1.4deg);margin-bottom:10px}
+  .marquee b{font-family:var(--disp);font-size:20px;line-height:1}
+  .bulb{width:9px;height:9px;border-radius:50%;background:#fff;border:2px solid #17130f;box-shadow:0 0 8px 2px rgba(255,255,255,.7);animation:bulb 1.1s steps(1) infinite}
+  .bulb.b2{animation-delay:.55s}@keyframes bulb{0%{background:#fff}50%{background:var(--red)}}
+  .subcap{text-align:center;font-size:9.5px;font-weight:900;letter-spacing:.14em;opacity:.5;margin-bottom:8px}
+
+  /* WebGL reel window */
+  .screen{position:relative;border:3px solid var(--ink);border-radius:14px;background:#0b0810;overflow:hidden;
+    box-shadow:inset 0 0 0 3px #000, inset 0 0 30px rgba(0,0,0,.95);height:196px}
+  #reels{position:absolute;inset:0;width:100%;height:100%;display:block}
+  /* recessed vignette + payline drawn OVER the canvas */
+  .vig{position:absolute;inset:0;pointer-events:none;z-index:2;border-radius:12px;
+    background:linear-gradient(180deg,rgba(11,8,16,.92) 0%,rgba(11,8,16,0) 22%,rgba(11,8,16,0) 78%,rgba(11,8,16,.92) 100%)}
+  .payline{position:absolute;left:8px;right:8px;top:50%;height:0;z-index:3;transform:translateY(-1px);
+    border-top:3px solid var(--green);box-shadow:0 0 11px 1px rgba(84,217,140,.65);opacity:.8}
+  .screen.win .payline{animation:pl .26s steps(1) 5}@keyframes pl{50%{opacity:.25;border-top-color:#fff}}
+  .mullion{position:absolute;top:6px;bottom:6px;width:3px;background:#000;z-index:2;opacity:.55}
+  .mullion.m1{left:33.3%}.mullion.m2{left:66.6%}
+  .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;
+    font-family:var(--disp);font-size:15px;color:var(--ink);opacity:.7}
+
+  .readout{display:flex;align-items:center;gap:9px;margin-top:12px}
+  .jack{flex:1;border:3px solid var(--ink);border-radius:11px;background:#0b0810;color:var(--gold);box-shadow:inset 0 0 0 2px #000;padding:6px 11px;display:flex;align-items:baseline;gap:7px}
+  .jack .lab{font-size:9px;font-weight:900;letter-spacing:.12em;opacity:.7;color:var(--ink)}
+  .jack b{font-family:var(--disp);font-size:22px;line-height:.9;margin-left:auto;text-shadow:0 0 10px rgba(245,197,66,.6)}
+  .credits{border:3px solid var(--ink);border-radius:11px;background:var(--pink);color:#17130f;box-shadow:3px 3px 0 #000;padding:6px 11px;text-align:center}
+  .credits b{font-family:var(--disp);font-size:19px;display:block;line-height:.95}.credits span{font-size:8px;font-weight:900;letter-spacing:.1em}
+  .console{margin-top:11px;border:3px solid var(--ink);border-radius:12px;background:#241d30;box-shadow:inset 0 3px 10px rgba(0,0,0,.5);padding:9px 11px;display:flex;align-items:center;gap:10px}
+  .coinslot{width:34px;height:34px;border:3px solid var(--ink);border-radius:8px;background:#0b0810;flex:none;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 2px #000}
+  .coinslot::after{content:"";width:15px;height:4px;background:var(--ink);border-radius:2px}
+  .emblem{font-family:var(--disp);font-size:15px;line-height:1.05}.emblem small{display:block;font-family:var(--body);font-size:10px;font-weight:800;opacity:.6}
+  .tray{margin-top:10px;height:22px;border:3px solid var(--ink);border-radius:8px;background:#0b0810;box-shadow:inset 0 6px 10px rgba(0,0,0,.7)}
+
+  .mount{position:absolute;right:0;top:132px;width:36px;height:36px;border-radius:50%;z-index:6;background:radial-gradient(circle at 35% 32%,#544d63,#221d2b);border:3px solid var(--ink);box-shadow:3px 4px 0 #000}
+  .mount::after{content:"";position:absolute;inset:11px;border-radius:50%;background:#17131b;border:2px solid #000}
+  .lever{position:absolute;right:15px;top:150px;width:14px;height:0;transform-origin:50% 100%;transform:rotate(-18deg);z-index:5;cursor:grab;touch-action:none}
+  .lever.grab{cursor:grabbing}
+  .shaft{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:15px;height:126px;border-radius:8px;border:3px solid var(--ink);background:linear-gradient(90deg,#928f9f,var(--chrome) 42%,#6e6b7a);box-shadow:2px 2px 0 rgba(0,0,0,.45)}
+  .shaft::after{content:"";position:absolute;left:3px;top:6px;width:3px;bottom:6px;border-radius:2px;background:rgba(255,255,255,.6)}
+  .ball{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);width:44px;height:44px;border-radius:50%;border:3px solid var(--ink);background:radial-gradient(circle at 33% 28%,#ff938a,var(--red) 52%,#a5332b);box-shadow:3px 5px 0 #000}
+  .ball::after{content:"";position:absolute;left:10px;top:7px;width:13px;height:9px;border-radius:50%;background:rgba(255,255,255,.72);transform:rotate(-18deg)}
+  .lever.snap{transition:transform .5s cubic-bezier(.34,1.7,.5,1)}.lever.throw{transition:transform .16s ease-in}
+  .hint{position:absolute;right:-26px;top:92px;z-index:7;font-family:var(--disp);font-size:15px;color:var(--yellow);text-shadow:2px 2px 0 #000;animation:hb 1s ease-in-out infinite;pointer-events:none}
+  .hint span{display:block;font-size:20px;text-align:center;line-height:.7}@keyframes hb{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+  .hidden{display:none!important}
+
+  .toast{margin-top:6px;min-height:34px;display:flex;align-items:center;justify-content:center;gap:12px;opacity:0;transition:opacity .28s}
+  .toast.show{opacity:1}
+  .portrait{width:82px;height:82px;border-radius:13px;border:3px solid var(--ink);box-shadow:3px 4px 0 #000;object-fit:cover;animation:pop .45s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes pop{0%{transform:scale(.3) rotate(-12deg);opacity:0}100%{transform:none;opacity:1}}
+  .toast .txt{font-family:var(--disp);font-size:16px;line-height:1.1}.toast .txt small{display:block;font-family:var(--body);font-size:11px;font-weight:800;opacity:.6}
+  .toast .mint{border:3px solid var(--ink);border-radius:11px;background:var(--yellow);color:#17130f;font-family:var(--disp);font-size:15px;padding:7px 13px;box-shadow:3px 3px 0 #000;cursor:pointer}
+  .toast .mint:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+  .foot{font-size:12px;font-weight:700;opacity:.6;text-align:center;max-width:340px}
+  .foot kbd{border:2px solid var(--ink);border-radius:6px;padding:0 6px;font-size:11px;background:#241d30;box-shadow:1px 1px 0 #000}
+</style>
+<script type="importmap">{ "imports": { "three": "./lib/three.module.js" } }</script>
+</head>
+<body>
+  <div class="kick caps">Bull Stake · <b>The Bull Machine</b> · actual 3D (WebGL)</div>
+
+  <div class="stage" id="stage">
+    <div class="cab">
+      <svg class="crest" viewBox="0 0 78 70" aria-hidden="true">
+        <path d="M14 66 C8 60 10 46 12 40 C12 30 16 22 26 19 C24 13 27 9 32 11 C36 13 35 18 33 23
+                 C45 21 56 26 60 35 L67 41 C69 44 64 47 59 45 L49 45 C46 50 48 59 51 66 Z"
+              fill="var(--tan)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
+        <circle cx="43" cy="33" r="3" fill="#17130f"/>
+      </svg>
+      <div class="marquee"><span class="bulb"></span><b>BULL STAKE</b><span class="bulb b2"></span></div>
+      <div class="subcap caps">three 3D reels · one pull builds your bull</div>
+
+      <div class="screen" id="screen">
+        <canvas id="reels"></canvas>
+        <div class="mullion m1"></div><div class="mullion m2"></div>
+        <div class="vig"></div><div class="payline"></div>
+        <div class="loading" id="loading">warming up the reels…</div>
+      </div>
+
+      <div class="readout">
+        <div class="jack"><span class="lab caps">Jackpot</span><b>◎0.07</b></div>
+        <div class="credits"><b id="cred">3</b><span class="caps">credits</span></div>
+      </div>
+      <div class="console"><div class="coinslot"></div><div class="emblem">PULL TO SPIN<small>real 3D reels · minted to you</small></div></div>
+      <div class="tray"></div>
+    </div>
+
+    <div class="mount"></div>
+    <div class="lever snap" id="lever"><div class="shaft"></div><div class="ball"></div></div>
+    <div class="hint" id="hint">PULL<span>↓</span></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="foot">Drag the red ball <b>down</b> &nbsp;·&nbsp; or click it &nbsp;·&nbsp; or press <kbd>Space</kbd> &nbsp;·&nbsp; <span id="perf" style="opacity:.7"></span></div>
+
+<script type="module">
+import * as THREE from 'three';
+
+const rnd = (n)=>Math.floor(Math.random()*n);
+const credEl=document.getElementById('cred'), toast=document.getElementById('toast'),
+      hint=document.getElementById('hint'), screenEl=document.getElementById('screen'),
+      loadingEl=document.getElementById('loading'), perfEl=document.getElementById('perf');
+let manifest=null, credits=3, spinning=false;
+
+// ── WebGL scene ──────────────────────────────────────────────────────────────
+const canvas=document.getElementById('reels');
+const renderer=new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));           // mobile: cap DPR
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+camera.position.set(0, 0.62, 7.4); camera.lookAt(0, 0, 0);      // slight 3/4 downward tilt
+
+const NT=14, TILE=1.0, R=(TILE*NT)/(2*Math.PI);                 // tiles around each drum; radius keeps them ~square
+const COLX=[-1.32, 0, 1.32];
+const reels=[];                                                 // {group, planes[], spin state}
+const loader=new THREE.TextureLoader();
+const texCache=new Map();
+function tileTex(ci, ti){
+  const key=ci+'_'+ti;
+  if(!texCache.has(key)){
+    // onLoad → repaint the static scene (textures arrive after the first render,
+    // and the loop only runs while spinning — without this the reels stay blank)
+    const t=loader.load('bull/'+manifest[ci].traits[ti].tile, ()=>renderStatic());
+    t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+    texCache.set(key, t);
+  }
+  return texCache.get(key);
+}
+function renderStatic(){ if(!raf) renderer.render(scene, camera); }
+function randTex(){ const ci=rnd(9); return tileTex(ci, rnd(manifest[ci].traits.length)); }
+
+function buildReels(){
+  const geo=new THREE.PlaneGeometry(TILE, TILE);
+  for(let c=0;c<3;c++){
+    const group=new THREE.Group(); group.position.x=COLX[c]; scene.add(group);
+    const planes=[];
+    for(let i=0;i<NT;i++){
+      const a=i*(2*Math.PI/NT);
+      const m=new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: randTex(), transparent:true }));
+      m.position.set(0, R*Math.sin(a), R*Math.cos(a));         // ring around the X axis
+      m.rotation.x=a;                                          // face outward
+      group.add(m); planes.push(m);
+    }
+    reels.push({ group, planes, phase:0 });                    // phase 0 → plane 0 forward (a=0 → z=R toward cam)
+  }
+}
+
+function resize(){
+  const w=screenEl.clientWidth, h=screenEl.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+}
+
+// render loop runs ONLY while spinning (mobile-friendly)
+let raf=0, tweens=[];
+function loop(t){
+  let live=false;
+  for(const tw of tweens){
+    if(tw.done) continue;
+    const p=Math.min(1,(t-tw.t0)/tw.dur);
+    const e=1-Math.pow(1-p, 3);                                // easeOutCubic
+    tw.reel.group.rotation.x = tw.from + (tw.to-tw.from)*e;
+    if(p>=1){ tw.done=true; tw.onEnd&&tw.onEnd(); } else live=true;
+  }
+  renderer.render(scene, camera);
+  if(live) raf=requestAnimationFrame(loop); else raf=0;
+}
+function kick(){ if(!raf) raf=requestAnimationFrame(loop); }
+
+function spinReels(onAllDone){
+  tweens=[];
+  let doneCount=0;
+  reels.forEach((reel, c)=>{
+    reel.planes[0].material.map = randTex();                   // plane 0 = the result face
+    reel.planes[0].material.needsUpdate = true;
+    const turns = 4 + c;                                       // deeper reels spin longer
+    const from = reel.group.rotation.x;
+    const to = from - 2*Math.PI*turns;                         // whole turns → plane 0 forward again
+    tweens.push({ reel, from, to, t0: performance.now()+c*140, dur: 1200 + c*300, done:false,
+      onEnd:()=>{ reel.group.rotation.x = to % (2*Math.PI); if(++doneCount===3) onAllDone(); } });
+  });
+  // stagger starts: shift t0 so easing begins per reel
+  const base=performance.now();
+  tweens.forEach((tw,c)=> tw.t0 = base + c*140);
+  kick();
+}
+
+// ── game flow ────────────────────────────────────────────────────────────────
+const loadImg=(src)=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(src);i.src=src;});
+async function reveal(){
+  const targets=manifest.map((_,ci)=>rnd(manifest[ci].traits.length));
+  let url='';
+  try{
+    const imgs=await Promise.all(manifest.map((_,ci)=>loadImg('bull/'+manifest[ci].traits[targets[ci]].layer)));
+    const cv=document.createElement('canvas');cv.width=cv.height=512;const ctx=cv.getContext('2d');
+    for(const im of imgs) ctx.drawImage(im,0,0,512,512); url=cv.toDataURL('image/png');
+  }catch(e){}
+  toast.innerHTML=(url?`<img class="portrait" src="${url}" alt="Your bull">`:'')+
+    `<div class="txt">Your bull!<small>9 traits · 1-of-1</small></div>`+
+    `<button class="mint" onclick="alert('(demo) → cash out mints THIS bull to your wallet')">Mint it →</button>`;
+  toast.classList.add('show');
+}
+function doSpin(){
+  if(spinning || !manifest || credits<=0) return;
+  spinning=true; credits--; credEl.textContent=credits;
+  hint.classList.add('hidden'); toast.classList.remove('show'); toast.innerHTML=''; screenEl.classList.remove('win');
+  spinReels(async ()=>{
+    screenEl.classList.add('win');
+    await reveal();
+    spinning=false;
+    if(credits<=0) setTimeout(()=>{credits=3;credEl.textContent=credits;},500);
+  });
+}
+
+// ── lever (CSS, proven) ──────────────────────────────────────────────────────
+const lever=document.getElementById('lever');
+const UP=-18,DOWN=48,THRESH=26; let dragging=false,startY=0,angle=UP,downAt=0;
+const setAngle=(a)=>{angle=a;lever.style.transform=`rotate(${a}deg)`;};
+function throwLever(){ if(spinning) return; lever.classList.remove('snap');lever.classList.add('throw');setAngle(DOWN);
+  setTimeout(()=>{doSpin();lever.classList.remove('throw');lever.classList.add('snap');setAngle(UP);},170); }
+lever.addEventListener('pointerdown',(e)=>{if(spinning)return;dragging=true;startY=e.clientY;downAt=performance.now();lever.classList.remove('snap');lever.classList.add('grab');lever.setPointerCapture(e.pointerId);});
+lever.addEventListener('pointermove',(e)=>{if(!dragging)return;setAngle(Math.max(UP,Math.min(DOWN,UP+(e.clientY-startY)*0.42)));});
+function endDrag(e){if(!dragging)return;dragging=false;lever.classList.remove('grab');try{lever.releasePointerCapture(e.pointerId);}catch{}
+  if(angle>=THRESH){lever.classList.add('throw');setAngle(DOWN);setTimeout(()=>{doSpin();lever.classList.remove('throw');lever.classList.add('snap');setAngle(UP);},140);}else{lever.classList.add('snap');setAngle(UP);}}
+lever.addEventListener('pointerup',endDrag);lever.addEventListener('pointercancel',endDrag);
+lever.addEventListener('click',()=>{if(!spinning&&performance.now()-downAt<250&&Math.abs(angle-UP)<3)throwLever();});
+addEventListener('keydown',(e)=>{if(e.code==='Space'){e.preventDefault();throwLever();}});
+setAngle(UP);
+
+// ── boot ─────────────────────────────────────────────────────────────────────
+addEventListener('resize', resize);
+(async function boot(){
+  manifest=await fetch('bull/manifest.json').then(r=>r.json());
+  buildReels(); resize();
+  loadingEl.classList.add('hidden');
+  perfEl.textContent='WebGL · '+(renderer.capabilities.isWebGL2?'WebGL2':'WebGL1');
+})();
+</script>
+</body>
+</html>

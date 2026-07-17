@@ -1,0 +1,1133 @@
+[
+ {
+  "name": "Background",
+  "traits": [
+   {
+    "name": "Blue",
+    "weight": 1,
+    "tile": "tiles/c0_t0.png",
+    "layer": "layers/c0_t0.png"
+   },
+   {
+    "name": "Brown",
+    "weight": 1,
+    "tile": "tiles/c0_t1.png",
+    "layer": "layers/c0_t1.png"
+   },
+   {
+    "name": "Camel",
+    "weight": 1,
+    "tile": "tiles/c0_t2.png",
+    "layer": "layers/c0_t2.png"
+   },
+   {
+    "name": "Celery",
+    "weight": 1,
+    "tile": "tiles/c0_t3.png",
+    "layer": "layers/c0_t3.png"
+   },
+   {
+    "name": "Cobalt",
+    "weight": 1,
+    "tile": "tiles/c0_t4.png",
+    "layer": "layers/c0_t4.png"
+   },
+   {
+    "name": "Emerald",
+    "weight": 1,
+    "tile": "tiles/c0_t5.png",
+    "layer": "layers/c0_t5.png"
+   },
+   {
+    "name": "Gray",
+    "weight": 1,
+    "tile": "tiles/c0_t6.png",
+    "layer": "layers/c0_t6.png"
+   },
+   {
+    "name": "Mauve",
+    "weight": 1,
+    "tile": "tiles/c0_t7.png",
+    "layer": "layers/c0_t7.png"
+   },
+   {
+    "name": "Navy",
+    "weight": 1,
+    "tile": "tiles/c0_t8.png",
+    "layer": "layers/c0_t8.png"
+   },
+   {
+    "name": "Olive",
+    "weight": 1,
+    "tile": "tiles/c0_t9.png",
+    "layer": "layers/c0_t9.png"
+   },
+   {
+    "name": "Orange",
+    "weight": 1,
+    "tile": "tiles/c0_t10.png",
+    "layer": "layers/c0_t10.png"
+   },
+   {
+    "name": "Peach",
+    "weight": 1,
+    "tile": "tiles/c0_t11.png",
+    "layer": "layers/c0_t11.png"
+   },
+   {
+    "name": "Pink",
+    "weight": 1,
+    "tile": "tiles/c0_t12.png",
+    "layer": "layers/c0_t12.png"
+   },
+   {
+    "name": "Plum",
+    "weight": 1,
+    "tile": "tiles/c0_t13.png",
+    "layer": "layers/c0_t13.png"
+   },
+   {
+    "name": "Purple",
+    "weight": 1,
+    "tile": "tiles/c0_t14.png",
+    "layer": "layers/c0_t14.png"
+   },
+   {
+    "name": "Red",
+    "weight": 1,
+    "tile": "tiles/c0_t15.png",
+    "layer": "layers/c0_t15.png"
+   },
+   {
+    "name": "Sea Foam",
+    "weight": 1,
+    "tile": "tiles/c0_t16.png",
+    "layer": "layers/c0_t16.png"
+   },
+   {
+    "name": "Turquoise",
+    "weight": 1,
+    "tile": "tiles/c0_t17.png",
+    "layer": "layers/c0_t17.png"
+   },
+   {
+    "name": "Violet",
+    "weight": 1,
+    "tile": "tiles/c0_t18.png",
+    "layer": "layers/c0_t18.png"
+   }
+  ]
+ },
+ {
+  "name": "Body",
+  "traits": [
+   {
+    "name": "Albino",
+    "weight": 25,
+    "tile": "tiles/c1_t0.png",
+    "layer": "layers/c1_t0.png"
+   },
+   {
+    "name": "Alien",
+    "weight": 10,
+    "tile": "tiles/c1_t1.png",
+    "layer": "layers/c1_t1.png"
+   },
+   {
+    "name": "Black",
+    "weight": 80,
+    "tile": "tiles/c1_t2.png",
+    "layer": "layers/c1_t2.png"
+   },
+   {
+    "name": "Blond",
+    "weight": 40,
+    "tile": "tiles/c1_t3.png",
+    "layer": "layers/c1_t3.png"
+   },
+   {
+    "name": "Brown",
+    "weight": 80,
+    "tile": "tiles/c1_t4.png",
+    "layer": "layers/c1_t4.png"
+   },
+   {
+    "name": "Brownie",
+    "weight": 80,
+    "tile": "tiles/c1_t5.png",
+    "layer": "layers/c1_t5.png"
+   },
+   {
+    "name": "Cappucino",
+    "weight": 60,
+    "tile": "tiles/c1_t6.png",
+    "layer": "layers/c1_t6.png"
+   },
+   {
+    "name": "Dark",
+    "weight": 80,
+    "tile": "tiles/c1_t7.png",
+    "layer": "layers/c1_t7.png"
+   },
+   {
+    "name": "Gold",
+    "weight": 10,
+    "tile": "tiles/c1_t8.png",
+    "layer": "layers/c1_t8.png"
+   },
+   {
+    "name": "Gray",
+    "weight": 70,
+    "tile": "tiles/c1_t9.png",
+    "layer": "layers/c1_t9.png"
+   },
+   {
+    "name": "Pink",
+    "weight": 15,
+    "tile": "tiles/c1_t10.png",
+    "layer": "layers/c1_t10.png"
+   },
+   {
+    "name": "Red",
+    "weight": 30,
+    "tile": "tiles/c1_t11.png",
+    "layer": "layers/c1_t11.png"
+   },
+   {
+    "name": "Robot",
+    "weight": 10,
+    "tile": "tiles/c1_t12.png",
+    "layer": "layers/c1_t12.png"
+   },
+   {
+    "name": "Zombie",
+    "weight": 10,
+    "tile": "tiles/c1_t13.png",
+    "layer": "layers/c1_t13.png"
+   }
+  ]
+ },
+ {
+  "name": "Second Colour",
+  "traits": [
+   {
+    "name": "Color Variant 1",
+    "weight": 10,
+    "tile": "tiles/c2_t0.png",
+    "layer": "layers/c2_t0.png"
+   },
+   {
+    "name": "Color Variant 10",
+    "weight": 10,
+    "tile": "tiles/c2_t1.png",
+    "layer": "layers/c2_t1.png"
+   },
+   {
+    "name": "Color Variant 2",
+    "weight": 10,
+    "tile": "tiles/c2_t2.png",
+    "layer": "layers/c2_t2.png"
+   },
+   {
+    "name": "Color Variant 3",
+    "weight": 10,
+    "tile": "tiles/c2_t3.png",
+    "layer": "layers/c2_t3.png"
+   },
+   {
+    "name": "Color Variant 4",
+    "weight": 10,
+    "tile": "tiles/c2_t4.png",
+    "layer": "layers/c2_t4.png"
+   },
+   {
+    "name": "Color Variant 5",
+    "weight": 10,
+    "tile": "tiles/c2_t5.png",
+    "layer": "layers/c2_t5.png"
+   },
+   {
+    "name": "Color Variant 6",
+    "weight": 10,
+    "tile": "tiles/c2_t6.png",
+    "layer": "layers/c2_t6.png"
+   },
+   {
+    "name": "Color Variant 7",
+    "weight": 10,
+    "tile": "tiles/c2_t7.png",
+    "layer": "layers/c2_t7.png"
+   },
+   {
+    "name": "Color Variant 8",
+    "weight": 10,
+    "tile": "tiles/c2_t8.png",
+    "layer": "layers/c2_t8.png"
+   },
+   {
+    "name": "Color Variant 9",
+    "weight": 10,
+    "tile": "tiles/c2_t9.png",
+    "layer": "layers/c2_t9.png"
+   },
+   {
+    "name": "None",
+    "weight": 90,
+    "tile": "tiles/c2_t10.png",
+    "layer": "layers/c2_t10.png"
+   }
+  ]
+ },
+ {
+  "name": "Horns",
+  "traits": [
+   {
+    "name": "Abyssal",
+    "weight": 20,
+    "tile": "tiles/c3_t0.png",
+    "layer": "layers/c3_t0.png"
+   },
+   {
+    "name": "Alien Horn 1",
+    "weight": 10,
+    "tile": "tiles/c3_t1.png",
+    "layer": "layers/c3_t1.png"
+   },
+   {
+    "name": "Antlers",
+    "weight": 20,
+    "tile": "tiles/c3_t2.png",
+    "layer": "layers/c3_t2.png"
+   },
+   {
+    "name": "Apple",
+    "weight": 20,
+    "tile": "tiles/c3_t3.png",
+    "layer": "layers/c3_t3.png"
+   },
+   {
+    "name": "Cut",
+    "weight": 20,
+    "tile": "tiles/c3_t4.png",
+    "layer": "layers/c3_t4.png"
+   },
+   {
+    "name": "Demon",
+    "weight": 20,
+    "tile": "tiles/c3_t5.png",
+    "layer": "layers/c3_t5.png"
+   },
+   {
+    "name": "Devil",
+    "weight": 20,
+    "tile": "tiles/c3_t6.png",
+    "layer": "layers/c3_t6.png"
+   },
+   {
+    "name": "Ember Tips",
+    "weight": 20,
+    "tile": "tiles/c3_t7.png",
+    "layer": "layers/c3_t7.png"
+   },
+   {
+    "name": "Feral",
+    "weight": 20,
+    "tile": "tiles/c3_t8.png",
+    "layer": "layers/c3_t8.png"
+   },
+   {
+    "name": "Glow",
+    "weight": 20,
+    "tile": "tiles/c3_t9.png",
+    "layer": "layers/c3_t9.png"
+   },
+   {
+    "name": "Gold Horn 1",
+    "weight": 20,
+    "tile": "tiles/c3_t10.png",
+    "layer": "layers/c3_t10.png"
+   },
+   {
+    "name": "Gold Horn 2",
+    "weight": 20,
+    "tile": "tiles/c3_t11.png",
+    "layer": "layers/c3_t11.png"
+   },
+   {
+    "name": "Gold Horn 3",
+    "weight": 20,
+    "tile": "tiles/c3_t12.png",
+    "layer": "layers/c3_t12.png"
+   },
+   {
+    "name": "Gold Horn 4",
+    "weight": 20,
+    "tile": "tiles/c3_t13.png",
+    "layer": "layers/c3_t13.png"
+   },
+   {
+    "name": "Gold Horn 5",
+    "weight": 20,
+    "tile": "tiles/c3_t14.png",
+    "layer": "layers/c3_t14.png"
+   },
+   {
+    "name": "Obsidian",
+    "weight": 20,
+    "tile": "tiles/c3_t15.png",
+    "layer": "layers/c3_t15.png"
+   },
+   {
+    "name": "Phantom",
+    "weight": 20,
+    "tile": "tiles/c3_t16.png",
+    "layer": "layers/c3_t16.png"
+   },
+   {
+    "name": "Runic",
+    "weight": 20,
+    "tile": "tiles/c3_t17.png",
+    "layer": "layers/c3_t17.png"
+   },
+   {
+    "name": "Savage",
+    "weight": 20,
+    "tile": "tiles/c3_t18.png",
+    "layer": "layers/c3_t18.png"
+   },
+   {
+    "name": "Shadow",
+    "weight": 20,
+    "tile": "tiles/c3_t19.png",
+    "layer": "layers/c3_t19.png"
+   },
+   {
+    "name": "Sinister",
+    "weight": 20,
+    "tile": "tiles/c3_t20.png",
+    "layer": "layers/c3_t20.png"
+   },
+   {
+    "name": "Sinwave",
+    "weight": 20,
+    "tile": "tiles/c3_t21.png",
+    "layer": "layers/c3_t21.png"
+   },
+   {
+    "name": "Spectral",
+    "weight": 20,
+    "tile": "tiles/c3_t22.png",
+    "layer": "layers/c3_t22.png"
+   },
+   {
+    "name": "Twisted",
+    "weight": 20,
+    "tile": "tiles/c3_t23.png",
+    "layer": "layers/c3_t23.png"
+   },
+   {
+    "name": "Void",
+    "weight": 20,
+    "tile": "tiles/c3_t24.png",
+    "layer": "layers/c3_t24.png"
+   },
+   {
+    "name": "Warlord",
+    "weight": 20,
+    "tile": "tiles/c3_t25.png",
+    "layer": "layers/c3_t25.png"
+   }
+  ]
+ },
+ {
+  "name": "Eyes",
+  "traits": [
+   {
+    "name": "Angry",
+    "weight": 20,
+    "tile": "tiles/c4_t0.png",
+    "layer": "layers/c4_t0.png"
+   },
+   {
+    "name": "Blue",
+    "weight": 40,
+    "tile": "tiles/c4_t1.png",
+    "layer": "layers/c4_t1.png"
+   },
+   {
+    "name": "Closed",
+    "weight": 20,
+    "tile": "tiles/c4_t2.png",
+    "layer": "layers/c4_t2.png"
+   },
+   {
+    "name": "Cry",
+    "weight": 20,
+    "tile": "tiles/c4_t3.png",
+    "layer": "layers/c4_t3.png"
+   },
+   {
+    "name": "Cut",
+    "weight": 15,
+    "tile": "tiles/c4_t4.png",
+    "layer": "layers/c4_t4.png"
+   },
+   {
+    "name": "Cut2",
+    "weight": 13,
+    "tile": "tiles/c4_t5.png",
+    "layer": "layers/c4_t5.png"
+   },
+   {
+    "name": "Demon",
+    "weight": 16,
+    "tile": "tiles/c4_t6.png",
+    "layer": "layers/c4_t6.png"
+   },
+   {
+    "name": "Hypnosis",
+    "weight": 15,
+    "tile": "tiles/c4_t7.png",
+    "layer": "layers/c4_t7.png"
+   },
+   {
+    "name": "Laser",
+    "weight": 6,
+    "tile": "tiles/c4_t8.png",
+    "layer": "layers/c4_t8.png"
+   },
+   {
+    "name": "Normal",
+    "weight": 50,
+    "tile": "tiles/c4_t9.png",
+    "layer": "layers/c4_t9.png"
+   },
+   {
+    "name": "Pirate",
+    "weight": 15,
+    "tile": "tiles/c4_t10.png",
+    "layer": "layers/c4_t10.png"
+   },
+   {
+    "name": "Pixel Glasses",
+    "weight": 15,
+    "tile": "tiles/c4_t11.png",
+    "layer": "layers/c4_t11.png"
+   },
+   {
+    "name": "Robocop",
+    "weight": 10,
+    "tile": "tiles/c4_t12.png",
+    "layer": "layers/c4_t12.png"
+   },
+   {
+    "name": "Solana Glasses",
+    "weight": 12,
+    "tile": "tiles/c4_t13.png",
+    "layer": "layers/c4_t13.png"
+   },
+   {
+    "name": "Sprung",
+    "weight": 12,
+    "tile": "tiles/c4_t14.png",
+    "layer": "layers/c4_t14.png"
+   },
+   {
+    "name": "Squinted",
+    "weight": 20,
+    "tile": "tiles/c4_t15.png",
+    "layer": "layers/c4_t15.png"
+   },
+   {
+    "name": "Stoned",
+    "weight": 20,
+    "tile": "tiles/c4_t16.png",
+    "layer": "layers/c4_t16.png"
+   },
+   {
+    "name": "Sun Glasses",
+    "weight": 20,
+    "tile": "tiles/c4_t17.png",
+    "layer": "layers/c4_t17.png"
+   },
+   {
+    "name": "VR",
+    "weight": 10,
+    "tile": "tiles/c4_t18.png",
+    "layer": "layers/c4_t18.png"
+   },
+   {
+    "name": "WTF",
+    "weight": 10,
+    "tile": "tiles/c4_t19.png",
+    "layer": "layers/c4_t19.png"
+   },
+   {
+    "name": "Wizard",
+    "weight": 10,
+    "tile": "tiles/c4_t20.png",
+    "layer": "layers/c4_t20.png"
+   },
+   {
+    "name": "Woman",
+    "weight": 20,
+    "tile": "tiles/c4_t21.png",
+    "layer": "layers/c4_t21.png"
+   }
+  ]
+ },
+ {
+  "name": "Mouth",
+  "traits": [
+   {
+    "name": "Angry",
+    "weight": 20,
+    "tile": "tiles/c5_t0.png",
+    "layer": "layers/c5_t0.png"
+   },
+   {
+    "name": "Balloon",
+    "weight": 14,
+    "tile": "tiles/c5_t1.png",
+    "layer": "layers/c5_t1.png"
+   },
+   {
+    "name": "Bloody",
+    "weight": 14,
+    "tile": "tiles/c5_t2.png",
+    "layer": "layers/c5_t2.png"
+   },
+   {
+    "name": "Broken",
+    "weight": 20,
+    "tile": "tiles/c5_t3.png",
+    "layer": "layers/c5_t3.png"
+   },
+   {
+    "name": "Chew",
+    "weight": 20,
+    "tile": "tiles/c5_t4.png",
+    "layer": "layers/c5_t4.png"
+   },
+   {
+    "name": "Cigarette",
+    "weight": 15,
+    "tile": "tiles/c5_t5.png",
+    "layer": "layers/c5_t5.png"
+   },
+   {
+    "name": "Facial Hair",
+    "weight": 20,
+    "tile": "tiles/c5_t6.png",
+    "layer": "layers/c5_t6.png"
+   },
+   {
+    "name": "Gold Teeth",
+    "weight": 12,
+    "tile": "tiles/c5_t7.png",
+    "layer": "layers/c5_t7.png"
+   },
+   {
+    "name": "LSD",
+    "weight": 10,
+    "tile": "tiles/c5_t8.png",
+    "layer": "layers/c5_t8.png"
+   },
+   {
+    "name": "Magic Mushrooms",
+    "weight": 12,
+    "tile": "tiles/c5_t9.png",
+    "layer": "layers/c5_t9.png"
+   },
+   {
+    "name": "Normal",
+    "weight": 50,
+    "tile": "tiles/c5_t10.png",
+    "layer": "layers/c5_t10.png"
+   },
+   {
+    "name": "Open",
+    "weight": 30,
+    "tile": "tiles/c5_t11.png",
+    "layer": "layers/c5_t11.png"
+   },
+   {
+    "name": "Pipe",
+    "weight": 15,
+    "tile": "tiles/c5_t12.png",
+    "layer": "layers/c5_t12.png"
+   },
+   {
+    "name": "Pistol",
+    "weight": 7,
+    "tile": "tiles/c5_t13.png",
+    "layer": "layers/c5_t13.png"
+   },
+   {
+    "name": "Rainbow",
+    "weight": 10,
+    "tile": "tiles/c5_t14.png",
+    "layer": "layers/c5_t14.png"
+   },
+   {
+    "name": "Shout",
+    "weight": 20,
+    "tile": "tiles/c5_t15.png",
+    "layer": "layers/c5_t15.png"
+   },
+   {
+    "name": "Slobber",
+    "weight": 15,
+    "tile": "tiles/c5_t16.png",
+    "layer": "layers/c5_t16.png"
+   },
+   {
+    "name": "Smile",
+    "weight": 30,
+    "tile": "tiles/c5_t17.png",
+    "layer": "layers/c5_t17.png"
+   },
+   {
+    "name": "Spit",
+    "weight": 20,
+    "tile": "tiles/c5_t18.png",
+    "layer": "layers/c5_t18.png"
+   },
+   {
+    "name": "Tongue",
+    "weight": 20,
+    "tile": "tiles/c5_t19.png",
+    "layer": "layers/c5_t19.png"
+   },
+   {
+    "name": "Weed",
+    "weight": 10,
+    "tile": "tiles/c5_t20.png",
+    "layer": "layers/c5_t20.png"
+   }
+  ]
+ },
+ {
+  "name": "Earring",
+  "traits": [
+   {
+    "name": "Earring Style 1",
+    "weight": 20,
+    "tile": "tiles/c6_t0.png",
+    "layer": "layers/c6_t0.png"
+   },
+   {
+    "name": "Earring Style 10",
+    "weight": 20,
+    "tile": "tiles/c6_t1.png",
+    "layer": "layers/c6_t1.png"
+   },
+   {
+    "name": "Earring Style 11",
+    "weight": 40,
+    "tile": "tiles/c6_t2.png",
+    "layer": "layers/c6_t2.png"
+   },
+   {
+    "name": "Earring Style 2",
+    "weight": 20,
+    "tile": "tiles/c6_t3.png",
+    "layer": "layers/c6_t3.png"
+   },
+   {
+    "name": "Earring Style 3",
+    "weight": 20,
+    "tile": "tiles/c6_t4.png",
+    "layer": "layers/c6_t4.png"
+   },
+   {
+    "name": "Earring Style 4",
+    "weight": 20,
+    "tile": "tiles/c6_t5.png",
+    "layer": "layers/c6_t5.png"
+   },
+   {
+    "name": "Earring Style 5",
+    "weight": 20,
+    "tile": "tiles/c6_t6.png",
+    "layer": "layers/c6_t6.png"
+   },
+   {
+    "name": "Earring Style 6",
+    "weight": 20,
+    "tile": "tiles/c6_t7.png",
+    "layer": "layers/c6_t7.png"
+   },
+   {
+    "name": "Earring Style 7",
+    "weight": 20,
+    "tile": "tiles/c6_t8.png",
+    "layer": "layers/c6_t8.png"
+   },
+   {
+    "name": "Earring Style 8",
+    "weight": 20,
+    "tile": "tiles/c6_t9.png",
+    "layer": "layers/c6_t9.png"
+   },
+   {
+    "name": "Earring Style 9",
+    "weight": 20,
+    "tile": "tiles/c6_t10.png",
+    "layer": "layers/c6_t10.png"
+   }
+  ]
+ },
+ {
+  "name": "Clothes",
+  "traits": [
+   {
+    "name": "69 Shirt",
+    "weight": 30,
+    "tile": "tiles/c7_t0.png",
+    "layer": "layers/c7_t0.png"
+   },
+   {
+    "name": "Armored Vest",
+    "weight": 12,
+    "tile": "tiles/c7_t1.png",
+    "layer": "layers/c7_t1.png"
+   },
+   {
+    "name": "Bathrobe",
+    "weight": 30,
+    "tile": "tiles/c7_t2.png",
+    "layer": "layers/c7_t2.png"
+   },
+   {
+    "name": "Brown Suit",
+    "weight": 20,
+    "tile": "tiles/c7_t3.png",
+    "layer": "layers/c7_t3.png"
+   },
+   {
+    "name": "Bullenciaga Shirt",
+    "weight": 21,
+    "tile": "tiles/c7_t4.png",
+    "layer": "layers/c7_t4.png"
+   },
+   {
+    "name": "Business Man",
+    "weight": 40,
+    "tile": "tiles/c7_t5.png",
+    "layer": "layers/c7_t5.png"
+   },
+   {
+    "name": "Casual",
+    "weight": 25,
+    "tile": "tiles/c7_t6.png",
+    "layer": "layers/c7_t6.png"
+   },
+   {
+    "name": "Chained",
+    "weight": 12,
+    "tile": "tiles/c7_t7.png",
+    "layer": "layers/c7_t7.png"
+   },
+   {
+    "name": "Chicago Bulls",
+    "weight": 21,
+    "tile": "tiles/c7_t8.png",
+    "layer": "layers/c7_t8.png"
+   },
+   {
+    "name": "Cloak",
+    "weight": 13,
+    "tile": "tiles/c7_t9.png",
+    "layer": "layers/c7_t9.png"
+   },
+   {
+    "name": "Costume",
+    "weight": 20,
+    "tile": "tiles/c7_t10.png",
+    "layer": "layers/c7_t10.png"
+   },
+   {
+    "name": "Doctor",
+    "weight": 20,
+    "tile": "tiles/c7_t11.png",
+    "layer": "layers/c7_t11.png"
+   },
+   {
+    "name": "Farmer",
+    "weight": 18,
+    "tile": "tiles/c7_t12.png",
+    "layer": "layers/c7_t12.png"
+   },
+   {
+    "name": "Gold Chain",
+    "weight": 22,
+    "tile": "tiles/c7_t13.png",
+    "layer": "layers/c7_t13.png"
+   },
+   {
+    "name": "Knives",
+    "weight": 10,
+    "tile": "tiles/c7_t14.png",
+    "layer": "layers/c7_t14.png"
+   },
+   {
+    "name": "ME Dress",
+    "weight": 15,
+    "tile": "tiles/c7_t15.png",
+    "layer": "layers/c7_t15.png"
+   },
+   {
+    "name": "McDonalds",
+    "weight": 19,
+    "tile": "tiles/c7_t16.png",
+    "layer": "layers/c7_t16.png"
+   },
+   {
+    "name": "Nike Shirt",
+    "weight": 50,
+    "tile": "tiles/c7_t17.png",
+    "layer": "layers/c7_t17.png"
+   },
+   {
+    "name": "None",
+    "weight": 80,
+    "tile": "tiles/c7_t18.png",
+    "layer": "layers/c7_t18.png"
+   },
+   {
+    "name": "Phantom Hoodie",
+    "weight": 15,
+    "tile": "tiles/c7_t19.png",
+    "layer": "layers/c7_t19.png"
+   },
+   {
+    "name": "Police",
+    "weight": 20,
+    "tile": "tiles/c7_t20.png",
+    "layer": "layers/c7_t20.png"
+   },
+   {
+    "name": "Prisoner",
+    "weight": 20,
+    "tile": "tiles/c7_t21.png",
+    "layer": "layers/c7_t21.png"
+   },
+   {
+    "name": "Sailor Tattoo",
+    "weight": 20,
+    "tile": "tiles/c7_t22.png",
+    "layer": "layers/c7_t22.png"
+   },
+   {
+    "name": "Shark Tooth",
+    "weight": 14,
+    "tile": "tiles/c7_t23.png",
+    "layer": "layers/c7_t23.png"
+   },
+   {
+    "name": "Shirt",
+    "weight": 30,
+    "tile": "tiles/c7_t24.png",
+    "layer": "layers/c7_t24.png"
+   },
+   {
+    "name": "Solana Shirt",
+    "weight": 50,
+    "tile": "tiles/c7_t25.png",
+    "layer": "layers/c7_t25.png"
+   },
+   {
+    "name": "Soldier",
+    "weight": 19,
+    "tile": "tiles/c7_t26.png",
+    "layer": "layers/c7_t26.png"
+   },
+   {
+    "name": "Superman",
+    "weight": 10,
+    "tile": "tiles/c7_t27.png",
+    "layer": "layers/c7_t27.png"
+   },
+   {
+    "name": "Tank Top",
+    "weight": 50,
+    "tile": "tiles/c7_t28.png",
+    "layer": "layers/c7_t28.png"
+   },
+   {
+    "name": "Tensor Hoodie",
+    "weight": 15,
+    "tile": "tiles/c7_t29.png",
+    "layer": "layers/c7_t29.png"
+   },
+   {
+    "name": "Tesla Tshirt",
+    "weight": 50,
+    "tile": "tiles/c7_t30.png",
+    "layer": "layers/c7_t30.png"
+   },
+   {
+    "name": "Toreador 2",
+    "weight": 10,
+    "tile": "tiles/c7_t31.png",
+    "layer": "layers/c7_t31.png"
+   },
+   {
+    "name": "Toreador",
+    "weight": 15,
+    "tile": "tiles/c7_t32.png",
+    "layer": "layers/c7_t32.png"
+   },
+   {
+    "name": "UFC Champ",
+    "weight": 7,
+    "tile": "tiles/c7_t33.png",
+    "layer": "layers/c7_t33.png"
+   },
+   {
+    "name": "Vest",
+    "weight": 33,
+    "tile": "tiles/c7_t34.png",
+    "layer": "layers/c7_t34.png"
+   },
+   {
+    "name": "Warm Jacket",
+    "weight": 25,
+    "tile": "tiles/c7_t35.png",
+    "layer": "layers/c7_t35.png"
+   },
+   {
+    "name": "White Suit",
+    "weight": 20,
+    "tile": "tiles/c7_t36.png",
+    "layer": "layers/c7_t36.png"
+   },
+   {
+    "name": "Winter Jacket",
+    "weight": 25,
+    "tile": "tiles/c7_t37.png",
+    "layer": "layers/c7_t37.png"
+   },
+   {
+    "name": "Wizard",
+    "weight": 11,
+    "tile": "tiles/c7_t38.png",
+    "layer": "layers/c7_t38.png"
+   },
+   {
+    "name": "Worker",
+    "weight": 15,
+    "tile": "tiles/c7_t39.png",
+    "layer": "layers/c7_t39.png"
+   },
+   {
+    "name": "Worms",
+    "weight": 10,
+    "tile": "tiles/c7_t40.png",
+    "layer": "layers/c7_t40.png"
+   }
+  ]
+ },
+ {
+  "name": "Special",
+  "traits": [
+   {
+    "name": "Angel",
+    "weight": 2,
+    "tile": "tiles/c8_t0.png",
+    "layer": "layers/c8_t0.png"
+   },
+   {
+    "name": "Axe",
+    "weight": 5,
+    "tile": "tiles/c8_t1.png",
+    "layer": "layers/c8_t1.png"
+   },
+   {
+    "name": "Clover",
+    "weight": 6,
+    "tile": "tiles/c8_t2.png",
+    "layer": "layers/c8_t2.png"
+   },
+   {
+    "name": "Devil",
+    "weight": 2,
+    "tile": "tiles/c8_t3.png",
+    "layer": "layers/c8_t3.png"
+   },
+   {
+    "name": "Fish",
+    "weight": 6,
+    "tile": "tiles/c8_t4.png",
+    "layer": "layers/c8_t4.png"
+   },
+   {
+    "name": "Halo",
+    "weight": 4,
+    "tile": "tiles/c8_t5.png",
+    "layer": "layers/c8_t5.png"
+   },
+   {
+    "name": "Idea",
+    "weight": 5,
+    "tile": "tiles/c8_t6.png",
+    "layer": "layers/c8_t6.png"
+   },
+   {
+    "name": "Inlove",
+    "weight": 8,
+    "tile": "tiles/c8_t7.png",
+    "layer": "layers/c8_t7.png"
+   },
+   {
+    "name": "Lightning",
+    "weight": 4,
+    "tile": "tiles/c8_t8.png",
+    "layer": "layers/c8_t8.png"
+   },
+   {
+    "name": "Money",
+    "weight": 10,
+    "tile": "tiles/c8_t9.png",
+    "layer": "layers/c8_t9.png"
+   },
+   {
+    "name": "None",
+    "weight": 90,
+    "tile": "tiles/c8_t10.png",
+    "layer": "layers/c8_t10.png"
+   },
+   {
+    "name": "Shit",
+    "weight": 6,
+    "tile": "tiles/c8_t11.png",
+    "layer": "layers/c8_t11.png"
+   },
+   {
+    "name": "Spider",
+    "weight": 9,
+    "tile": "tiles/c8_t12.png",
+    "layer": "layers/c8_t12.png"
+   },
+   {
+    "name": "Stars",
+    "weight": 10,
+    "tile": "tiles/c8_t13.png",
+    "layer": "layers/c8_t13.png"
+   },
+   {
+    "name": "Unicorn",
+    "weight": 7,
+    "tile": "tiles/c8_t14.png",
+    "layer": "layers/c8_t14.png"
+   },
+   {
+    "name": "What",
+    "weight": 9,
+    "tile": "tiles/c8_t15.png",
+    "layer": "layers/c8_t15.png"
+   }
+  ]
+ }
+]

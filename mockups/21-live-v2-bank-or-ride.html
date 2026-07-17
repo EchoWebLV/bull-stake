@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streak — live v2 · bank or ride</title>
+<style>
+  :root{
+    --bg:#0b0b0e; --card:#131318; --panel:#1a1a21; --line:#2a2a33;
+    --txt:#f2f2ee; --dim:#8b8b96;
+    --yellow:#f5e33d; --green:#3ddc84; --red:#ff6b6b;
+    --home:#0b6bcb; --away:#c62b2b; --neutral:#2b3340;
+    --f:-apple-system,"Helvetica Neue",Inter,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#26262b;display:flex;justify-content:center;padding:24px 0;
+    font:400 14px/1.4 var(--f);color:var(--txt);-webkit-font-smoothing:antialiased;
+  }
+  /* hard single-screen frame: 390x844, zero scroll */
+  .phone{
+    width:390px;height:844px;background:var(--bg);border-radius:22px;overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.55);
+  }
+  .caps{text-transform:uppercase;letter-spacing:.12em}
+  .mono{font-variant-numeric:tabular-nums}
+  .sfx{font:700 .6em var(--f);color:var(--dim);margin-left:2px;vertical-align:.08em}
+
+  .card{
+    margin:10px 10px 8px;flex:1;min-height:0;display:flex;flex-direction:column;
+    background:
+      radial-gradient(120% 44% at 50% -8%, rgba(31,109,67,.25), transparent 60%),
+      var(--card);
+    border:1px solid var(--line);border-radius:18px;
+    padding:12px 14px 12px;position:relative;overflow:hidden;
+  }
+
+  /* ── zone 1 · status + match ─────────────────────────── */
+  .status{display:flex;justify-content:space-between;align-items:center;
+        font:700 9.5px var(--f);color:var(--dim)}
+  .liveTag{display:flex;align-items:center;gap:6px;color:var(--green)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+
+  .match{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .side{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .side.away{justify-content:flex-end}
+  .crest{width:31px;height:31px;border-radius:50%;flex:none;display:flex;align-items:center;
+        justify-content:center;font:900 9px var(--f);color:#fff}
+  .cn{font:800 13.5px var(--f);letter-spacing:.06em;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .mid{text-align:center;flex:none;padding:0 6px}
+  .sc{font:900 28px/1 var(--f);white-space:nowrap}
+  .min{margin-top:3px;font:700 10px var(--f);color:var(--green);letter-spacing:.1em;
+        display:flex;align-items:center;justify-content:center;gap:5px}
+  .blip{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+
+  /* ── zone 2 · BANK vs RIDE — the centrepiece ─────────── */
+  .decide{border:1px solid var(--line);background:var(--panel);border-radius:16px;
+        margin-top:13px;padding:12px 12px 12px}
+  .dgrid{display:grid;grid-template-columns:1fr 1px 1fr;gap:0 12px;align-items:end}
+  .dsep{width:1px;height:118px;background:var(--line);align-self:center}
+  .dcol{min-width:0;display:flex;flex-direction:column}
+  .dlbl{display:flex;align-items:center;gap:5px;font:800 10px var(--f);
+        letter-spacing:.14em;color:var(--dim)}
+  .dlbl svg{width:11px;height:11px;stroke:var(--dim);fill:none;stroke-width:2}
+  .dlbl.hot{color:var(--green)}
+  .dnum{margin-top:6px;font:italic 900 30px/1 var(--f)}
+  .dnum .dunit{font:800 9px var(--f);font-style:normal;letter-spacing:.12em;
+        color:var(--dim);margin-left:5px;text-transform:uppercase}
+  .dnum.hot{background:linear-gradient(90deg,var(--green),var(--yellow));
+        -webkit-background-clip:text;background-clip:text;color:transparent}
+  .dnum.hot .dunit{color:var(--yellow)}
+
+  .stackBox{height:76px;margin-top:9px;display:flex;flex-direction:column-reverse;
+        gap:4px;align-items:center}
+  /* safe: solid, locked slabs */
+  .slab{width:76%;height:11px;flex:none;border-radius:4px;
+        border:1px solid rgba(245,227,61,.45);background:rgba(245,227,61,.12)}
+  .slab.new{animation:pop .32s ease-out}
+  @keyframes pop{from{transform:scale(.4);opacity:0}}
+  /* riding: climbing rungs, hotter as they rise */
+  .rung{flex:none;display:flex;align-items:center;justify-content:center;
+        height:22px;border-radius:6px;font:italic 900 11px var(--f);letter-spacing:.08em;
+        transition:transform .42s cubic-bezier(.5,-.15,.65,1),opacity .42s}
+  .rung.r1{width:62%;color:var(--green);border:1px solid rgba(61,220,132,.5);
+        background:rgba(61,220,132,.08)}
+  .rung.cur{width:76%;color:#111;
+        background:linear-gradient(90deg,var(--green),var(--yellow));
+        animation:heat 1.1s ease-in-out infinite}
+  @keyframes heat{50%{box-shadow:0 0 16px rgba(245,227,61,.55)}}
+  .rung.ghost{width:90%;color:rgba(245,227,61,.8);
+        border:1.5px dashed rgba(245,227,61,.5);background:transparent}
+  .ladder.sweep .rung{transform:translate(-130px,34px) scale(.45);opacity:0}
+
+  .micro{margin-top:8px;font:700 9px var(--f);letter-spacing:.1em;
+        color:var(--dim);text-transform:uppercase;text-align:center}
+  .micro.red{color:var(--red)}
+
+  .bank{width:100%;margin-top:12px;border:0;border-radius:13px;cursor:pointer;
+        background:var(--yellow);padding:11px 8px 10px;font-family:var(--f);
+        box-shadow:0 6px 24px rgba(245,227,61,.22);
+        transition:background .25s,transform .1s}
+  .bank:active{transform:scale(.98)}
+  .bank .bankMain{display:block;font:italic 900 19px/1 var(--f);
+        letter-spacing:.05em;color:#111;text-transform:uppercase}
+  .bank .bankSub{display:block;margin-top:4px;font:700 9px var(--f);
+        letter-spacing:.1em;color:rgba(0,0,0,.6);text-transform:uppercase}
+  .bank.done{background:var(--green);box-shadow:0 6px 24px rgba(61,220,132,.3)}
+
+  /* ── zone 3 · the call — hero ────────────────────────── */
+  .call{border:1px solid rgba(245,227,61,.3);border-radius:16px;padding:13px 14px 14px;
+        margin:auto 0;background:rgba(245,227,61,.03)}
+  .callTop{display:flex;align-items:center;justify-content:space-between}
+  .kindChip{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(61,220,132,.5);
+        color:var(--green);border-radius:999px;padding:5px 12px;
+        font:800 10.5px var(--f);letter-spacing:.1em}
+  .timer{font:900 17px var(--f);color:var(--yellow)}
+  .q{margin:10px 2px 0;font:italic 900 28px/1.05 var(--f);
+        letter-spacing:-.01em;text-transform:uppercase}
+  .cbar{height:6px;border-radius:3px;background:#23232b;overflow:hidden;margin:12px 0}
+  .cfill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow));
+        transition:width .15s linear}
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .opt{display:flex;align-items:center;gap:12px;width:100%;border:1px solid var(--line);
+        background:#17171d;border-radius:13px;padding:13px 14px;cursor:pointer;color:var(--txt)}
+  .opt:active{transform:scale(.985);border-color:var(--yellow)}
+  .oc{width:29px;height:29px;border-radius:9px;flex:none;display:flex;align-items:center;
+        justify-content:center;font:900 10px var(--f);color:#fff}
+  .ot{font:800 15px var(--f);letter-spacing:.04em;text-transform:uppercase}
+  .op{margin-left:auto;font:800 12px var(--f);color:var(--dim);white-space:nowrap}
+  .stakes{margin-top:10px;text-align:center;font:700 9px var(--f);letter-spacing:.12em;
+        color:var(--dim);text-transform:uppercase}
+  .stakes b{color:var(--green);font:inherit}
+  .stakes i{color:var(--red);font-style:normal}
+
+  /* ── zone 4 · one-line board ─────────────────────────── */
+  .board{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--line);
+        border-radius:14px;margin-top:12px}
+  .bc{min-width:0;display:flex;flex-direction:column;align-items:center;
+        padding:9px 4px 8px;position:relative}
+  .bc + .bc::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+        width:1px;height:22px;background:var(--line)}
+  .bc .v{font:800 15px var(--f);white-space:nowrap}
+  .bc .v .of{font:700 10px var(--f);color:var(--dim)}
+  .bc .l{margin-top:4px;font:700 8.5px var(--f);letter-spacing:.12em;color:var(--dim);
+        text-transform:uppercase}
+  .bc.me .v{color:var(--green)}
+
+  /* ── nav · exactly three tabs ────────────────────────── */
+  .nav{display:flex;align-items:center;justify-content:space-around;flex:none;
+        padding:9px 6px 12px;background:#0e0e12;border-top:1px solid #1c1c22}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:5px;
+        font:800 9px var(--f);letter-spacing:.12em;color:#606069;width:80px;
+        text-transform:uppercase}
+  .ni svg{width:19px;height:19px;stroke:#606069;fill:none;stroke-width:1.8}
+  .ni.on{color:var(--yellow)}
+  .ni.on svg{stroke:var(--yellow)}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="card">
+
+    <!-- 1 · status + match -->
+    <div class="status caps">
+      <span>In play · 2nd half</span>
+      <span class="liveTag"><span class="dot"></span>Live</span>
+    </div>
+
+    <div class="match">
+      <div class="side">
+        <span class="crest" style="background:var(--home)">ARS</span>
+        <span class="cn caps">Arsenal</span>
+      </div>
+      <div class="mid">
+        <div class="sc mono">2–1</div>
+        <div class="min caps"><span class="blip"></span>63'</div>
+      </div>
+      <div class="side away">
+        <span class="cn caps">Chelsea</span>
+        <span class="crest" style="background:var(--away)">CHE</span>
+      </div>
+    </div>
+
+    <!-- 2 · BANK vs RIDE -->
+    <div class="decide">
+      <div class="dgrid">
+        <div class="dcol">
+          <div class="dlbl caps">
+            <svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg>
+            Safe
+          </div>
+          <div class="dnum mono" id="safeNum">12<span class="dunit">pts</span></div>
+          <div class="stackBox" id="safeStack">
+            <i class="slab"></i><i class="slab"></i><i class="slab"></i><i class="slab"></i>
+          </div>
+          <div class="micro">Banked · can't be lost</div>
+        </div>
+        <div class="dsep"></div>
+        <div class="dcol">
+          <div class="dlbl hot caps" id="rideLbl">
+            <svg viewBox="0 0 24 24" style="stroke:var(--green)"><path d="M12 3c1 3-3 4.5-3 8a3.9 3.9 0 003 3.8"/><path d="M12 3c4 3.5 6 6 6 10a6 6 0 01-12 0c0-1.4.4-2.6 1-3.7"/><path d="M12 21a3.3 3.3 0 003.3-3.3c0-1.9-2-2.6-3.3-4.7-1.3 2.1-3.3 2.8-3.3 4.7A3.3 3.3 0 0012 21z"/></svg>
+            Riding ×3
+          </div>
+          <div class="dnum hot mono" id="riskNum">+6<span class="dunit">at risk</span></div>
+          <div class="stackBox ladder" id="ladder">
+            <i class="rung r1">×2</i><i class="rung cur">×3</i><i class="rung ghost">×4 next</i>
+          </div>
+          <div class="micro red" id="rideMicro">One miss wipes +6</div>
+        </div>
+      </div>
+      <button class="bank" id="bankBtn">
+        <span class="bankMain">Bank +6</span>
+        <span class="bankSub">Lock it in · safe 12 → 18 · streak resets</span>
+      </button>
+    </div>
+
+    <!-- 3 · the call -->
+    <div class="call">
+      <div class="callTop">
+        <span class="kindChip caps">⚡ Next goal</span>
+        <span class="timer mono" id="t">7.4s</span>
+      </div>
+      <div class="q">Who scores next?</div>
+      <div class="cbar"><div class="cfill" id="f" style="width:62%"></div></div>
+      <div class="opts">
+        <button class="opt">
+          <span class="oc" style="background:var(--home)">ARS</span>
+          <span class="ot">Arsenal</span>
+          <span class="op">3 pts</span>
+        </button>
+        <button class="opt">
+          <span class="oc" style="background:var(--neutral)">—</span>
+          <span class="ot">No goal</span>
+          <span class="op">1 pt</span>
+        </button>
+        <button class="opt">
+          <span class="oc" style="background:var(--away)">CHE</span>
+          <span class="ot">Chelsea</span>
+          <span class="op">3 pts</span>
+        </button>
+      </div>
+      <div class="stakes">Riding: hit → <b>×4</b> · miss → <i>+6 gone</i></div>
+    </div>
+
+    <!-- 4 · one-line board -->
+    <div class="board">
+      <div class="bc me"><div class="v mono">#3<span class="of"> / 24</span></div><div class="l">Your rank</div></div>
+      <div class="bc"><div class="v mono">0.84<span class="sfx">◎</span></div><div class="l">Pot</div></div>
+      <div class="bc"><div class="v mono">14</div><div class="l">Leader pts</div></div>
+    </div>
+  </div>
+
+  <!-- nav · Live / Pearly / Wallet -->
+  <div class="nav">
+    <div class="ni on">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>
+      Live
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>
+      Pearly
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>
+      Wallet
+    </div>
+  </div>
+</div>
+
+<script>
+  // call timer
+  let ms = 7400; const total = 12000;
+  const t = document.getElementById('t'), f = document.getElementById('f');
+  setInterval(() => {
+    ms -= 150; if (ms <= 0) ms = 7400;
+    t.textContent = (ms / 1000).toFixed(1) + 's';
+    f.style.width = Math.max(0, Math.min(100, (ms / total) * 100)) + '%';
+  }, 150);
+
+  // BANK: sweep the riding ladder into the safe stack, lock, then reset (demo loop)
+  const bank = document.getElementById('bankBtn'),
+        ladder = document.getElementById('ladder'),
+        safeStack = document.getElementById('safeStack'),
+        safeNum = document.getElementById('safeNum'),
+        riskNum = document.getElementById('riskNum'),
+        rideLbl = document.getElementById('rideLbl'),
+        rideMicro = document.getElementById('rideMicro'),
+        bMain = bank.querySelector('.bankMain'),
+        bSub = bank.querySelector('.bankSub');
+  const orig = {
+    ladder: ladder.innerHTML, safe: safeStack.innerHTML,
+    lbl: rideLbl.innerHTML, micro: rideMicro.textContent,
+    main: bMain.textContent, sub: bSub.textContent
+  };
+  let busy = false;
+  bank.addEventListener('click', () => {
+    if (busy) return; busy = true;
+    ladder.classList.add('sweep');
+    setTimeout(() => {
+      let v = 12;
+      const iv = setInterval(() => { v++; safeNum.firstChild.nodeValue = v; if (v >= 18) clearInterval(iv); }, 55);
+      safeStack.insertAdjacentHTML('beforeend', '<i class="slab new"></i><i class="slab new"></i>');
+      ladder.classList.remove('sweep');
+      ladder.innerHTML = '<i class="rung ghost">×2 next</i>';
+      riskNum.firstChild.nodeValue = '+0';
+      rideLbl.innerHTML = 'Riding ×1';
+      rideMicro.textContent = 'Nothing at risk — go again';
+      rideMicro.classList.remove('red');
+      bank.classList.add('done');
+      bMain.textContent = 'Banked ✓';
+      bSub.textContent = '+6 locked · 18 pts safe';
+    }, 430);
+    setTimeout(() => {
+      ladder.innerHTML = orig.ladder; safeStack.innerHTML = orig.safe;
+      safeNum.firstChild.nodeValue = '12'; riskNum.firstChild.nodeValue = '+6';
+      rideLbl.innerHTML = orig.lbl;
+      rideMicro.textContent = orig.micro; rideMicro.classList.add('red');
+      bank.classList.remove('done');
+      bMain.textContent = orig.main; bSub.textContent = orig.sub;
+      busy = false;
+    }, 4200);
+  });
+</script>
+</body>
+</html>

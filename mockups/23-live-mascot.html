@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streak — live · mascots (v3)</title>
+<style>
+  :root{
+    --bg:#0b0b0e; --card:#131318; --panel:#1a1a21; --line:#2a2a33;
+    --txt:#f2f2ee; --dim:#8b8b96;
+    --yellow:#f5e33d; --green:#3ddc84; --teal:#3fd6c0;
+    --home:#0b6bcb; --away:#c62b2b; --neutral:#2b3340;  /* app constants */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#26262b;display:flex;justify-content:center;padding:24px 0;
+    font-family:-apple-system,"Helvetica Neue",Inter,Arial,sans-serif;
+    color:var(--txt);-webkit-font-smoothing:antialiased;
+  }
+  /* hard single-screen frame: 390x844, zero scroll */
+  .phone{
+    width:390px;height:844px;background:var(--bg);border-radius:22px;overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.55);
+  }
+  .caps{text-transform:uppercase;letter-spacing:.12em;font-weight:700}
+  .mono{font-variant-numeric:tabular-nums}
+  .sfx{font-size:.6em;font-weight:700;color:var(--dim);margin-left:2px;vertical-align:.08em}
+
+  .card{
+    margin:10px 10px 8px;flex:1;min-height:0;display:flex;flex-direction:column;
+    background:
+      radial-gradient(120% 44% at 50% -8%, rgba(31,109,67,.25), transparent 60%),
+      var(--card);
+    border:1px solid var(--line);border-radius:18px;
+    padding:12px 14px 12px;position:relative;overflow:hidden;
+  }
+  .card::before{
+    content:"";position:absolute;left:0;right:0;top:0;height:170px;
+    pointer-events:none;opacity:.07;
+    background:
+      radial-gradient(circle at 50% 0, transparent 100px, #fff 101px, transparent 103px),
+      linear-gradient(#fff,#fff) 50% 0/2px 100% no-repeat;
+    -webkit-mask-image:linear-gradient(to bottom,#000 40%,transparent);
+    mask-image:linear-gradient(to bottom,#000 40%,transparent);
+  }
+
+  /* 1 · micro status row */
+  .status{display:flex;justify-content:space-between;align-items:center;
+        font-size:9.5px;color:var(--dim)}
+  .liveTag{display:flex;align-items:center;gap:6px;color:var(--green)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+
+  /* 2 · match row */
+  .match{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .side{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .side.away{justify-content:flex-end}
+  .crest{width:31px;height:31px;border-radius:50%;flex:none;display:flex;align-items:center;
+        justify-content:center;font-size:9px;font-weight:900;color:#fff}
+  .cn{font-size:13.5px;font-weight:800;letter-spacing:.06em;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .mid{text-align:center;flex:none;padding:0 6px}
+  .sc{font-size:28px;font-weight:900;line-height:1;white-space:nowrap}
+  .min{margin-top:3px;font-size:10px;color:var(--green);font-weight:700;letter-spacing:.1em;
+        display:flex;align-items:center;justify-content:center;gap:5px}
+  .blip{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+
+  /* 3 · match stats — one quiet line */
+  .statline{display:flex;justify-content:center;gap:15px;margin-top:11px;
+        font-size:10px;color:var(--dim);white-space:nowrap}
+  .statline b{color:#c9c9cf;font-weight:800;margin-left:4px}
+
+  /* 4 · pool strip — pot / rank / players */
+  .pool{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--line);
+        border-radius:14px;margin-top:13px}
+  .pc{min-width:0;display:flex;flex-direction:column;align-items:center;
+        padding:13px 4px 12px;position:relative}
+  .pc + .pc::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+        width:1px;height:22px;background:var(--line)}
+  .pc .v{font-size:20px;font-weight:800;line-height:1;white-space:nowrap}
+  .pc .v.green{color:var(--green)}
+  .pc .l{margin-top:6px;font-size:9.5px;color:var(--dim)}
+
+  /* 5 · your HUD — one row */
+  .hud{display:flex;align-items:center;gap:8px;margin-top:13px}
+  .ptsMark{display:inline-flex;align-items:baseline;gap:4px;background:var(--yellow);color:#111;
+        padding:3px 9px 4px;border-radius:5px;transform:skew(-8deg);flex:none}
+  .ptsMark > *{transform:skew(8deg)}
+  .ptsNum{font-size:22px;font-weight:900;font-style:italic;line-height:1}
+  .ptsLab{font-size:8.5px;font-weight:900;letter-spacing:.1em}
+  .hudPill{border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:10.5px;
+        color:#c9c9cf;white-space:nowrap;letter-spacing:.08em}
+  .hudPill b{color:var(--txt)}
+  .hudPill.hot{border-color:rgba(61,220,132,.5);color:var(--green)}
+  .hudPill.hot b{color:var(--green)}
+  .hist{display:flex;gap:4px;margin-left:auto}
+  .hc{width:17px;height:17px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+        font-size:8px;font-weight:900;border:1px solid var(--line);color:var(--dim)}
+  .hc.hit{color:var(--green);border-color:rgba(61,220,132,.45)}
+  .hc.miss{color:#ff6b6b;border-color:rgba(255,107,107,.4)}
+
+  /* 6 · the call — hero, centered in remaining space */
+  .call{border:1px solid rgba(245,227,61,.35);border-radius:16px;padding:16px 14px;
+        margin:auto 0;background:rgba(245,227,61,.03)}
+  .callTop{display:flex;align-items:center;justify-content:space-between}
+  .kindChip{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(61,220,132,.5);
+        color:var(--green);border-radius:999px;padding:6px 13px;font-size:11px;font-weight:800;
+        letter-spacing:.1em}
+  .timer{font-size:17px;font-weight:900;color:var(--yellow)}
+  .q{margin:12px 2px 0;font-size:29px;line-height:1.05;font-weight:900;font-style:italic;
+        letter-spacing:-.01em;text-transform:uppercase}
+  .cbar{height:6px;border-radius:3px;background:#23232b;overflow:hidden;margin:13px 0}
+  .cfill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--yellow));
+        transition:width .15s linear}
+  .opts{display:flex;flex-direction:column;gap:9px}
+  .opt{display:flex;align-items:center;gap:12px;width:100%;border:1px solid var(--line);
+        background:#17171d;border-radius:13px;padding:16px 14px;cursor:pointer;color:var(--txt);
+        font-family:inherit}
+  .opt:active{transform:scale(.985);border-color:var(--yellow)}
+  .oc{width:31px;height:31px;border-radius:9px;flex:none;display:flex;align-items:center;
+        justify-content:center;font-size:10px;font-weight:900;color:#fff}
+  .ot{font-size:16px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+  .op{margin-left:auto;font-size:12px;font-weight:800;color:var(--dim);white-space:nowrap}
+
+  /* 7 · footer block — latest event + mini board */
+  .foot{border:1px solid var(--line);border-radius:14px;margin-top:12px;overflow:hidden}
+  .latest{display:flex;align-items:center;gap:10px;padding:11px 14px}
+  .latest .tag{font-size:9px;color:var(--dim);flex:none}
+  .latest .fm{font-size:11px;color:var(--dim);font-weight:700;flex:none}
+  .latest .txt{font-size:13px;color:#d6d6dc;font-weight:600;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .board{display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--line)}
+  .bc{min-width:0;display:flex;flex-direction:column;align-items:center;
+        padding:10px 4px 9px;position:relative}
+  .bc + .bc::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+        width:1px;height:24px;background:var(--line)}
+  .bc .l{font-size:9px;color:var(--dim)}
+  .bc .v{margin-top:5px;font-size:15px;font-weight:800;display:flex;align-items:baseline;
+        gap:6px;white-space:nowrap}
+  .bc .nm{font-size:10.5px;color:var(--dim);font-weight:700}
+  .bc.me .l,.bc.me .v,.bc.me .nm{color:var(--green)}
+
+  /* nav — real tabs */
+  .nav{display:flex;align-items:center;justify-content:space-around;flex:none;
+        padding:9px 6px 12px;background:#0e0e12;border-top:1px solid #1c1c22}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:9px;
+        letter-spacing:.12em;font-weight:800;color:#606069;width:66px;text-transform:uppercase}
+  .ni svg{width:19px;height:19px;stroke:#606069;fill:none;stroke-width:1.8}
+  .ni.on{color:var(--yellow)}
+  .ni.on svg{stroke:var(--yellow)}
+
+  /* mascot avatars — identity PFPs. Placeholder silhouettes for now; swap each
+     <svg class="mascot"> for <img src="/mascot/mascot-COLOR.png"> once the real
+     art lands in web/public/mascot/. */
+  .avatar{width:22px;height:22px;border-radius:50%;flex:none;display:inline-flex;
+        align-items:center;justify-content:center;overflow:hidden;
+        background:rgba(255,255,255,.05);border:1px solid var(--line)}
+  .avatar .mascot{width:19px;height:19px;display:block;margin-top:3px}
+  .avatar.green{color:var(--green)} .avatar.pink{color:#e59be0}
+  .avatar.tan{color:#cbb986} .avatar.gray{color:#9a9aa2}
+  .hud{gap:6px}
+  .hudAv{width:26px;height:26px} .hudAv .mascot{width:22px;height:22px;margin-top:3px}
+  .bc .avatar{margin-bottom:5px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="mascot" viewBox="0 0 48 48"><path d="M13 46 C9 42 10 33 11 29 C11 22 13 16 19 14 C18 10 20 8 23 9 C25 10 25 13 24 16 C31 15 38 18 41 24 L45 28 C46 30 43 32 40 31 L33 31 C31 34 32 40 34 46 Z" fill="currentColor" stroke="#0b0b0e" stroke-width="2.5" stroke-linejoin="round"/></symbol></svg>
+<div class="phone">
+  <div class="card">
+
+    <div class="status caps">
+      <span>In play · 2nd half</span>
+      <span class="liveTag"><span class="dot"></span>Live</span>
+    </div>
+
+    <div class="match">
+      <div class="side">
+        <span class="crest" style="background:var(--home)">ARS</span>
+        <span class="cn caps">Arsenal</span>
+      </div>
+      <div class="mid">
+        <div class="sc mono">2–1</div>
+        <div class="min caps"><span class="blip"></span>63'</div>
+      </div>
+      <div class="side away">
+        <span class="cn caps">Chelsea</span>
+        <span class="crest" style="background:var(--away)">CHE</span>
+      </div>
+    </div>
+
+    <div class="statline caps">
+      <span>Shots<b class="mono">9·4</b></span>
+      <span>Corners<b class="mono">5·2</b></span>
+      <span>Cards<b class="mono">1·3</b></span>
+      <span>Poss<b class="mono">61%</b></span>
+    </div>
+
+    <div class="pool">
+      <div class="pc"><div class="v mono">0.84<span class="sfx">◎</span></div><div class="l caps">Pot</div></div>
+      <div class="pc"><div class="v green mono">#3</div><div class="l caps">Your rank</div></div>
+      <div class="pc"><div class="v mono">24</div><div class="l caps">Players</div></div>
+    </div>
+
+    <div class="hud">
+      <span class="avatar tan hudAv" title="your mascot"><svg class="mascot"><use href="#mascot"/></svg></span>
+      <div class="ptsMark"><span class="ptsNum mono">12</span><span class="ptsLab">PTS</span></div>
+      <div class="hudPill hot caps">🔥 streak <b>3</b></div>
+      <div class="hudPill caps">bonus <b>+2</b></div>
+      <div class="hist">
+        <span class="hc hit">✓</span><span class="hc hit">✓</span><span class="hc miss">✕</span>
+        <span class="hc hit">✓</span><span class="hc hit">✓</span>
+      </div>
+    </div>
+
+    <div class="call">
+      <div class="callTop">
+        <span class="kindChip caps">⚡ Next goal</span>
+        <span class="timer mono" id="t">7.4s</span>
+      </div>
+      <div class="q">Who scores next?</div>
+      <div class="cbar"><div class="cfill" id="f" style="width:62%"></div></div>
+      <div class="opts">
+        <button class="opt">
+          <span class="oc" style="background:var(--home)">ARS</span>
+          <span class="ot">Arsenal</span>
+          <span class="op">3 pts</span>
+        </button>
+        <button class="opt">
+          <span class="oc" style="background:var(--neutral)">—</span>
+          <span class="ot">No goal</span>
+          <span class="op">1 pt</span>
+        </button>
+        <button class="opt">
+          <span class="oc" style="background:var(--away)">CHE</span>
+          <span class="ot">Chelsea</span>
+          <span class="op">3 pts</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div class="latest">
+        <span class="tag caps">Latest</span>
+        <span class="fm mono">61'</span>
+        <span class="txt">🟨 Booking — Chelsea</span>
+      </div>
+      <div class="board">
+        <div class="bc"><span class="avatar green"><svg class="mascot"><use href="#mascot"/></svg></span><div class="l caps">1st 👑</div><div class="v mono">14 <span class="nm">7gKf…</span></div></div>
+        <div class="bc"><span class="avatar pink"><svg class="mascot"><use href="#mascot"/></svg></span><div class="l caps">2nd</div><div class="v mono">13 <span class="nm">Dx4h…</span></div></div>
+        <div class="bc me"><span class="avatar tan"><svg class="mascot"><use href="#mascot"/></svg></span><div class="l caps">You · #3</div><div class="v mono">12 <span class="nm">pts</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <div class="ni on">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>
+      Live
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>
+      🃏 Pearly
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>
+      Market
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>
+      My Bets
+    </div>
+    <div class="ni">
+      <svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>
+      Wallet
+    </div>
+  </div>
+</div>
+
+<script>
+  let ms = 7400; const total = 12000;
+  const t = document.getElementById('t'), f = document.getElementById('f');
+  setInterval(() => {
+    ms -= 150; if (ms <= 0) ms = 7400;
+    t.textContent = (ms / 1000).toFixed(1) + 's';
+    f.style.width = Math.max(0, Math.min(100, (ms / total) * 100)) + '%';
+  }, 150);
+</script>
+</body>
+</html>

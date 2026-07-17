@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streak — full app tour</title>
+<style>
+  :root{
+    --bg:#0b0b0e; --card:#131318; --panel:#1a1a21; --line:#2a2a33;
+    --txt:#f2f2ee; --dim:#8b8b96;
+    --yellow:#f5e33d; --green:#3ddc84; --teal:#3fd6c0; --red:#ff6b6b;
+    --home:#0b6bcb; --away:#c62b2b; --neutral:#2b3340;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#26262b;font-family:-apple-system,"Helvetica Neue",Inter,Arial,sans-serif;
+       color:var(--txt);-webkit-font-smoothing:antialiased;
+       display:flex;flex-wrap:wrap;gap:34px;justify-content:center;padding:34px 20px 70px}
+  .caps{text-transform:uppercase;letter-spacing:.12em;font-weight:700}
+  .mono{font-variant-numeric:tabular-nums}
+  .sfx{font-size:.62em;font-weight:700;color:var(--dim);margin-left:2px;vertical-align:.08em}
+
+  .opt{width:390px}
+  .optTag{display:inline-flex;align-items:center;gap:8px;margin:0 0 10px 4px;
+       font-size:12px;letter-spacing:.14em;font-weight:800;text-transform:uppercase;color:#c9c9cf}
+  .optTag b{display:inline-flex;min-width:24px;height:24px;padding:0 7px;border-radius:7px;
+       background:var(--yellow);color:#111;align-items:center;justify-content:center;font-size:12px}
+
+  .phone{width:390px;background:var(--bg);border-radius:22px;overflow:hidden;
+       display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+
+  /* ── shell header ── */
+  .hdr{padding:14px 16px 12px;border-bottom:1px solid #17171d}
+  .kick{display:flex;align-items:center;gap:7px;font-size:9px;color:var(--dim)}
+  .kick .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.4s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  .hrow{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+  .brand{font-size:21px;font-weight:900;font-style:italic;letter-spacing:.02em}
+  .brand i{color:var(--yellow);font-style:italic}
+  .hbtns{display:flex;gap:8px}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:10.5px;
+       color:#c9c9cf;font-weight:700;background:#15151b}
+  .chip.ghost{color:var(--dim)}
+
+  .body{padding:14px 14px 18px;display:flex;flex-direction:column}
+
+  /* ── shared bits ── */
+  .secrow{display:flex;justify-content:space-between;align-items:center;margin:2px 2px 10px}
+  .secrow h3{font-size:16px;font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.03em}
+  .tagp{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:9px;
+       color:var(--dim);letter-spacing:.12em;font-weight:800;text-transform:uppercase}
+  .tagp.green{color:var(--green);border-color:rgba(61,220,132,.45)}
+  .cta{width:100%;border:0;border-radius:999px;padding:15px 0;background:var(--yellow);color:#111;
+       font-size:13.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;font-style:italic;
+       box-shadow:0 0 26px rgba(245,227,61,.22);cursor:pointer;font-family:inherit}
+  .cta.dis{background:#23232b;color:#5c5c66;box-shadow:none}
+  .proof{margin-top:13px;text-align:center;font-size:9.5px;color:#5c5c66;letter-spacing:.1em}
+  .proof b{color:var(--green)}
+
+  /* ── nav ── */
+  .nav{display:flex;align-items:center;justify-content:space-around;
+       padding:9px 6px 12px;background:#0e0e12;border-top:1px solid #1c1c22;margin-top:auto}
+  .ni{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:9px;
+       letter-spacing:.12em;font-weight:800;color:#606069;width:66px;text-transform:uppercase}
+  .ni svg{width:19px;height:19px;stroke:#606069;fill:none;stroke-width:1.8}
+  .ni.on{color:var(--yellow)}
+  .ni.on svg{stroke:var(--yellow)}
+
+  /* ── PEARLY ── */
+  .lobby{border:1px solid var(--line);border-radius:16px;padding:16px 15px;position:relative;overflow:hidden;
+       background:radial-gradient(130% 80% at 50% -20%, rgba(31,109,67,.25), transparent 60%), #15151b}
+  .lob-tag{font-size:9.5px;color:var(--teal);letter-spacing:.16em;font-weight:800;text-transform:uppercase}
+  .lob-h{margin-top:9px;font-size:27px;line-height:1.04;font-weight:900;font-style:italic;
+       text-transform:uppercase;letter-spacing:-.01em}
+  .lob-h .mark{display:inline-block;background:var(--yellow);color:#111;padding:0 8px 2px;
+       border-radius:4px;transform:skew(-8deg)}
+  .lob-h .mark span{display:inline-block;transform:skew(8deg)}
+  .lob-sub{margin-top:9px;font-size:12px;color:#a9a9b2;line-height:1.5}
+  .lob-sub b{color:var(--yellow)}
+  .lob-chips{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap}
+  .lchip{border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:10px;
+       color:#c9c9cf;letter-spacing:.08em;font-weight:700;text-transform:uppercase;white-space:nowrap}
+  .lchip.go{border-color:rgba(61,220,132,.5);color:var(--green)}
+  .lob-pot{display:flex;justify-content:space-between;align-items:center;margin-top:13px;
+       border-top:1px solid #22222a;padding-top:12px}
+  .lob-pot .pv{font-size:22px;font-weight:800;line-height:1}
+  .lob-pot .pk{font-size:9px;color:var(--dim);margin-top:5px}
+  .lob-pot .roll{text-align:right;font-size:10px;color:var(--dim);line-height:1.6}
+  .lob-pot .roll b{color:var(--txt)}
+
+  .pleg{border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-top:9px}
+  .pleg.locked{opacity:.45}
+  .pl-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .pl-match{font-size:13px;font-weight:800;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pl-meta{font-size:9.5px;color:var(--dim);letter-spacing:.1em;white-space:nowrap;flex:none}
+  .pl-q{margin-top:4px;font-size:10.5px;color:var(--dim);letter-spacing:.06em}
+  .pl-opts{display:flex;gap:7px;margin-top:9px}
+  .plopt{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px 4px;background:#17171d;
+       color:#c9c9cf;font-size:11.5px;font-weight:800;text-align:center;cursor:pointer;font-family:inherit;
+       letter-spacing:.04em;display:flex;align-items:center;justify-content:center;gap:6px;min-width:0}
+  .plopt .bdot{width:7px;height:7px;border-radius:50%;flex:none}
+  .plopt.sel{border-color:rgba(61,220,132,.65);color:var(--green);background:rgba(61,220,132,.07)}
+  .enterbar{margin-top:14px}
+
+  /* pearly HUD */
+  .gpills{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--line);border-radius:14px}
+  .gp{min-width:0;display:flex;flex-direction:column;align-items:center;padding:13px 4px 11px;position:relative}
+  .gp + .gp::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+       width:1px;height:24px;background:var(--line)}
+  .gp .v{font-size:19px;font-weight:800;line-height:1;white-space:nowrap}
+  .gp .v.gold{color:var(--yellow)}
+  .gp .l{margin-top:6px;font-size:8.5px;color:var(--dim);text-align:center}
+  .strip{margin-top:10px;text-align:center;font-size:10px;color:var(--dim);letter-spacing:.1em;
+       border:1px dashed #26262e;border-radius:999px;padding:7px 10px}
+  .strip b{color:var(--txt)}
+  .chipst{border-radius:999px;padding:3px 9px;font-size:9px;font-weight:800;letter-spacing:.08em;
+       text-transform:uppercase;white-space:nowrap;flex:none}
+  .chipst.open{border:1px solid var(--line);color:var(--dim)}
+  .chipst.warn{border:1px solid rgba(245,227,61,.5);color:var(--yellow)}
+  .chipst.good{border:1px solid rgba(61,220,132,.5);color:var(--green)}
+  .pl-pick{margin-top:7px;font-size:10.5px;color:var(--dim)}
+  .pl-pick b{color:var(--txt)}
+  .pl-score{font-size:11px;color:var(--green);font-weight:800;white-space:nowrap}
+
+  /* ── MARKET ── */
+  .mhero{border:1px solid rgba(245,227,61,.28);border-radius:16px;padding:15px;
+       background:linear-gradient(160deg,#1a1710,#100e08);display:flex;justify-content:space-between;
+       align-items:flex-end;gap:10px}
+  .mh-eyebrow{font-size:9px;color:var(--dim);letter-spacing:.16em;text-transform:uppercase;font-weight:800}
+  .mh-title{margin-top:7px;font-size:22px;font-weight:900;font-style:italic;text-transform:uppercase;
+       background:linear-gradient(90deg,#ffe9b4,#f5e33d);-webkit-background-clip:text;background-clip:text;
+       -webkit-text-fill-color:transparent}
+  .mh-sub{font-size:10px;color:var(--dim);text-align:right;line-height:1.55;letter-spacing:.06em}
+  .mrow{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;
+       border:1px solid var(--line);border-radius:14px;background:#14141a;padding:13px 14px;
+       margin-top:9px;cursor:pointer;font-family:inherit;color:var(--txt);text-align:left}
+  .mr-t{font-size:13.5px;font-weight:800;letter-spacing:.02em}
+  .mr-m{margin-top:4px;font-size:10px;color:var(--dim);letter-spacing:.04em}
+  .mr-r{text-align:right;flex:none}
+  .mr-pct{font-size:19px;font-weight:800;line-height:1;white-space:nowrap}
+  .mr-pct .up{color:var(--green);font-size:11px}
+  .mr-pct .dn{color:var(--red);font-size:11px}
+  .mr-fav{margin-top:4px;font-size:8.5px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase;font-weight:800}
+  .mfoot{margin-top:13px;text-align:center;font-size:10px;color:#5c5c66;line-height:1.7;padding:0 8px}
+
+  /* market detail */
+  .back{font-size:12px;color:var(--dim);font-weight:800;margin:2px 2px 10px}
+  .dhead{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 10px}
+  .dhead h3{font-size:18px;font-weight:900;font-style:italic;text-transform:uppercase}
+  .dhead span{font-size:10.5px;color:var(--dim);letter-spacing:.08em}
+  .linecard{border:1px solid var(--line);border-radius:16px;padding:14px;background:#14141a}
+  .lc-lab{display:flex;justify-content:space-between;font-size:8.5px;color:var(--dim);
+       letter-spacing:.12em;text-transform:uppercase;font-weight:800}
+  .lc-big{display:flex;align-items:center;gap:10px;margin-top:9px}
+  .lc-pct{font-size:36px;font-weight:900;font-style:italic;line-height:1;
+       background:linear-gradient(90deg,#ffe9b4,#f5e33d);-webkit-background-clip:text;background-clip:text;
+       -webkit-text-fill-color:transparent}
+  .delta{border-radius:999px;padding:5px 10px;font-size:10px;font-weight:800;letter-spacing:.06em;
+       background:rgba(61,220,132,.1);color:var(--green);border:1px solid rgba(61,220,132,.35)}
+  .spark{margin-top:10px}
+  .lc-cap{display:flex;justify-content:space-between;font-size:9.5px;color:var(--dim);margin-top:7px}
+  .betcard{border:1px solid rgba(245,227,61,.35);border-radius:16px;padding:14px;margin-top:11px;
+       background:rgba(245,227,61,.03)}
+  .bc-q{font-size:17px;font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:-.01em}
+  .presets{display:flex;gap:7px;margin-top:11px}
+  .pre{border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:11px;font-weight:800;
+       color:#c9c9cf;background:#17171d;cursor:pointer;font-family:inherit}
+  .pre.sel{border-color:var(--yellow);color:var(--yellow);background:rgba(245,227,61,.07)}
+  .sides{display:flex;gap:9px;margin-top:11px}
+  .sidebtn{flex:1;border:1px solid var(--line);border-radius:13px;background:#17171d;padding:13px 8px;
+       display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;font-family:inherit;color:var(--txt)}
+  .sidebtn .ic{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+       font-size:12px;font-weight:900;color:#fff}
+  .sidebtn .lb{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+  .sidebtn .est{font-size:10px;color:var(--yellow);font-weight:700}
+  .potrow{display:flex;justify-content:space-between;margin-top:12px;font-size:10.5px;color:var(--dim)}
+  .potrow b{color:#c9c9cf}
+
+  /* ── MY BETS ── */
+  .bsum{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}
+  .bs{border:1px solid var(--line);border-radius:13px;padding:12px 6px;display:flex;
+       flex-direction:column;align-items:center}
+  .bs .l{font-size:9px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase;font-weight:800}
+  .bs .v{margin-top:6px;font-size:17px;font-weight:800;white-space:nowrap}
+  .bs.green{border-color:rgba(61,220,132,.4);background:rgba(61,220,132,.05)}
+  .bs.green .l,.bs.green .v{color:var(--green)}
+  .receipt{border:1px solid var(--line);border-radius:14px;padding:13px 13px;margin-top:9px;background:#14141a}
+  .rc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .rc-t{font-size:13px;font-weight:800}
+  .pillst{border-radius:999px;padding:4px 10px;font-size:9px;font-weight:800;letter-spacing:.1em;
+       text-transform:uppercase;flex:none}
+  .pillst.won{border:1px solid rgba(61,220,132,.5);color:var(--green)}
+  .pillst.pend{border:1px solid rgba(245,227,61,.45);color:var(--yellow)}
+  .pillst.lost{border:1px solid var(--line);color:var(--dim)}
+  .rc-sub{margin-top:4px;font-size:10.5px;color:var(--dim)}
+  .leg{display:flex;align-items:center;gap:9px;margin-top:9px;font-size:11.5px}
+  .leg .ld{width:7px;height:7px;border-radius:50%;flex:none}
+  .leg .nm{font-weight:800}
+  .leg .mid{color:var(--dim);font-size:10.5px}
+  .leg .rt{margin-left:auto;font-weight:800;white-space:nowrap}
+  .leg .rt.win{color:var(--green)}
+  .leg.dim{color:#5c5c66}
+  .leg.dim .nm{font-weight:700;color:#5c5c66}
+  .rc-foot{display:flex;justify-content:space-between;align-items:center;margin-top:11px;
+       border-top:1px solid #1e1e26;padding-top:10px;font-size:10.5px;color:var(--dim)}
+  .rc-foot b{color:#c9c9cf}
+  .rc-foot .win{color:var(--green)}
+  .proofchip{font-size:10px;color:var(--dim)}
+  .proofchip b{color:var(--green)}
+  .claimbtn{width:100%;margin-top:11px;border:0;border-radius:999px;padding:12px 0;background:var(--yellow);
+       color:#111;font-size:12px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;
+       font-style:italic;cursor:pointer;font-family:inherit}
+
+  /* ── WALLET ── */
+  .wcard{border:1px solid var(--line);border-radius:16px;padding:18px 16px;background:#14141a}
+  .w-k{font-size:9.5px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;font-weight:800}
+  .w-bal{margin-top:10px;font-size:40px;font-weight:900;font-style:italic;line-height:1}
+  .w-bal .unit{font-size:14px;color:var(--dim);font-style:normal;font-weight:800;margin-left:7px}
+  .w-addr{margin-top:14px;width:100%;border:1px solid var(--line);border-radius:11px;padding:11px 12px;
+       background:#17171d;color:#c9c9cf;font-size:12px;font-weight:700;text-align:center;
+       cursor:pointer;font-family:inherit;letter-spacing:.03em}
+  .w-actions{display:flex;gap:9px;margin-top:10px}
+  .w-actions .b{flex:1;border:1px solid var(--line);border-radius:999px;padding:11px 0;text-align:center;
+       font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#c9c9cf;
+       background:#17171d;cursor:pointer;font-family:inherit}
+  .trust{margin-top:14px;text-align:center;font-size:10px;color:#5c5c66;line-height:1.6}
+  .trust b{color:var(--green)}
+</style>
+</head>
+<body>
+
+<!-- ═════════ A · PEARLY — PICKER ═════════ -->
+<div class="opt">
+  <div class="optTag"><b>A</b> Pearly — the picker (scrolls)</div>
+  <div class="phone">
+    <div class="hdr">
+      <div class="kick caps"><span class="dot"></span>World Cup companion</div>
+      <div class="hrow">
+        <div class="brand">STREA<i>K</i></div>
+        <div class="hbtns"><span class="chip mono">7fUA…zKr9 ⧉</span><span class="chip ghost">Log out</span></div>
+      </div>
+    </div>
+    <div class="body">
+
+      <div class="lobby">
+        <div class="lob-tag">🃏 The Daily Pearly</div>
+        <div class="lob-h">Every match.<br><span class="mark"><span>One perfect card.</span></span></div>
+        <div class="lob-sub">Pick all six legs. Perfect cards split the pot by shares — <b>every open leg you carry doubles yours.</b></div>
+        <div class="lob-chips">
+          <span class="lchip go">enter now · 6 legs · 64 shares</span>
+          <span class="lchip">🚫 no buy-backs · one card a day</span>
+        </div>
+        <div class="lob-pot">
+          <div>
+            <div class="pv mono">107.1<span class="sfx">◎</span></div>
+            <div class="pk caps">🏆 the pot</div>
+          </div>
+          <div class="roll">includes <b>5.2◎</b> rolled over<br><b>23</b> cards in</div>
+        </div>
+      </div>
+
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Brazil v Spain</span><span class="pl-meta caps">KO 18:00 · leg 1</span></div>
+        <div class="pl-q caps">Match Result</div>
+        <div class="pl-opts">
+          <button class="plopt sel"><span class="bdot" style="background:var(--home)"></span>Brazil</button>
+          <button class="plopt"><span class="bdot" style="background:var(--neutral)"></span>Draw</button>
+          <button class="plopt"><span class="bdot" style="background:var(--away)"></span>Spain</button>
+        </div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">France v Mexico</span><span class="pl-meta caps">KO 19:00 · leg 2</span></div>
+        <div class="pl-q caps">Total Goals O/U 2.5</div>
+        <div class="pl-opts">
+          <button class="plopt sel">Over</button>
+          <button class="plopt">Under</button>
+        </div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Argentina v Japan</span><span class="pl-meta caps">KO 19:30 · leg 3</span></div>
+        <div class="pl-q caps">Total Corners O/U 9.5</div>
+        <div class="pl-opts">
+          <button class="plopt sel">Over</button>
+          <button class="plopt">Under</button>
+        </div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">England v Ghana</span><span class="pl-meta caps">KO 20:00 · leg 4</span></div>
+        <div class="pl-q caps">Total Yellow Cards O/U 3.5</div>
+        <div class="pl-opts">
+          <button class="plopt">Over</button>
+          <button class="plopt sel">Under</button>
+        </div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Germany v Chile</span><span class="pl-meta caps">KO 21:00 · leg 5</span></div>
+        <div class="pl-q caps">1st-Half Goals O/U 0.5</div>
+        <div class="pl-opts">
+          <button class="plopt sel">Over</button>
+          <button class="plopt">Under</button>
+        </div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Portugal v Korea</span><span class="pl-meta caps">KO 21:45 · leg 6</span></div>
+        <div class="pl-q caps">Red Card Shown Y/N</div>
+        <div class="pl-opts">
+          <button class="plopt">Yes</button>
+          <button class="plopt sel">No</button>
+        </div>
+      </div>
+
+      <div class="enterbar">
+        <button class="cta">Enter the Pearly · 0.05◎ · 64 shares</button>
+      </div>
+      <div class="proof caps"><b>◆</b> Settled on-chain · TxLINE proofs</div>
+    </div>
+    <div class="nav">
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>Live</div>
+      <div class="ni on"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>🃏 Pearly</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>Market</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>My Bets</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>Wallet</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ B · PEARLY — RIDING ═════════ -->
+<div class="opt">
+  <div class="optTag"><b>B</b> Pearly — your card, riding</div>
+  <div class="phone">
+    <div class="hdr">
+      <div class="kick caps"><span class="dot"></span>World Cup companion</div>
+      <div class="hrow">
+        <div class="brand">STREA<i>K</i></div>
+        <div class="hbtns"><span class="chip mono">7fUA…zKr9 ⧉</span><span class="chip ghost">Log out</span></div>
+      </div>
+    </div>
+    <div class="body">
+
+      <div class="gpills">
+        <div class="gp"><div class="v mono">23</div><div class="l caps">cards still perfect</div></div>
+        <div class="gp"><div class="v mono">107.1<span class="sfx">◎</span></div><div class="l caps">the pot</div></div>
+        <div class="gp"><div class="v gold mono">64</div><div class="l caps">your pot shares</div></div>
+      </div>
+      <div class="strip caps">entries close in <b>4h 12m</b> · next leg locks in <b>12m</b></div>
+
+      <div class="secrow" style="margin-top:16px">
+        <h3>Your card: 6 legs · 64 shares</h3>
+        <span class="tagp green">riding</span>
+      </div>
+
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Brazil v Spain <span class="pl-score mono">2–1 62'</span></span>
+          <span class="chipst warn">🔒 locked · in play</span></div>
+        <div class="pl-q caps">Match Result</div>
+        <div class="pl-pick">your pick: <b>Brazil</b></div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">France v Mexico <span class="pl-score mono">3–0 FT</span></span>
+          <span class="chipst good">✓ hit</span></div>
+        <div class="pl-q caps">Total Goals O/U 2.5</div>
+        <div class="pl-pick">your pick: <b>Over</b></div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Argentina v Japan</span><span class="chipst open">⏳ open</span></div>
+        <div class="pl-q caps">Total Corners O/U 9.5</div>
+        <div class="pl-pick">your pick: <b>Over</b></div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">England v Ghana</span><span class="chipst open">⏳ open</span></div>
+        <div class="pl-q caps">Total Yellow Cards O/U 3.5</div>
+        <div class="pl-pick">your pick: <b>Under</b></div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Germany v Chile</span><span class="chipst open">⏳ open</span></div>
+        <div class="pl-q caps">1st-Half Goals O/U 0.5</div>
+        <div class="pl-pick">your pick: <b>Over</b></div>
+      </div>
+      <div class="pleg">
+        <div class="pl-top"><span class="pl-match">Portugal v Korea</span><span class="chipst open">⏳ open</span></div>
+        <div class="pl-q caps">Red Card Shown Y/N</div>
+        <div class="pl-pick">your pick: <b>No</b></div>
+      </div>
+
+      <div class="proof caps"><b>◆</b> Settled on-chain · TxLINE proofs</div>
+    </div>
+    <div class="nav">
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>Live</div>
+      <div class="ni on"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>🃏 Pearly</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>Market</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>My Bets</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>Wallet</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ C · MARKET — SLATE ═════════ -->
+<div class="opt">
+  <div class="optTag"><b>C</b> Market — today's lines</div>
+  <div class="phone">
+    <div class="hdr">
+      <div class="kick caps"><span class="dot"></span>World Cup companion</div>
+      <div class="hrow">
+        <div class="brand">STREA<i>K</i></div>
+        <div class="hbtns"><span class="chip mono">7fUA…zKr9 ⧉</span><span class="chip ghost">Log out</span></div>
+      </div>
+    </div>
+    <div class="body">
+
+      <div class="mhero">
+        <div>
+          <div class="mh-eyebrow">The day game</div>
+          <div class="mh-title">Beat the Market</div>
+        </div>
+        <div class="mh-sub caps">call where the line<br>closes at kick-off</div>
+      </div>
+
+      <button class="mrow">
+        <span>
+          <span class="mr-t">Arsenal v Chelsea</span>
+          <div class="mr-m">KO 19:45 · ◎0.35 pot</div>
+        </span>
+        <span class="mr-r">
+          <div class="mr-pct mono">54.1% <span class="up">▲</span></div>
+          <div class="mr-fav">Arsenal to win</div>
+        </span>
+      </button>
+      <button class="mrow">
+        <span>
+          <span class="mr-t">Brazil v Spain</span>
+          <div class="mr-m">KO 18:00 · ◎0.52 pot</div>
+        </span>
+        <span class="mr-r">
+          <div class="mr-pct mono">61.0% <span class="dn">▼</span></div>
+          <div class="mr-fav">Brazil to win</div>
+        </span>
+      </button>
+      <button class="mrow" style="opacity:.6">
+        <span>
+          <span class="mr-t">France v Mexico</span>
+          <div class="mr-m">opened 48.9% → closed 51.2% · Above won</div>
+        </span>
+        <span class="mr-r">
+          <div class="mr-pct mono">51.2%</div>
+          <div class="mr-fav">France to win</div>
+        </span>
+      </button>
+
+      <div class="mfoot">pick Above or Below the opening line · the right side splits the pot at kick-off · odds by TxLINE StablePrice</div>
+    </div>
+    <div class="nav">
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>Live</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>🃏 Pearly</div>
+      <div class="ni on"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>Market</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>My Bets</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>Wallet</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ D · MARKET — DETAIL ═════════ -->
+<div class="opt">
+  <div class="optTag"><b>D</b> Market — line detail + bet</div>
+  <div class="phone">
+    <div class="hdr">
+      <div class="kick caps"><span class="dot"></span>World Cup companion</div>
+      <div class="hrow">
+        <div class="brand">STREA<i>K</i></div>
+        <div class="hbtns"><span class="chip mono">7fUA…zKr9 ⧉</span><span class="chip ghost">Log out</span></div>
+      </div>
+    </div>
+    <div class="body">
+
+      <div class="back">‹ Today's lines</div>
+      <div class="dhead"><h3>Arsenal v Chelsea</h3><span class="caps">KO 19:45</span></div>
+
+      <div class="linecard">
+        <div class="lc-lab"><span>Consensus line — Arsenal to win</span><span style="text-transform:none;letter-spacing:.04em">TxLINE StablePrice</span></div>
+        <div class="lc-big">
+          <span class="lc-pct mono">54.1%</span>
+          <span class="delta">▲ +1.8 vs open</span>
+        </div>
+        <svg class="spark" viewBox="0 0 340 64" width="100%" height="64">
+          <line x1="0" y1="40" x2="340" y2="40" stroke="#3a3a44" stroke-width="1" stroke-dasharray="4 4" opacity=".5"/>
+          <polyline points="0,42 40,44 80,38 120,40 160,34 200,36 240,28 280,25 330,22"
+            fill="none" stroke="#3ddc84" stroke-width="2" stroke-linejoin="round"/>
+          <circle cx="330" cy="22" r="3.5" fill="#3ddc84"/>
+        </svg>
+        <div class="lc-cap caps"><span>open 52.3%</span><span>now</span></div>
+      </div>
+
+      <div class="betcard">
+        <div class="bc-q">Where does the line close at kick-off?</div>
+        <div class="presets">
+          <button class="pre mono">◎0.01</button>
+          <button class="pre sel mono">◎0.05</button>
+          <button class="pre mono">◎0.1</button>
+        </div>
+        <div class="sides">
+          <button class="sidebtn">
+            <span class="ic" style="background:#2f7d4f">▲</span>
+            <span class="lb">Above</span>
+            <span class="est mono">win ≈ ◎0.09</span>
+          </button>
+          <button class="sidebtn">
+            <span class="ic" style="background:#8c2f3b">▼</span>
+            <span class="lb">Below</span>
+            <span class="est mono">win ≈ ◎0.18</span>
+          </button>
+        </div>
+        <div class="potrow"><span><b>◎0.35</b> pot</span><span>pot includes ◎0.05 house boost</span></div>
+      </div>
+
+      <div class="proof caps"><b>◆</b> Settled on-chain · TxLINE proofs</div>
+    </div>
+    <div class="nav">
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>Live</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>🃏 Pearly</div>
+      <div class="ni on"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>Market</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>My Bets</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>Wallet</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ E · MY BETS ═════════ -->
+<div class="opt">
+  <div class="optTag"><b>E</b> My Bets — receipts & claims</div>
+  <div class="phone">
+    <div class="hdr">
+      <div class="kick caps"><span class="dot"></span>World Cup companion</div>
+      <div class="hrow">
+        <div class="brand">STREA<i>K</i></div>
+        <div class="hbtns"><span class="chip mono">7fUA…zKr9 ⧉</span><span class="chip ghost">Log out</span></div>
+      </div>
+    </div>
+    <div class="body">
+
+      <div class="secrow"><h3>My Bets</h3><span class="tagp green">◆ verified on-chain</span></div>
+
+      <div class="bsum">
+        <div class="bs"><div class="l">Staked</div><div class="v mono">0.35<span class="sfx">◎</span></div></div>
+        <div class="bs green"><div class="l">Won</div><div class="v mono">0.12<span class="sfx">◎</span></div></div>
+        <div class="bs"><div class="l">Record</div><div class="v mono">3/7</div></div>
+      </div>
+
+      <div class="receipt">
+        <div class="rc-top"><span class="rc-t">Total Corners O/U 9.5</span><span class="pillst won">Won · claim</span></div>
+        <div class="rc-sub">Arsenal v Chelsea</div>
+        <div class="leg"><span class="ld" style="background:var(--green)"></span><span class="nm">✓ Over</span>
+          <span class="mid mono">0.05◎</span><span class="rt win mono">→ 0.12◎</span></div>
+        <div class="leg dim"><span class="ld" style="background:#3a3a44"></span><span class="nm">Under</span>
+          <span class="rt">not backed</span></div>
+        <div class="rc-foot"><span>Staked <b>0.05◎</b> · <span class="win">won 0.12◎</span></span>
+          <span class="proofchip mono"><b>◆</b> 5Kd9…x2Qp ↗</span></div>
+        <button class="claimbtn">Claim 0.12◎</button>
+      </div>
+
+      <div class="receipt">
+        <div class="rc-top"><span class="rc-t">Match Result</span><span class="pillst pend">Pending</span></div>
+        <div class="rc-sub">Brazil v Spain</div>
+        <div class="leg"><span class="ld" style="background:var(--green)"></span><span class="nm">Brazil</span>
+          <span class="mid mono">0.1◎ · ~2.40×</span><span class="rt mono">→ 0.24◎</span></div>
+        <div class="leg dim"><span class="ld" style="background:#3a3a44"></span><span class="nm">Draw</span>
+          <span class="rt">not backed</span></div>
+        <div class="leg dim"><span class="ld" style="background:#3a3a44"></span><span class="nm">Spain</span>
+          <span class="rt">not backed</span></div>
+        <div class="rc-foot"><span>Staked <b>0.1◎</b></span>
+          <span class="proofchip mono"><b>◆</b> 9mQa…7fUA ↗</span></div>
+      </div>
+
+      <div class="receipt">
+        <div class="rc-top"><span class="rc-t">Total Goals O/U 2.5</span><span class="pillst lost">Lost</span></div>
+        <div class="rc-sub">France v Mexico</div>
+        <div class="leg dim"><span class="ld" style="background:#3a3a44"></span><span class="nm">Over</span>
+          <span class="mid mono">0.05◎</span><span class="rt">lost</span></div>
+        <div class="leg"><span class="ld" style="background:var(--red)"></span><span class="nm">Under</span>
+          <span class="rt">winner · not backed</span></div>
+        <div class="rc-foot"><span>Staked <b>0.05◎</b></span>
+          <span class="proofchip mono"><b>◆</b> Dx4h…9c1b ↗</span></div>
+      </div>
+    </div>
+    <div class="nav">
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>Live</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>🃏 Pearly</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>Market</div>
+      <div class="ni on"><svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>My Bets</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>Wallet</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ F · WALLET ═════════ -->
+<div class="opt">
+  <div class="optTag"><b>F</b> Wallet</div>
+  <div class="phone">
+    <div class="hdr">
+      <div class="kick caps"><span class="dot"></span>World Cup companion</div>
+      <div class="hrow">
+        <div class="brand">STREA<i>K</i></div>
+        <div class="hbtns"><span class="chip mono">7fUA…zKr9 ⧉</span><span class="chip ghost">Log out</span></div>
+      </div>
+    </div>
+    <div class="body">
+
+      <div class="secrow"><h3>Wallet</h3><span class="tagp">devnet</span></div>
+
+      <div class="wcard">
+        <div class="w-k">Balance</div>
+        <div class="w-bal mono">1.250<span class="unit">SOL</span></div>
+        <button class="w-addr mono">7fUAJdSt…mQzKr9wZ ⧉</button>
+        <div class="w-actions">
+          <button class="b">View on explorer ↗</button>
+          <button class="b">Log out</button>
+        </div>
+      </div>
+
+      <div class="trust"><b>◆</b> Email login · no seed phrase. Devnet balance — fund via a devnet faucet.</div>
+    </div>
+    <div class="nav">
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.4 9l4.3 3-4.3 3z" fill="currentColor" stroke="none"/></svg>Live</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M7 4h10v3a5 5 0 01-10 0z"/><path d="M7 5H4.5v1.5A2.5 2.5 0 007 9M17 5h2.5v1.5A2.5 2.5 0 0117 9"/><path d="M12 12v3M9 19h6M10 19l.5-4h3l.5 4"/></svg>🃏 Pearly</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/><path d="M9.2 9.2a4 4 0 000 5.6M14.8 9.2a4 4 0 010 5.6"/></svg>Market</div>
+      <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M9.2 6.2v11.6" stroke-dasharray="2 2.2"/></svg>My Bets</div>
+      <div class="ni on"><svg viewBox="0 0 24 24"><path d="M3.5 8A2.5 2.5 0 016 5.5h11"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2.5"/><circle cx="16.5" cy="13.2" r="1.3" fill="currentColor" stroke="none"/></svg>Wallet</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
