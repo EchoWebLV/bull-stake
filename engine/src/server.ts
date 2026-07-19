@@ -1,6 +1,9 @@
 import "dotenv/config";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { registerRoutes } from "./routes.ts";
 import { LiveStore } from "./live.ts";
 import { LinesStore } from "./lines.ts";
@@ -28,6 +31,21 @@ export function buildServer(store?: LiveStore, linesStore?: LinesStore): Fastify
   const liveStore = store ?? new LiveStore();
   const lines = linesStore ?? new LinesStore();
   registerRoutes(app, liveStore, lines);
+
+  // Same-origin deploy mode: WEB_DIST = built web bundle → this one service is
+  // both the API and the app. Files are served as-is; any other GET falls back
+  // to index.html (SPA routing) EXCEPT /api paths, which stay honest 404s so a
+  // broken client call never silently receives HTML.
+  const webDist = process.env.WEB_DIST ? resolve(process.env.WEB_DIST) : null;
+  if (webDist && existsSync(webDist)) {
+    app.register(fastifyStatic, { root: webDist });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method !== "GET" || req.raw.url?.startsWith("/api")) {
+        return reply.code(404).send({ error: "not found" });
+      }
+      return reply.sendFile("index.html");
+    });
+  }
   return app;
 }
 
