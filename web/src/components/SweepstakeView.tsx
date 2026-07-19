@@ -208,7 +208,7 @@ function BlankCard({
         ))}
       </div>
 
-      <div className="hint">💡 One pick per row · all {total} must land to win · {priceSol} {SOL} to enter</div>
+      <div className="hint">One pick per row · all {total} must land to win · {priceSol} {SOL} to enter</div>
 
       <button
         className={`cta${allPicked ? "" : " cta-off"}`}
@@ -325,7 +325,7 @@ function PicksCard({
         ))}
       </div>
 
-      <div className="locked-note">🔒 Card locked · no more changes</div>
+      <div className="locked-note">Card locked · no more changes</div>
       <CardFoot />
     </>
   );
@@ -371,7 +371,7 @@ function AfterCard({
 
       {perfect ? (
         <div className="win-hero">
-          <div className="win-trophy">🏆</div>
+          <div className="win-trophy">★</div>
           <div className="win-perfect">PERFECT CARD · {hits} / {total}</div>
           <div className="win-won">You won</div>
           <div className="win-amt tnum">{fmtSol(entry.payout)}{SOL}</div>
@@ -381,7 +381,7 @@ function AfterCard({
         </div>
       ) : (
         <div className="close-hero">
-          <div className="close-emoji">😬</div>
+          <div className="close-emoji">—</div>
           <div className="close-title">So close</div>
           <div className="close-sub tnum">{hits} / {total} hit</div>
           <div className="close-note">A perfect card splits the pot. New card drops tomorrow.</div>

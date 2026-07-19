@@ -32,5 +32,5 @@ export function stripForFixture(
     rides.push(part);
   }
   if (!rides.length) return null;
-  return { text: `🃏 your card rides this match — ${rides.join(" · ")}` };
+  return { text: `your card rides this match — ${rides.join(" · ")}` };
 }

@@ -64,9 +64,9 @@ function matchMinute(atSec: number, durationSecs: number): number {
 }
 
 const EVENT_TXT: Record<string, (side: string) => { txt: string; big: boolean }> = {
-  goal: (side) => ({ txt: `⚽ GOAL — ${side}`, big: true }),
+  goal: (side) => ({ txt: `GOAL — ${side}`, big: true }),
   corner: (side) => ({ txt: `Corner — ${side}`, big: false }),
-  yellow: (side) => ({ txt: `🟨 Yellow card — ${side}`, big: false }),
+  yellow: (side) => ({ txt: `Yellow card — ${side}`, big: false }),
 };
 
 /**

@@ -63,7 +63,7 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
     out.push({
       id: `${next.contestId}:seeded`,
       kind: "seeded",
-      text: `🌱 Fresh card is live — jackpot in at ${next.jackpotText || "◎0"}`,
+      text: `Fresh card is live — jackpot in at ${next.jackpotText || "◎0"}`,
     });
     return out;
   }
@@ -78,12 +78,12 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
       // Kickoffs only: a won/lost→live flap (e.g. the winningBuckets join degrading
       // mid-poll) must not re-announce a match that already kicked off long ago.
       if (was.state === "open" || was.state === "locked") {
-        out.push({ id: `${next.contestId}:leg-live:${leg.key}`, kind: "leg-live", text: `⚽ ${leg.matchLabel} kicked off${pick} riding` });
+        out.push({ id: `${next.contestId}:leg-live:${leg.key}`, kind: "leg-live", text: `${leg.matchLabel} kicked off${pick} riding` });
       }
     } else if (leg.state === "won") {
-      out.push({ id: `${next.contestId}:leg-hit:${leg.key}`, kind: "leg-hit", text: `✅ ${leg.matchLabel}${pick} HIT` });
+      out.push({ id: `${next.contestId}:leg-hit:${leg.key}`, kind: "leg-hit", text: `✓ ${leg.matchLabel}${pick} HIT` });
     } else if (leg.state === "lost") {
-      out.push({ id: `${next.contestId}:leg-died:${leg.key}`, kind: "leg-died", text: `💀 ${leg.matchLabel}${pick} missed · card busted` });
+      out.push({ id: `${next.contestId}:leg-died:${leg.key}`, kind: "leg-died", text: `✗ ${leg.matchLabel}${pick} missed · card busted` });
     }
   }
 
@@ -96,7 +96,7 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
     next.myCardState === "entered-alive" && carried.length >= 2 &&
     won === carried.length - 1 && prevWon < won
   ) {
-    out.push({ id: `${next.contestId}:one-away`, kind: "one-away", text: `🔥 One leg from a perfect card — hang on` });
+    out.push({ id: `${next.contestId}:one-away`, kind: "one-away", text: `One leg from a perfect card — hang on` });
   }
 
   // Contest settled while we watched. Branch on the card's terminal STATUS first
@@ -107,12 +107,12 @@ export function diffCardAlerts(prev: AlertSnapshot | null, next: AlertSnapshot):
   // surfaces' refund language) — it neither rolls nor pays.
   if (!TERMINAL.has(prev.status) && TERMINAL.has(next.status)) {
     const text = next.status === "rolledOver"
-      ? `🌊 No perfect cards today — the pot rolls into tomorrow's jackpot`
+      ? `No perfect cards today — the pot rolls into tomorrow's jackpot`
       : next.status === "voided"
         ? `∅ Card voided — entries are refundable`
         : next.myCardState === "settled-won"
-          ? `🏆 Perfect card! Your share is claimable`
-          : `🏁 Settled — perfect cards took today's pot`;
+          ? `Perfect card! Your share is claimable`
+          : `Settled — perfect cards took today's pot`;
     out.push({ id: `${next.contestId}:settled`, kind: "settled", text });
   }
 

@@ -178,7 +178,7 @@ describe("snapshotFromChain", () => {
     const grCall: CallView = { ...openCall, kind: "goalRush", numOptions: 2, basePoints: [3, 1, 0] };
     const snap = snapshotFromChain({ ...data, openCall: grCall }, myEntry, ME, 1_005_000);
     const c = snap.call!;
-    expect(c.kind).toBe("🔥 Goal rush");
+    expect(c.kind).toBe("Goal rush");
     expect(c.opts.length).toBe(2);
     expect(c.opts.map((o) => o.t)).toEqual(["Yes", "No"]);
     expect(c.opts.map((o) => o.p)).toEqual([3, 1]);

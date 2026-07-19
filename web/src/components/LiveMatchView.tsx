@@ -242,10 +242,15 @@ export function LiveMatchView({ test = false, active = true, onGoPearly }: { tes
       {rideStrip}
 
       <div className="lg-srow">
-        <span className={`lg-flame${score.flameHot ? " hot" : ""}`}>🔥</span>
+        {/* Hand-drawn ink flame (stroke follows currentColor) — no emoji in the skin. */}
+        <span className={`lg-flame${score.flameHot ? " hot" : ""}`} aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+          </svg>
+        </span>
         <span className="lg-sbig tnum" key={score.pointsSeq}>{score.pts}</span>
         <span className="lg-slab">pts</span>
-        <span className="lg-pill">🔥 <b>{score.streak}</b></span>
+        <span className="lg-pill">streak <b>{score.streak}</b></span>
         <span className={`lg-pill bonus${score.bonusZero ? " zero" : ""}`}>bonus <b>+{score.bonus}</b></span>
         <span className="lg-pill">events <b>{score.callsUsed}</b></span>
       </div>

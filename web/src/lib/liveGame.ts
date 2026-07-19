@@ -167,24 +167,24 @@ function callPresentation(kind: CallKind, home: string, away: string): CallPrese
   switch (kind) {
     case "nextGoal":
       return {
-        kind: "⚡ Next goal", q: "Who scores next?",
+        kind: "Next goal", q: "Who scores next?",
         labels: [home, "No goal", away],
         colors: [HOME_COLOR, NEUTRAL_COLOR, AWAY_COLOR],
         codes: [code(home), "—", code(away)],
       };
     case "goalRush":
       return {
-        kind: "🔥 Goal rush", q: "A goal soon?",
+        kind: "Goal rush", q: "A goal soon?",
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
     case "cornerSoon":
       return {
-        kind: "⛳ Corner watch", q: "A corner soon?",
+        kind: "Corner watch", q: "A corner soon?",
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
     case "cardSoon":
       return {
-        kind: "🟨 Booking watch", q: "A booking soon?",
+        kind: "Booking watch", q: "A booking soon?",
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
     default:
@@ -327,7 +327,7 @@ export function snapshotFromChain(
         : 0;
       over = {
         won: true,
-        title: "You won! 🏆",
+        title: "You won!",
         big: solStr(share),
         lines: [
           `Top score — ${pts} pts.`,

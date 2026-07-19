@@ -36,14 +36,15 @@ const POLL_MS = 5000;
 const CONFIRM_POLL_MS = 1500;
 const PEARLY_NONCE = 0; // spec §1: web/engine always use nonce 0 — one card per wallet, ever.
 
-/** Per-leg status chip: ⏳ open / 🔒 locked-in-play / ✓ hit / ✗ dead — from the
- *  mapper's derived PearlyLegState, never recomputed here. */
+/** Per-leg status chip: ○ open / ● locked-in-play / ✓ hit / ✗ dead — from the
+ *  mapper's derived PearlyLegState, never recomputed here. Monochrome marks
+ *  only — the skin is hand-drawn ink, no emoji. */
 function legChip(state: PearlyLegState): { icon: string; label: string; tone: string } {
   switch (state) {
-    case "open": return { icon: "⏳", label: "open", tone: "neutral" };
-    case "locked": return { icon: "🔒", label: "locked", tone: "neutral" };
-    case "live": return { icon: "🔒", label: "locked · in play", tone: "warn" };
-    case "final": return { icon: "🏁", label: "final · settling", tone: "neutral" };
+    case "open": return { icon: "○", label: "open", tone: "neutral" };
+    case "locked": return { icon: "●", label: "locked", tone: "neutral" };
+    case "live": return { icon: "●", label: "locked · in play", tone: "warn" };
+    case "final": return { icon: "◇", label: "final · settling", tone: "neutral" };
     case "won": return { icon: "✓", label: "hit", tone: "good" };
     case "lost": return { icon: "✗", label: "dead", tone: "bad" };
     case "voided": return { icon: "∅", label: "voided", tone: "neutral" };
@@ -216,7 +217,6 @@ export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void;
   if (vm.empty) {
     return (
       <div className="card empty-card">
-        <div style={{ fontSize: 28, marginBottom: 8 }}>🃏</div>
         No Sweep card today yet — the next card composes at 08:00 UTC. Check back soon.
       </div>
     );
@@ -286,7 +286,7 @@ export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void;
       const how = await shareTicketPng(model);
       if (how === "clipboard") flash("Ticket copied — paste it anywhere.");
       else if (how === "download") flash("Ticket saved.");
-      else if (how === "share") flash("Shared 🐂");
+      else if (how === "share") flash("Shared");
       // "cancelled": user closed the share sheet — stay quiet.
     } catch (e) {
       flash(`Share failed: ${(e as Error).message}`, true);
@@ -475,7 +475,7 @@ function MarketRow({ leg, pick, onPick }: {
     <div className={`pmkt${leg.pickable ? "" : " pmkt-locked"}`}>
       <div className="pmkt-q">
         <span>{leg.marketLabel}</span>
-        {!leg.pickable && <span className="pmkt-lock">🔒 kicked off</span>}
+        {!leg.pickable && <span className="pmkt-lock">kicked off</span>}
       </div>
       <div className="pmkt-opts">
         {leg.options.map((o) => {
@@ -511,10 +511,10 @@ function PearlyInfoModal({ vm, openLegs, onClose }: {
         <ul className="pl-rules">
           <li>Enter any time while at least <b>3 legs</b> are still open ({openLegs} open now). Each leg locks at its own kickoff.</li>
           <li>Every leg still open when you join <b>doubles your prize</b> — join early, carry more, win bigger.</li>
-          <li>🚫 <b>No buy-backs.</b> One card a day.</li>
+          <li><b>No buy-backs.</b> One card a day.</li>
           <li><b>Perfect or nothing:</b> no perfect card → the whole pot rolls to tomorrow.</li>
         </ul>
-        <div className="pl-modal-pot">🏆 pot {vm.potText}{vm.potRolledText ? ` · ${vm.potRolledText}` : ""} · {vm.aliveText} cards in</div>
+        <div className="pl-modal-pot">pot {vm.potText}{vm.potRolledText ? ` · ${vm.potRolledText}` : ""} · {vm.aliveText} cards in</div>
         <div className="card-foot"><span className="dia">◆</span> Settled on-chain · TxLINE proofs</div>
       </div>
     </div>
@@ -545,7 +545,7 @@ function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, on
           <span className="pt-title">card alerts</span>
           {notificationsSupported() && (
             <button className="pt-bell" onClick={onToggleAlerts} aria-pressed={alertsOn}>
-              {alertsOn ? "🔔 on" : "🔕 off"}
+              {alertsOn ? "alerts on" : "alerts off"}
             </button>
           )}
         </div>
@@ -561,13 +561,13 @@ function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, on
 
       {dead && (
         <div className="pearly-death">
-          <div className="pd-h">{vm.degraded ? "⚠️ Checking your card…" : "Card busted"}</div>
+          <div className="pd-h">{vm.degraded ? "Checking your card…" : "Card busted"}</div>
           <div className="pd-sub">
             {vm.degraded
               ? "We're re-syncing with the chain — this will confirm on the next poll."
               : "The pot rolls on. New card tomorrow 08:00 UTC."}
           </div>
-          <div className="pd-note">🔔 your alerts stay on · no buy-backs · spectating the field</div>
+          <div className="pd-note">your alerts stay on · no buy-backs · spectating the field</div>
         </div>
       )}
 
@@ -583,7 +583,7 @@ function MyCardHud({ card, vm, msg, msgErr, alerts, alertsOn, onToggleAlerts, on
           undefined (picker-view legs never set it; on the HUD it always is). */}
       {!dead && onGoLive && vm.legs.some((l) => l.carried !== false && l.state === "live") && (
         <button className="pearly-strip pearly-golive" onClick={onGoLive}>
-          ⚡ match window live — go play it
+          match window live — go play it
         </button>
       )}
 
@@ -649,7 +649,7 @@ function SettledCard({
     return (
       <div className="pearly">
         <div className="pearly-rollover">
-          <div className="pearly-roll-h">{rolledOver ? "🌙 Nobody survived" : "Settled"}</div>
+          <div className="pearly-roll-h">{rolledOver ? "Nobody survived" : "Settled"}</div>
           <div className="pearly-roll-sub">
             {rolledOver
               ? `The whole pot (${vm.potText}) rolls into tomorrow's jackpot.`
@@ -665,8 +665,8 @@ function SettledCard({
     <div className="pearly">
       {perfect ? (
         <div className="pearly-win">
-          <div className="pw-trophy">🏆</div>
-          <div className="pw-h">PERFECT CARD 🃏</div>
+          <div className="pw-trophy">★</div>
+          <div className="pw-h">PERFECT CARD</div>
           {entry && (
             <div className="pw-amt tnum">{fmtSol(entry.payout)}{SOL}</div>
           )}

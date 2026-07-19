@@ -106,7 +106,7 @@ export async function renderTicketPng(model: TicketModel): Promise<Blob> {
   const rowGap = Math.min(84, Math.floor(620 / Math.max(1, model.rows.length)));
   for (const row of model.rows) {
     ctx.font = `400 42px ${BODY}`; ctx.globalAlpha = row.carried ? 1 : 0.45;
-    ctx.fillText(`${row.chaos ? "🃏 " : ""}${row.market}`, L, y);
+    ctx.fillText(`${row.chaos ? "chaos · " : ""}${row.market}`, L, y);
     ctx.textAlign = "right"; ctx.font = `700 44px ${DISP}`;
     ctx.fillText(row.carried ? `${row.pick} ✓` : row.pick, R, y);
     ctx.textAlign = "left"; ctx.globalAlpha = 1;
@@ -126,7 +126,7 @@ export async function renderTicketPng(model: TicketModel): Promise<Blob> {
   ctx.font = `700 ${fitPx(ctx, model.moneyLine, rightSpace, 36, 22, (px) => `700 ${px}px ${BODY}`)}px ${BODY}`;
   ctx.fillText(model.moneyLine, R, by - 14);
   ctx.globalAlpha = 0.72;
-  const footText = model.footer + " 🔒";
+  const footText = model.footer;
   ctx.font = `400 ${fitPx(ctx, footText, rightSpace, 32, 20, (px) => `400 ${px}px ${BODY}`)}px ${BODY}`;
   ctx.fillText(footText, R, by + 34);
   ctx.globalAlpha = 1; ctx.textAlign = "left";
@@ -150,7 +150,7 @@ export async function shareTicketPng(model: TicketModel): Promise<SharePath | "c
   const path = pickSharePath(caps);
   if (path === "share") {
     try {
-      await navigator.share({ files: [file], title: "Bull Stake", text: "My Sweep card 🐂" });
+      await navigator.share({ files: [file], title: "Bull Stake", text: "My Sweep card" });
       return "share";
     } catch (e) {
       if ((e as Error).name === "AbortError") return "cancelled";
