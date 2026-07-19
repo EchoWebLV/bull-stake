@@ -1,13 +1,16 @@
 {
+  // Root config = the anchor test suite ONLY (ts-mocha over tests/, per Anchor.toml).
+  // engine/, keeper/, web/, spike/ each typecheck under their own tsconfig.
   "compilerOptions": {
     "types": ["mocha", "chai", "node"],
     "typeRoots": ["./node_modules/@types"],
     "lib": ["es2020"],
     "module": "commonjs",
-    "target": "es6",
+    "target": "es2020",
     "esModuleInterop": true,
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "skipLibCheck": true
-  }
+  },
+  "include": ["tests"]
 }

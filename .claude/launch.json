@@ -17,13 +17,6 @@
       "autoPort": false
     },
     {
-      "name": "scratchpad-demo",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "4381", "--directory", "/private/tmp/claude-501/-Users-yordanlasonov-Documents-GitHub-ProofBet/eca8f794-4b38-4993-99f5-0c0ac502c96d/scratchpad"],
-      "port": 4381,
-      "autoPort": false
-    },
-    {
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5180", "--strictPort"],

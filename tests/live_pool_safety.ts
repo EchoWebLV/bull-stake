@@ -155,7 +155,7 @@ describe("live_pool_safety", () => {
     await expectError(
       program.methods
         .openCall(0, KIND.nextGoal, 3, [4, 1, 4], 120)
-        .accountsStrict({ keeper: stranger.publicKey, pool: ctx.pool, cursor: ctx.cursor, call: callPda(ctx.pool, 0), systemProgram: SystemProgram.programId })
+        .accountsStrict({ keeper: stranger.publicKey, pool: ctx.pool, cursor: ctx.cursor, call: callPda(ctx.pool, 0) })
         .signers([stranger]).rpc(),
       "Unauthorized",
     );
