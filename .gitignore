@@ -42,3 +42,4 @@ test-ledger/
 
 # brainstorming visual companion sessions
 .superpowers/
+*-id.json
