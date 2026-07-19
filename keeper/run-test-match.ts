@@ -57,6 +57,9 @@ async function main() {
   const durationMins = flag("duration-mins", 8);
   const resumeFixture = flag("resume", 0); // re-attach to an existing test pool
   const replayFixture = flag("replay", 0); // script = a REAL fixture's history, compressed
+  // Crank heartbeat. 20s mirrors prod pacing (LIVE_INTERVAL_SEC 30); a compressed
+  // demo match reads better at ~10s — calls stay catchable, half the dead air.
+  const stepSecs = flag("step-secs", 20);
 
   /** With --replay, serve the real fixture's compressed arc instead of DEFAULT_SCRIPT. */
   async function buildScript(ctx: ReturnType<typeof createContext>, durationSecs: number) {
@@ -91,7 +94,7 @@ async function main() {
       durationSecs,
       script: await buildScript(ctx, durationSecs),
     });
-    await driveToTerminal(proofbet, ctx, pool, fetchEvents);
+    await driveToTerminal(proofbet, ctx, pool, fetchEvents, stepSecs);
     return;
   }
 
@@ -139,7 +142,7 @@ async function main() {
     durationSecs,
     script: await buildScript(ctx, durationSecs),
   });
-  await driveToTerminal(proofbet, ctx, pool, fetchEvents);
+  await driveToTerminal(proofbet, ctx, pool, fetchEvents, stepSecs);
 }
 
 /** Drive the state machine until terminal. Each runLiveMatch call is one bounded,
@@ -152,6 +155,7 @@ async function driveToTerminal(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pool: any,
   fetchEvents: ReturnType<typeof makeSimFeed>,
+  stepSecs = 20,
 ): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const acct: any = proofbet.account;
@@ -181,11 +185,11 @@ async function driveToTerminal(
     } catch (e) {
       console.log(`[test-match] step threw: ${(e as Error).message} — retrying`);
     }
-    // 20s between driver steps. Each step runs at most ONE call cycle, so this
-    // sets the BREATHER between calls (~40s call-to-call with the answer window
-    // and tx time) — a 5s loop machine-gunned all 8 calls back-to-back and no
-    // human could catch them. Mirrors the production cron's LIVE_INTERVAL_SEC 30.
-    await sleep(20_000);
+    // Crank breather between steps. Each step runs at most ONE call cycle, so
+    // this sets the call-to-call pacing (~2 ticks with answer window + tx time).
+    // A 5s loop machine-gunned all 8 calls back-to-back and no human could catch
+    // them; the default 20 mirrors the production cron's LIVE_INTERVAL_SEC 30.
+    await sleep(stepSecs * 1000);
   }
 }
 
