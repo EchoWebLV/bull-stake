@@ -6,15 +6,15 @@
  * the Vite dev server, and e2e from the Sweep HUD once a card is live.
  *
  * Visual language mirrors mockups/26-semifinal-one-match-card.html's ticket:
- * cream stub on dark, hard ink offset-shadow, punch holes, marker type.
+ * cream stub on dark, hard ink offset-shadow, punch holes.
  * ────────────────────────────────────────────────────────────────────────── */
 import { MASCOT_PATH, MASCOT_COLORS } from "../components/Mascot.tsx";
 import { pickSharePath, type SharePath, type TicketModel } from "./pearlyTicket.ts";
 
 const W = 1080, H = 1350;                       // 4:5 portrait — social-friendly
 const INK = "#17130f", CREAM = "#f0e7d4", PINK = "#b0006d", BG = "#17131b";
-const DISP = '"Permanent Marker", "Marker Felt", "Comic Sans MS", cursive';
-const BODY = '"Patrick Hand", "Chalkboard SE", "Comic Sans MS", cursive';
+const DISP = '"Archivo", system-ui, sans-serif';
+const BODY = '"Inter", system-ui, sans-serif';
 
 /** Ask for the app's @font-face faces (App.css / the harness page declare
  *  them) so canvas text doesn't rasterize with fallbacks; never fatal. */
