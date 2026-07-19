@@ -1,0 +1,4919 @@
+{
+  "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ",
+  "metadata": {
+    "name": "proofbet",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "ProofBet parimutuel market for World Cup soccer props"
+  },
+  "instructions": [
+    {
+      "name": "claim",
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "bettor",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_id",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "bettor"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_contest",
+      "discriminator": [
+        116,
+        176,
+        194,
+        81,
+        200,
+        242,
+        88,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "bettor",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "entry"
+          ]
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest"
+              },
+              {
+                "kind": "account",
+                "path": "bettor"
+              },
+              {
+                "kind": "account",
+                "path": "entry.nonce",
+                "account": "Entry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_live_pool",
+      "discriminator": [
+        187,
+        42,
+        50,
+        137,
+        121,
+        69,
+        67,
+        159
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "entry"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_live",
+      "discriminator": [
+        29,
+        15,
+        61,
+        60,
+        6,
+        77,
+        41,
+        65
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_contest",
+      "discriminator": [
+        129,
+        189,
+        164,
+        27,
+        152,
+        242,
+        123,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "contest_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "contest_id",
+          "type": "u64"
+        },
+        {
+          "name": "fixtures",
+          "type": {
+            "array": [
+              "i64",
+              6
+            ]
+          }
+        },
+        {
+          "name": "market_ids",
+          "type": {
+            "array": [
+              "u8",
+              6
+            ]
+          }
+        },
+        {
+          "name": "num_legs",
+          "type": "u8"
+        },
+        {
+          "name": "entry_price",
+          "type": "u64"
+        },
+        {
+          "name": "lock_ts",
+          "type": "i64"
+        },
+        {
+          "name": "settle_after_ts",
+          "type": "i64"
+        },
+        {
+          "name": "fee_recipient",
+          "type": "pubkey"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "leg_lock_ts",
+          "type": {
+            "array": [
+              "i64",
+              6
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_live_pool",
+      "discriminator": [
+        7,
+        8,
+        29,
+        165,
+        155,
+        168,
+        208,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cursor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  99,
+                  117,
+                  114,
+                  115,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "fixture_id",
+          "type": "i64"
+        },
+        {
+          "name": "entry_price",
+          "type": "u64"
+        },
+        {
+          "name": "lock_ts",
+          "type": "i64"
+        },
+        {
+          "name": "settle_after_ts",
+          "type": "i64"
+        },
+        {
+          "name": "fee_recipient",
+          "type": "pubkey"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "num_calls",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "delegate_call",
+      "discriminator": [
+        225,
+        112,
+        249,
+        54,
+        207,
+        134,
+        251,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                207,
+                72,
+                102,
+                128,
+                193,
+                109,
+                110,
+                115,
+                208,
+                216,
+                249,
+                93,
+                84,
+                236,
+                32,
+                10,
+                154,
+                203,
+                13,
+                188,
+                233,
+                144,
+                236,
+                33,
+                42,
+                181,
+                215,
+                104,
+                242,
+                64,
+                234
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "docs": [
+            "enforced by the seeds passed to `delegate_pda` — a wrong account fails to",
+            "re-derive. `del` wires the `#[delegate]` macro's delegation CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "delegate_cursor",
+      "discriminator": [
+        159,
+        55,
+        163,
+        35,
+        13,
+        29,
+        100,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                207,
+                72,
+                102,
+                128,
+                193,
+                109,
+                110,
+                115,
+                208,
+                216,
+                249,
+                93,
+                84,
+                236,
+                32,
+                10,
+                154,
+                203,
+                13,
+                188,
+                233,
+                144,
+                236,
+                33,
+                42,
+                181,
+                215,
+                104,
+                242,
+                64,
+                234
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "docs": [
+            "enforced by the seeds passed to `delegate_pda` — a wrong account fails to",
+            "re-derive. `del` wires the `#[delegate]` macro's delegation CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_entry",
+      "discriminator": [
+        14,
+        244,
+        184,
+        129,
+        178,
+        22,
+        198,
+        94
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                207,
+                72,
+                102,
+                128,
+                193,
+                109,
+                110,
+                115,
+                208,
+                216,
+                249,
+                93,
+                84,
+                236,
+                32,
+                10,
+                154,
+                203,
+                13,
+                188,
+                233,
+                144,
+                236,
+                33,
+                42,
+                181,
+                215,
+                104,
+                242,
+                64,
+                234
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pda"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "pda",
+          "docs": [
+            "enforced by the seeds passed to `delegate_pda` — a wrong account fails to",
+            "re-derive. `del` wires the `#[delegate]` macro's delegation CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner_program",
+          "address": "By8y6y34eNR5WJQ3XfkTQUtf4u2667B2FcfxeSrMTWZ"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "player",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "end_and_undelegate",
+      "discriminator": [
+        172,
+        88,
+        39,
+        156,
+        152,
+        25,
+        165,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "end_live_pool",
+      "discriminator": [
+        157,
+        244,
+        101,
+        74,
+        167,
+        45,
+        191,
+        98
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cursor",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  99,
+                  117,
+                  114,
+                  115,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "enter",
+      "discriminator": [
+        139,
+        49,
+        209,
+        114,
+        88,
+        91,
+        77,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "bettor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest"
+              },
+              {
+                "kind": "account",
+                "path": "bettor"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "picks",
+          "type": {
+            "array": [
+              "u8",
+              6
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_jackpot",
+      "discriminator": [
+        203,
+        117,
+        104,
+        67,
+        62,
+        238,
+        90,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "jackpot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_market",
+      "discriminator": [
+        35,
+        35,
+        189,
+        193,
+        155,
+        48,
+        170,
+        203
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "fixture_id"
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fixture_id",
+          "type": "i64"
+        },
+        {
+          "name": "market_id",
+          "type": "u8"
+        },
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitMarketArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "join_live_pool",
+      "discriminator": [
+        129,
+        6,
+        42,
+        125,
+        175,
+        89,
+        207,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "lock_pick",
+      "discriminator": [
+        38,
+        128,
+        138,
+        34,
+        42,
+        49,
+        116,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true,
+          "relations": [
+            "entry"
+          ]
+        },
+        {
+          "name": "call",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "call.pool",
+                "account": "Call"
+              },
+              {
+                "kind": "account",
+                "path": "call.seq",
+                "account": "Call"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "call.pool",
+                "account": "Call"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "option",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "open_call",
+      "discriminator": [
+        153,
+        26,
+        89,
+        45,
+        252,
+        243,
+        183,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cursor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  99,
+                  117,
+                  114,
+                  115,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "call",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "arg",
+                "path": "seq"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u32"
+        },
+        {
+          "name": "kind",
+          "type": {
+            "defined": {
+              "name": "CallKind"
+            }
+          }
+        },
+        {
+          "name": "num_options",
+          "type": "u8"
+        },
+        {
+          "name": "base_points",
+          "type": {
+            "array": [
+              "u8",
+              3
+            ]
+          }
+        },
+        {
+          "name": "answer_secs",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "place_bet",
+      "discriminator": [
+        222,
+        62,
+        67,
+        220,
+        63,
+        166,
+        126,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "bettor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_id",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "bettor"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "bucket",
+          "type": "u8"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "prealloc_call",
+      "discriminator": [
+        169,
+        114,
+        160,
+        251,
+        36,
+        71,
+        243,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "call",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "arg",
+                "path": "seq"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer"
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "refund_voided",
+      "docs": [
+        "Permissionless all-seats refund for a Voided pool whose entries are still",
+        "delegated (the keeper-death case `claim_live_pool` can't handle). See",
+        "`refund_voided.rs`. remaining_accounts = [entry, player] pairs."
+      ],
+      "discriminator": [
+        3,
+        110,
+        131,
+        202,
+        73,
+        182,
+        42,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "cranker",
+          "docs": [
+            "Permissionless: anyone may crank the refund (they only pay the tx fee; the",
+            "money can only flow to each seat's bound player). Mut = fee payer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "resolve_call",
+      "discriminator": [
+        192,
+        122,
+        132,
+        115,
+        179,
+        207,
+        122,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cursor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  99,
+                  117,
+                  114,
+                  115,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "call",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "call.seq",
+                "account": "Call"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "score_entry",
+      "discriminator": [
+        231,
+        190,
+        137,
+        114,
+        174,
+        90,
+        253,
+        147
+      ],
+      "accounts": [
+        {
+          "name": "cranker",
+          "signer": true
+        },
+        {
+          "name": "call",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "call.pool",
+                "account": "Call"
+              },
+              {
+                "kind": "account",
+                "path": "call.seq",
+                "account": "Call"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "entry.pool",
+                "account": "LiveEntry"
+              },
+              {
+                "kind": "account",
+                "path": "entry.player",
+                "account": "LiveEntry"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "settle",
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_id",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "winning_bucket",
+          "type": "u8"
+        },
+        {
+          "name": "settled_seq",
+          "type": "u32"
+        },
+        {
+          "name": "settled_ts",
+          "type": "i64"
+        },
+        {
+          "name": "settled_value",
+          "type": "i32"
+        }
+      ]
+    },
+    {
+      "name": "settle_contest",
+      "discriminator": [
+        79,
+        122,
+        33,
+        192,
+        110,
+        98,
+        219,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "signer": true,
+          "relations": [
+            "contest"
+          ]
+        },
+        {
+          "name": "jackpot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "perfect_count",
+          "type": "u64"
+        },
+        {
+          "name": "perfect_weight",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_live_pool",
+      "discriminator": [
+        56,
+        29,
+        251,
+        204,
+        153,
+        148,
+        199,
+        78
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "signer": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "jackpot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  97,
+                  99,
+                  107,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cursor",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  99,
+                  117,
+                  114,
+                  115,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "void_contest",
+      "discriminator": [
+        112,
+        180,
+        198,
+        219,
+        193,
+        85,
+        163,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "docs": [
+            "The caller. Must equal `contest.settle_authority` (the keeper) UNLESS the",
+            "grace period past `settle_after_ts` has elapsed, in which case anyone may",
+            "void. Because that authorization is conditional it's checked in the handler,",
+            "not via a fixed `has_one` (the account stays named `settle_authority` so the",
+            "common keeper call sites read naturally)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "void_live_pool",
+      "discriminator": [
+        232,
+        247,
+        242,
+        239,
+        61,
+        186,
+        135,
+        204
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  118,
+                  101,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.pool_id",
+                "account": "LivePool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "void_market",
+      "discriminator": [
+        243,
+        175,
+        46,
+        124,
+        95,
+        101,
+        39,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "settle_authority",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_id",
+                "account": "Market"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "settled_seq",
+          "type": "u32"
+        },
+        {
+          "name": "settled_ts",
+          "type": "i64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Call",
+      "discriminator": [
+        62,
+        231,
+        169,
+        58,
+        154,
+        150,
+        83,
+        196
+      ]
+    },
+    {
+      "name": "Contest",
+      "discriminator": [
+        216,
+        26,
+        88,
+        18,
+        251,
+        80,
+        201,
+        96
+      ]
+    },
+    {
+      "name": "Entry",
+      "discriminator": [
+        63,
+        18,
+        152,
+        113,
+        215,
+        246,
+        221,
+        250
+      ]
+    },
+    {
+      "name": "Jackpot",
+      "discriminator": [
+        140,
+        46,
+        88,
+        182,
+        39,
+        85,
+        23,
+        131
+      ]
+    },
+    {
+      "name": "LiveCursor",
+      "discriminator": [
+        129,
+        109,
+        80,
+        87,
+        174,
+        244,
+        76,
+        251
+      ]
+    },
+    {
+      "name": "LiveEntry",
+      "discriminator": [
+        167,
+        229,
+        158,
+        50,
+        91,
+        121,
+        249,
+        22
+      ]
+    },
+    {
+      "name": "LivePool",
+      "discriminator": [
+        92,
+        143,
+        234,
+        29,
+        14,
+        252,
+        15,
+        4
+      ]
+    },
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    },
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BetPlaced",
+      "discriminator": [
+        88,
+        88,
+        145,
+        226,
+        126,
+        206,
+        32,
+        0
+      ]
+    },
+    {
+      "name": "CallOpened",
+      "discriminator": [
+        80,
+        97,
+        83,
+        218,
+        46,
+        113,
+        128,
+        51
+      ]
+    },
+    {
+      "name": "CallResolved",
+      "discriminator": [
+        14,
+        158,
+        191,
+        12,
+        236,
+        76,
+        7,
+        76
+      ]
+    },
+    {
+      "name": "Claimed",
+      "discriminator": [
+        217,
+        192,
+        123,
+        72,
+        108,
+        150,
+        248,
+        33
+      ]
+    },
+    {
+      "name": "ContestClaimed",
+      "discriminator": [
+        88,
+        210,
+        103,
+        215,
+        110,
+        121,
+        206,
+        113
+      ]
+    },
+    {
+      "name": "ContestCreated",
+      "discriminator": [
+        132,
+        15,
+        183,
+        141,
+        44,
+        207,
+        42,
+        86
+      ]
+    },
+    {
+      "name": "ContestSettled",
+      "discriminator": [
+        20,
+        198,
+        33,
+        48,
+        18,
+        184,
+        63,
+        200
+      ]
+    },
+    {
+      "name": "ContestVoided",
+      "discriminator": [
+        185,
+        189,
+        254,
+        96,
+        128,
+        4,
+        154,
+        225
+      ]
+    },
+    {
+      "name": "EnteredContest",
+      "discriminator": [
+        200,
+        124,
+        20,
+        131,
+        150,
+        52,
+        52,
+        196
+      ]
+    },
+    {
+      "name": "EntryScored",
+      "discriminator": [
+        241,
+        167,
+        213,
+        236,
+        50,
+        68,
+        93,
+        1
+      ]
+    },
+    {
+      "name": "JoinedLivePool",
+      "discriminator": [
+        40,
+        166,
+        143,
+        74,
+        213,
+        158,
+        219,
+        67
+      ]
+    },
+    {
+      "name": "LivePoolClaimed",
+      "discriminator": [
+        181,
+        58,
+        93,
+        142,
+        9,
+        230,
+        204,
+        219
+      ]
+    },
+    {
+      "name": "LivePoolCreated",
+      "discriminator": [
+        182,
+        232,
+        207,
+        192,
+        34,
+        15,
+        56,
+        137
+      ]
+    },
+    {
+      "name": "LivePoolEnded",
+      "discriminator": [
+        116,
+        28,
+        152,
+        217,
+        26,
+        36,
+        249,
+        215
+      ]
+    },
+    {
+      "name": "LivePoolRefunded",
+      "discriminator": [
+        21,
+        236,
+        157,
+        204,
+        195,
+        83,
+        93,
+        244
+      ]
+    },
+    {
+      "name": "LivePoolSettled",
+      "discriminator": [
+        36,
+        158,
+        221,
+        194,
+        29,
+        63,
+        250,
+        112
+      ]
+    },
+    {
+      "name": "LivePoolVoided",
+      "discriminator": [
+        224,
+        112,
+        170,
+        216,
+        11,
+        120,
+        159,
+        233
+      ]
+    },
+    {
+      "name": "MarketCreated",
+      "discriminator": [
+        88,
+        184,
+        130,
+        231,
+        226,
+        84,
+        6,
+        58
+      ]
+    },
+    {
+      "name": "MarketSettled",
+      "discriminator": [
+        237,
+        212,
+        22,
+        175,
+        201,
+        117,
+        215,
+        99
+      ]
+    },
+    {
+      "name": "MarketVoided",
+      "discriminator": [
+        217,
+        12,
+        138,
+        39,
+        108,
+        75,
+        89,
+        26
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "EntryCloseInPast",
+      "msg": "entry_close_ts must be in the future"
+    },
+    {
+      "code": 6001,
+      "name": "FeeTooHigh",
+      "msg": "fee_bps exceeds the maximum allowed"
+    },
+    {
+      "code": 6002,
+      "name": "PredicateMismatch",
+      "msg": "stat_key2 and op must both be set or both be None"
+    },
+    {
+      "code": 6003,
+      "name": "MarketNotOpen",
+      "msg": "market is not open"
+    },
+    {
+      "code": 6004,
+      "name": "EntryClosed",
+      "msg": "entry window has closed"
+    },
+    {
+      "code": 6005,
+      "name": "EntryNotClosed",
+      "msg": "entry window is still open"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidBucket",
+      "msg": "invalid bucket for this market's outcome count"
+    },
+    {
+      "code": 6007,
+      "name": "ZeroAmount",
+      "msg": "bet amount must be greater than zero"
+    },
+    {
+      "code": 6008,
+      "name": "NotClaimable",
+      "msg": "market is not in a claimable state"
+    },
+    {
+      "code": 6009,
+      "name": "Unauthorized",
+      "msg": "signer is not authorized for this action"
+    },
+    {
+      "code": 6010,
+      "name": "MathOverflow",
+      "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6011,
+      "name": "ContestNotOpen",
+      "msg": "contest is not open"
+    },
+    {
+      "code": 6012,
+      "name": "ContestNotTerminal",
+      "msg": "contest is not in a terminal (claimable) state"
+    },
+    {
+      "code": 6013,
+      "name": "ContestStillLive",
+      "msg": "a contest is already live; settle or void it first"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidContestId",
+      "msg": "contest_id must be non-zero"
+    },
+    {
+      "code": 6015,
+      "name": "SettleTooEarly",
+      "msg": "too early to settle this contest"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidMatchCount",
+      "msg": "num_matches must be between 3 and 5"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidPick",
+      "msg": "pick must be 0/1/2 within num_matches and 0 beyond it"
+    },
+    {
+      "code": 6018,
+      "name": "ResultMarketMismatch",
+      "msg": "result market account does not match the card fixture"
+    },
+    {
+      "code": 6019,
+      "name": "ResultMarketNotSettled",
+      "msg": "result market is not settled"
+    },
+    {
+      "code": 6020,
+      "name": "PerfectCountZero",
+      "msg": "perfect_count must be greater than zero to pay a winner"
+    },
+    {
+      "code": 6021,
+      "name": "VaultInsolvent",
+      "msg": "vault would drop below its rent floor or exceed distributable"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidFixtureId",
+      "msg": "fixture_id must be non-zero for each carded match"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidBucketCount",
+      "msg": "num_buckets must be 2 (binary) or 3 (three-way)"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidMarketId",
+      "msg": "market_id must be non-zero for each carded leg"
+    },
+    {
+      "code": 6025,
+      "name": "PerfectCountExceedsEntries",
+      "msg": "perfect_count cannot exceed entry_count"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidPoolId",
+      "msg": "pool_id must be non-zero"
+    },
+    {
+      "code": 6027,
+      "name": "InvalidCallCount",
+      "msg": "num_calls must be between 1 and MAX_CALLS"
+    },
+    {
+      "code": 6028,
+      "name": "PoolNotOpen",
+      "msg": "live pool is not open for joining"
+    },
+    {
+      "code": 6029,
+      "name": "PoolNotLive",
+      "msg": "live pool is not open or live"
+    },
+    {
+      "code": 6030,
+      "name": "PoolNotEnded",
+      "msg": "live pool has not ended"
+    },
+    {
+      "code": 6031,
+      "name": "PoolNotTerminal",
+      "msg": "live pool is not in a terminal (claimable) state"
+    },
+    {
+      "code": 6032,
+      "name": "PoolNotVoidable",
+      "msg": "live pool cannot be voided from its current state"
+    },
+    {
+      "code": 6033,
+      "name": "JoinClosed",
+      "msg": "joins have closed for this pool"
+    },
+    {
+      "code": 6034,
+      "name": "CallStillOpen",
+      "msg": "a call is already open; resolve it first"
+    },
+    {
+      "code": 6035,
+      "name": "CallSeqMismatch",
+      "msg": "call seq must equal the cursor's next_seq"
+    },
+    {
+      "code": 6036,
+      "name": "CallLimitReached",
+      "msg": "call limit reached for this pool"
+    },
+    {
+      "code": 6037,
+      "name": "CallNotOpen",
+      "msg": "call is not open"
+    },
+    {
+      "code": 6038,
+      "name": "CallNotResolved",
+      "msg": "call is not resolved"
+    },
+    {
+      "code": 6039,
+      "name": "AnswerWindowClosed",
+      "msg": "the answer window for this call has closed"
+    },
+    {
+      "code": 6040,
+      "name": "ScoreOutOfOrder",
+      "msg": "calls must be scored in order (seq == next_score_seq)"
+    },
+    {
+      "code": 6041,
+      "name": "NotAllScored",
+      "msg": "every seat must be scored through all resolved calls before settle"
+    },
+    {
+      "code": 6042,
+      "name": "ScoreMismatch",
+      "msg": "a passed entry account failed PDA/owner/coverage binding"
+    },
+    {
+      "code": 6043,
+      "name": "InvalidOption",
+      "msg": "option must be within the call's num_options"
+    },
+    {
+      "code": 6044,
+      "name": "NotEnoughPlayers",
+      "msg": "a live pool needs at least 2 players to settle"
+    },
+    {
+      "code": 6045,
+      "name": "WinnerCountZero",
+      "msg": "winner_count must be greater than zero to pay a winner"
+    },
+    {
+      "code": 6046,
+      "name": "CallNotEmpty",
+      "msg": "call must be pre-created (Empty) before it can be opened"
+    },
+    {
+      "code": 6047,
+      "name": "NotEnoughToDelegate",
+      "msg": "a live pool needs at least 2 players before it can be delegated"
+    },
+    {
+      "code": 6048,
+      "name": "PoolNotVoided",
+      "msg": "pool must be Voided to refund its seats"
+    },
+    {
+      "code": 6049,
+      "name": "AlreadyRefunded",
+      "msg": "this voided pool's seats have already been refunded"
+    },
+    {
+      "code": 6050,
+      "name": "InvalidLegLockTs",
+      "msg": "per-leg lock timestamps are inconsistent with lock_ts/settle_after_ts"
+    },
+    {
+      "code": 6051,
+      "name": "WeightMismatch",
+      "msg": "perfect_weight is inconsistent with perfect_count"
+    },
+    {
+      "code": 6052,
+      "name": "CardLocked",
+      "msg": "card has a locked leg; picks are immutable"
+    }
+  ],
+  "types": [
+    {
+      "name": "BetPlaced",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "bucket",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bucket_totals",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "total_pool",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BinaryOp",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Add"
+          },
+          {
+            "name": "Subtract"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Call",
+      "docs": [
+        "One call window + its resolved outcome. Seeds: `[b\"call\", pool_key, seq]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "seq",
+            "type": "u32"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "CallKind"
+              }
+            }
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "CallState"
+              }
+            }
+          },
+          {
+            "name": "opened_ts",
+            "type": "i64"
+          },
+          {
+            "name": "answer_secs",
+            "type": "u16"
+          },
+          {
+            "name": "num_options",
+            "type": "u8"
+          },
+          {
+            "name": "base_points",
+            "type": {
+              "array": [
+                "u8",
+                3
+              ]
+            }
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CallKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "NextGoal"
+          },
+          {
+            "name": "GoalRush"
+          },
+          {
+            "name": "CornerSoon"
+          },
+          {
+            "name": "CardSoon"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CallOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "seq",
+            "type": "u32"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "CallKind"
+              }
+            }
+          },
+          {
+            "name": "num_options",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CallResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "seq",
+            "type": "u32"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "voided",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CallState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Empty"
+          },
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Resolved"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Claimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "voided",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Comparison",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "GreaterThan"
+          },
+          {
+            "name": "LessThan"
+          },
+          {
+            "name": "EqualTo"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Contest",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest_id",
+            "type": "u64"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixtures",
+            "type": {
+              "array": [
+                "i64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "market_ids",
+            "docs": [
+              "market_id per leg: leg i = (fixtures[i], market_ids[i]). Indices >= num_legs",
+              "stay zero. A v2 parlay reads, e.g., markets [16,15,12,11] on one fixture."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "num_legs",
+            "type": "u8"
+          },
+          {
+            "name": "entry_price",
+            "type": "u64"
+          },
+          {
+            "name": "lock_ts",
+            "type": "i64"
+          },
+          {
+            "name": "leg_lock_ts",
+            "docs": [
+              "Per-leg entry lock (the leg's own kickoff). Indices >= num_legs stay 0.",
+              "An entry's ACTIVE legs are those with leg_lock_ts[i] > entry.entry_ts."
+            ],
+            "type": {
+              "array": [
+                "i64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "entries_close_ts",
+            "docs": [
+              "The moment open legs would drop below MIN_OPEN_LEGS — no entries at or",
+              "after this. Derived at create: the (num_legs - MIN_OPEN_LEGS)-th smallest",
+              "of the first num_legs lock times (zero tail excluded), 0-indexed. For",
+              "num_legs == 3 this equals lock_ts."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "settle_after_ts",
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ContestStatus"
+              }
+            }
+          },
+          {
+            "name": "winning_buckets",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "entry_count",
+            "type": "u64"
+          },
+          {
+            "name": "perfect_count",
+            "type": "u64"
+          },
+          {
+            "name": "perfect_weight",
+            "docs": [
+              "Σ 2^(active legs) over all perfect entries — the weighted-split divisor",
+              "(keeper-supplied at settle, same trust class as perfect_count)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "distributable",
+            "docs": [
+              "Winners' distributable = the full raw pool (pot_net + whole jackpot).",
+              "Weighted claims floor per-share; the flooring residue stays in this PDA."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claimed_count",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_total",
+            "type": "u64"
+          },
+          {
+            "name": "settled_ts",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 = no payout (loser/rolled), 1 = win share, 2 = void refund."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest_id",
+            "type": "u64"
+          },
+          {
+            "name": "num_legs",
+            "type": "u8"
+          },
+          {
+            "name": "entry_price",
+            "type": "u64"
+          },
+          {
+            "name": "lock_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_after_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest_id",
+            "type": "u64"
+          },
+          {
+            "name": "winning_buckets",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "perfect_count",
+            "type": "u64"
+          },
+          {
+            "name": "perfect_weight",
+            "docs": [
+              "Σ 2^(active legs) over all perfect entries — the weighted-split divisor."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pot",
+            "docs": [
+              "This contest's own entry pot at settle (contest.lamports - rent_floor)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "jackpot_in",
+            "docs": [
+              "Jackpot pool moved INTO the contest on a win (0 on rollover)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "jackpot_out",
+            "docs": [
+              "Jackpot pool received FROM the contest on a rollover (post-rake pot; 0 on a win)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "distributable",
+            "type": "u64"
+          },
+          {
+            "name": "rake",
+            "type": "u64"
+          },
+          {
+            "name": "rolled_over",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "RolledOver"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EnteredContest",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "entry_count",
+            "type": "u64"
+          },
+          {
+            "name": "edited",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Entry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "contest",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "picks",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "entry_ts",
+            "docs": [
+              "Unix time of the LAST picks write (init or edit). Refreshing on edit means",
+              "a re-pick after a leg locks shrinks the mask instead of cheating it."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryScored",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "seq",
+            "type": "u32"
+          },
+          {
+            "name": "base_pts",
+            "type": "u32"
+          },
+          {
+            "name": "bonus_pts",
+            "type": "u32"
+          },
+          {
+            "name": "streak",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitMarketArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "stat_key",
+            "type": "u32"
+          },
+          {
+            "name": "stat_key2",
+            "type": {
+              "option": "u32"
+            }
+          },
+          {
+            "name": "op",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "BinaryOp"
+                }
+              }
+            }
+          },
+          {
+            "name": "comparison",
+            "type": {
+              "defined": {
+                "name": "Comparison"
+              }
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i32"
+          },
+          {
+            "name": "entry_close_ts",
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "num_buckets",
+            "docs": [
+              "2 = binary over/under, 3 = three-way home/draw/away."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Jackpot",
+      "docs": [
+        "Singleton escrow whose lamport balance (above its own rent floor) IS the",
+        "rolling jackpot. Persists across every contest — that persistence is the",
+        "rollover. In v2 it carries NO `active_contest_id`/`reserved`: contests are",
+        "independent and each holds its OWN entry pot (the Contest PDA), so the only",
+        "cross-contest money path is this rolling pool (in on rollover, out on a win)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "docs": [
+              "lamports above this PDA's rent floor == the rolling pool."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JoinedLivePool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "player_count",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiveCursor",
+      "docs": [
+        "The live call cursor. Delegated to the ER alongside entries in SLICE 2; holds",
+        "no lamports beyond its own rent. Seeds: `[b\"livecursor\", pool_key]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "next_seq",
+            "type": "u32"
+          },
+          {
+            "name": "open_seq",
+            "type": "u32"
+          },
+          {
+            "name": "resolved_count",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiveEntry",
+      "docs": [
+        "A seat + running score. The account the ER mutates on every tap-resolve in",
+        "SLICE 2. Seeds: `[b\"liveentry\", pool_key, player_key]`. One seat per (pool,",
+        "player) — created with `init` (not `init_if_needed`), so the invariant",
+        "`pot == player_count * entry_price` holds exactly (the void-refund solvency",
+        "check depends on it)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "base_pts",
+            "type": "u32"
+          },
+          {
+            "name": "bonus_pts",
+            "type": "u32"
+          },
+          {
+            "name": "streak",
+            "type": "u16"
+          },
+          {
+            "name": "next_score_seq",
+            "type": "u32"
+          },
+          {
+            "name": "picks",
+            "docs": [
+              "Per-call locked option; `NO_PICK` = never locked. Indexed by call seq.",
+              "A full per-call array (not a single pending slot) so a later tap never",
+              "clobbers an earlier, not-yet-scored pick."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePool",
+      "docs": [
+        "The pot + terminal state. **Base-layer only, never delegated.** Its lamport",
+        "balance above the rent floor IS the pot (like Contest). Seeds:",
+        "`[b\"livepool\", pool_id.to_le_bytes()]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "entry_price",
+            "type": "u64"
+          },
+          {
+            "name": "lock_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_after_ts",
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "PoolStatus"
+              }
+            }
+          },
+          {
+            "name": "num_calls",
+            "type": "u32"
+          },
+          {
+            "name": "player_count",
+            "type": "u64"
+          },
+          {
+            "name": "winning_score",
+            "type": "u64"
+          },
+          {
+            "name": "winner_count",
+            "type": "u64"
+          },
+          {
+            "name": "distributable",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_count",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_total",
+            "type": "u64"
+          },
+          {
+            "name": "settled_ts",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 = no payout (loser/rolled), 1 = win share, 2 = void refund."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "entry_price",
+            "type": "u64"
+          },
+          {
+            "name": "lock_ts",
+            "type": "i64"
+          },
+          {
+            "name": "settle_after_ts",
+            "type": "i64"
+          },
+          {
+            "name": "num_calls",
+            "type": "u32"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolEnded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolRefunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "seats",
+            "docs": [
+              "number of seats refunded (== player_count)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total",
+            "docs": [
+              "total lamports returned to players (== seats * entry_price)"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "pot",
+            "docs": [
+              "This pool's own entry pot at settle (pool.lamports - rent_floor)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "winning_score",
+            "type": "u64"
+          },
+          {
+            "name": "winner_count",
+            "type": "u64"
+          },
+          {
+            "name": "distributable",
+            "type": "u64"
+          },
+          {
+            "name": "rake",
+            "type": "u64"
+          },
+          {
+            "name": "jackpot_in",
+            "type": "u64"
+          },
+          {
+            "name": "jackpot_out",
+            "type": "u64"
+          },
+          {
+            "name": "rolled_over",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LivePoolVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "market_id",
+            "docs": [
+              "Distinguishes markets on the same fixture (0 = goals, 1 = corners)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "stat_key",
+            "type": "u32"
+          },
+          {
+            "name": "stat_key2",
+            "type": {
+              "option": "u32"
+            }
+          },
+          {
+            "name": "op",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "BinaryOp"
+                }
+              }
+            }
+          },
+          {
+            "name": "comparison",
+            "type": {
+              "defined": {
+                "name": "Comparison"
+              }
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i32"
+          },
+          {
+            "name": "entry_close_ts",
+            "docs": [
+              "Entry deadline in UNIX SECONDS (Clock::unix_timestamp). Bets rejected at/after."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "num_buckets",
+            "docs": [
+              "Number of outcomes (2 = binary over/under, 3 = home/draw/away). Indices",
+              "`>= num_buckets` of `bucket_totals` / `amounts` stay zero."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MarketStatus"
+              }
+            }
+          },
+          {
+            "name": "winning_bucket",
+            "type": {
+              "option": "u8"
+            }
+          },
+          {
+            "name": "bucket_totals",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "total_pool",
+            "type": "u64"
+          },
+          {
+            "name": "fee_collected",
+            "type": "u64"
+          },
+          {
+            "name": "settled_seq",
+            "type": "u32"
+          },
+          {
+            "name": "settled_ts",
+            "docs": [
+              "The TxLINE batch minTimestamp in MILLISECONDS used to derive the",
+              "Txoracle daily_scores PDA (epochDay = settled_ts / 86_400_000)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "settled_value",
+            "docs": [
+              "Resolved left-hand side: val_a, or (val_a op val_b) for two-stat predicates.",
+              "Only meaningful when `status == Settled` (and on settle's zero-winner void).",
+              "A standalone `void_market` leaves this 0 — an abandoned fixture has no stat."
+            ],
+            "type": "i32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "market_id",
+            "type": "u8"
+          },
+          {
+            "name": "stat_key",
+            "type": "u32"
+          },
+          {
+            "name": "stat_key2",
+            "type": {
+              "option": "u32"
+            }
+          },
+          {
+            "name": "op",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "BinaryOp"
+                }
+              }
+            }
+          },
+          {
+            "name": "comparison",
+            "type": {
+              "defined": {
+                "name": "Comparison"
+              }
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i32"
+          },
+          {
+            "name": "entry_close_ts",
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "num_buckets",
+            "type": "u8"
+          },
+          {
+            "name": "settle_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "market_id",
+            "type": "u8"
+          },
+          {
+            "name": "winning_bucket",
+            "type": "u8"
+          },
+          {
+            "name": "stat_key",
+            "type": "u32"
+          },
+          {
+            "name": "stat_key2",
+            "type": {
+              "option": "u32"
+            }
+          },
+          {
+            "name": "op",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "BinaryOp"
+                }
+              }
+            }
+          },
+          {
+            "name": "comparison",
+            "type": {
+              "defined": {
+                "name": "Comparison"
+              }
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i32"
+          },
+          {
+            "name": "settled_seq",
+            "type": "u32"
+          },
+          {
+            "name": "settled_ts",
+            "docs": [
+              "TxLINE batch minTimestamp in MILLISECONDS (not seconds); derives the",
+              "Txoracle daily_scores PDA via epochDay = settled_ts / 86_400_000."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "settled_value",
+            "type": "i32"
+          },
+          {
+            "name": "fee_collected",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixture_id",
+            "type": "i64"
+          },
+          {
+            "name": "market_id",
+            "type": "u8"
+          },
+          {
+            "name": "settled_seq",
+            "type": "u32"
+          },
+          {
+            "name": "settled_ts",
+            "docs": [
+              "TxLINE batch minTimestamp in MILLISECONDS (not seconds)."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Live"
+          },
+          {
+            "name": "Ended"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "RolledOver"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bettor",
+            "type": "pubkey"
+          },
+          {
+            "name": "amounts",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "docs": [
+        "Program-owned PDA that escrows pooled lamports.",
+        "The pool balance is the account's native lamport balance (not a stored field);",
+        "this struct holds only the PDA bump so the program can sign for / debit it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

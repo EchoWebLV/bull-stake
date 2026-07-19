@@ -16,8 +16,10 @@ COPY spike spike
 COPY keeper keeper
 COPY engine engine
 COPY web web
-# Anchor IDL only — PROOFBET_IDL resolves to target/idl/proofbet.json.
-COPY target/idl target/idl
+# Anchor IDL: engine/idl/ is the tracked deploy mirror (target/ is gitignored,
+# and railway up drops gitignored paths from the context even when tracked).
+# Placed at the canonical target/idl/ path so every default resolves unchanged.
+COPY engine/idl/proofbet.json target/idl/proofbet.json
 
 # Client bundle config is baked at build time. Railway forwards service
 # variables as build args for the ARGs declared here. VITE_ENGINE_URL stays ""
