@@ -31,9 +31,13 @@ const SCRIPT: Array<{ atSec: number; key: "1" | "2" | "3" | "4" | "7" | "8" }> =
   { atSec: 430, key: "4" }, // yellow, away
 ];
 
-/** Fixed test-match identity (clearly synthetic, never a real WC fixture). */
-export const TEST_HOME = "Streak City";
-export const TEST_AWAY = "Devnet Rovers";
+/**
+ * Test-match display identity. Defaults are clearly synthetic; TEST_HOME /
+ * TEST_AWAY env overrides let a replay run (keeper run-test-match --replay)
+ * carry the real fixture's team names on the /test page.
+ */
+export const TEST_HOME = process.env.TEST_HOME ?? "Streak City";
+export const TEST_AWAY = process.env.TEST_AWAY ?? "Devnet Rovers";
 
 export interface TestMatchEvent {
   /** Match minute on the compressed 90' clock ('' for pre-match lines). */

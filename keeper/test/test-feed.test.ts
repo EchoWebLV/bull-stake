@@ -1,6 +1,6 @@
 /** test-feed tests — the scripted match feed is pure and deterministic. */
 import { describe, it, expect } from "vitest";
-import { scriptedEvents, makeSimFeed, DEFAULT_SCRIPT } from "../test-feed.js";
+import { scriptedEvents, makeSimFeed, replayScript, DEFAULT_SCRIPT } from "../test-feed.js";
 import { detectPhase, latestEvent, goalSides, goalTotal } from "../live-feed.js";
 
 const FID = 9_900_000_001;
@@ -54,5 +54,55 @@ describe("makeSimFeed — the FetchEvents seam", () => {
     expect(detectPhase(latestEvent(await feed(FID))!)).toBe("ft");
 
     expect(await feed(123)).toEqual([]); // not our fixture
+  });
+});
+
+describe("replayScript — real event history → compressed sim script", () => {
+  const cum = (seq: number, statusId: number, stats: Record<string, number>) =>
+    ({ FixtureId: 555, Seq: seq, StatusId: statusId, Stats: stats }) as never;
+
+  it("emits one step per unit increase per key, in Seq order, uniformly spaced inside the window", () => {
+    // Deliberately unsorted, with a post-terminal StatusId-100 quirk event.
+    const events = [
+      cum(40, 3, { "1": 1, "2": 1, "7": 1 }), // HT snapshot
+      cum(10, 2, { "1": 1 }), // 1-0
+      cum(1, 1, {}), // NS
+      cum(20, 2, { "1": 1, "2": 1 }), // 1-1
+      cum(30, 2, { "1": 1, "2": 1, "7": 1 }), // corner home
+      cum(60, 5, { "1": 2, "2": 1, "7": 1, "4": 1 }), // FT: 2-1 + away yellow
+      cum(70, 100, { "1": 3, "2": 1, "7": 1, "4": 1 }), // post-terminal quirk — ignored
+    ];
+    const script = replayScript(events, 480);
+    expect(script.map((s) => s.key)).toEqual(["1", "2", "7", "1", "4"]);
+    const at = script.map((s) => s.atSec);
+    expect([...at].sort((a, b) => a - b)).toEqual(at); // monotonic
+    expect(at[0]).toBeGreaterThanOrEqual(30); // breathing room after kickoff
+    expect(at[at.length - 1]).toBeLessThanOrEqual(480 - 50); // strictly before the FT cutoff
+  });
+
+  it("drops unsupported stat keys and cumulative regressions", () => {
+    const events = [
+      cum(1, 2, { "1": 1, "1001": 5, "9999": 2 }),
+      cum(2, 2, { "1": 0, "1001": 6 }), // regression on "1" — ignored, no negative steps
+      cum(3, 5, { "1": 1, "1001": 7 }),
+    ];
+    const script = replayScript(events, 480);
+    expect(script).toHaveLength(1);
+    expect(script[0].key).toBe("1");
+  });
+
+  it("a replay script drives makeSimFeed to the same final stats as the source history", async () => {
+    const events = [
+      cum(1, 1, {}),
+      cum(2, 2, { "2": 1 }),
+      cum(3, 2, { "2": 2, "8": 1 }),
+      cum(4, 5, { "1": 1, "2": 2, "8": 1 }), // FT 1-2, one away corner
+    ];
+    const script = replayScript(events, 480);
+    const feed = makeSimFeed(FID, 1_000_000, { durationSecs: 480, script, now: () => 1_000_000 + 481_000 });
+    const last = latestEvent(await feed(FID))!;
+    expect(detectPhase(last)).toBe("ft");
+    expect(goalSides(last.Stats)).toEqual({ home: 1, away: 2 });
+    expect(last.Stats?.["8"]).toBe(1);
   });
 });

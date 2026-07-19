@@ -43,6 +43,45 @@ const PHASE_NS = 1;   // not started
 const PHASE_H1 = 2;   // in play
 const PHASE_F = 5;    // full time
 
+/** The stat keys a script can carry (home/away goals, yellows, corners). */
+const REPLAY_KEYS: ScriptStep["key"][] = ["1", "2", "3", "4", "7", "8"];
+
+/**
+ * Compress a REAL fixture's cumulative event history into a sim script: one
+ * ScriptStep per unit increase per supported key, in Seq order, spread
+ * uniformly across the sim window. makeSimFeed then replays the real match's
+ * arc — same goal order, same final totals — at test-match speed. Unsorted
+ * input, post-terminal events (the StatusId-100 quirk), unknown stat keys and
+ * cumulative regressions are all absorbed, mirroring the tolerant reads the
+ * production feed path uses.
+ */
+export function replayScript(events: ScoreEvent[], durationSecs = 480): ScriptStep[] {
+  const sorted = [...events]
+    .filter((e) => typeof e?.Seq === "number")
+    .sort((a, b) => a.Seq - b.Seq);
+
+  const last: Partial<Record<ScriptStep["key"], number>> = {};
+  const keys: ScriptStep["key"][] = [];
+  for (const e of sorted) {
+    for (const k of REPLAY_KEYS) {
+      const v = Number((e.Stats as Record<string, unknown> | undefined)?.[k] ?? NaN);
+      const prev = last[k] ?? 0;
+      if (!Number.isFinite(v) || v <= prev) continue; // missing key or regression → no step
+      for (let i = prev; i < v; i++) keys.push(k);
+      last[k] = v;
+    }
+    if (e.StatusId === PHASE_F) break; // full time — later events are the post-terminal tail
+  }
+
+  const start = 40;
+  const end = durationSecs - 50;
+  const n = keys.length;
+  return keys.map((k, i) => ({
+    key: k,
+    atSec: n <= 1 ? start : Math.round(start + (i * (end - start)) / (n - 1)),
+  }));
+}
+
 /**
  * The full scripted event history at `elapsedSec` past kickoff (cumulative Stats,
  * ascending Seq — exactly what getScoreHistory returns for a real fixture).

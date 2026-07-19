@@ -29,7 +29,9 @@ import { livePoolPda, liveEntryPda } from "./live-pda.js";
 const { SystemProgram } = pkg;
 import { buildCreateLiveArgs, createMatchPool } from "./create-match-pool.js";
 import { runLiveMatch } from "./live-runner.js";
-import { makeSimFeed } from "./test-feed.js";
+import { makeSimFeed, replayScript } from "./test-feed.js";
+import { authenticateCached } from "../spike/src/auth-cache.js";
+import { getScoreHistory } from "../spike/src/discover.js";
 
 const { BN } = anchorDefault;
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -54,6 +56,19 @@ async function main() {
   const joinMins = flag("join-mins", 3);
   const durationMins = flag("duration-mins", 8);
   const resumeFixture = flag("resume", 0); // re-attach to an existing test pool
+  const replayFixture = flag("replay", 0); // script = a REAL fixture's history, compressed
+
+  /** With --replay, serve the real fixture's compressed arc instead of DEFAULT_SCRIPT. */
+  async function buildScript(ctx: ReturnType<typeof createContext>, durationSecs: number) {
+    if (replayFixture <= 0) return undefined;
+    const auth = await authenticateCached(ctx);
+    const history = await getScoreHistory(ctx, auth, replayFixture);
+    const script = replayScript(history, durationSecs);
+    console.log(
+      `[test-match] replaying real fixture ${replayFixture}: ${history.length} events → ${script.length} scripted steps`,
+    );
+    return script;
+  }
   const entryPriceLamports = Math.round(
     Number(process.env.ENTRY_PRICE_SOL ?? "0.035") * LAMPORTS_PER_SOL,
   );
@@ -72,7 +87,10 @@ async function main() {
     const lockTs = Number(row.lockTs);
     const durationSecs = Number(row.settleAfterTs) - lockTs - 60;
     console.log(`[test-match] RESUME fixture ${resumeFixture} · pool ${pool.toBase58()}`);
-    const fetchEvents = makeSimFeed(resumeFixture, lockTs * 1000, { durationSecs });
+    const fetchEvents = makeSimFeed(resumeFixture, lockTs * 1000, {
+      durationSecs,
+      script: await buildScript(ctx, durationSecs),
+    });
     await driveToTerminal(proofbet, ctx, pool, fetchEvents);
     return;
   }
@@ -117,7 +135,10 @@ async function main() {
     .rpc();
   console.log(`[test-match] house seat joined (${entryPriceLamports / LAMPORTS_PER_SOL}◎): ${joinSig}`);
 
-  const fetchEvents = makeSimFeed(fixtureId, kickoffMs, { durationSecs });
+  const fetchEvents = makeSimFeed(fixtureId, kickoffMs, {
+    durationSecs,
+    script: await buildScript(ctx, durationSecs),
+  });
   await driveToTerminal(proofbet, ctx, pool, fetchEvents);
 }
 
