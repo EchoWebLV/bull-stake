@@ -139,20 +139,21 @@ const M_HT_GOALS = 15; // 1st-Half Goals O/U
  *      matches that do, until target is reached or Goals are exhausted.
  *   3. HT-RESULT (16) then HT-GOALS (15) passes — same "prefer unused matches
  *      first" fill, used only to reach the target when matches are scarce.
- *   4. WRAP — if still short (e.g. a 1-match day), cycle the priceable universe
- *      in menu order to add repeat legs, exactly as before, so a thin slate can
- *      still reach the target: a 1-match day → 12,11,16,15 then wrap 12,11.
+ *   4. COMPLETION — if still short (e.g. a 1-match day), sweep the priceable
+ *      universe in menu order and add any pair not yet taken. A (fixture, market)
+ *      pair is NEVER laid twice: a duplicate would double-count one outcome's
+ *      multiplier and break the survival premise. When the distinct universe is
+ *      exhausted the card ships short — create_contest accepts 3..=6 legs, so a
+ *      1-match day yields 12,11,16,15 (+ the composer's chaos leg) and stops.
  *
  * Each pass only adds a (fixture, market) leg when that fixture actually has odds
  * for that market (never invent a leg TxLINE can't price) and skips pairs already
  * taken or in `exclude`. `exclude` lets the orchestrator re-allocate while
  * skipping (fixture, market) pairs the quality gate rejected, so a backfill pass
  * pulls DIFFERENT legs instead of re-proposing a blowout; excluded pairs are
- * dropped from every pass and from the wrap universe. The wrap only runs when the
- * priceable universe has MORE than one entry, so a single available leg is never
- * duplicated to pad the card, and it stops the instant the target is reached.
+ * dropped from every pass and from the completion sweep.
  *
- * `menu` still governs the WRAP order (and keeps callers' existing signature). A
+ * `menu` still governs the COMPLETION order (and keeps callers' signature). A
  * caller passing a restricted menu (e.g. [12]) only ever gets that market — the
  * role passes below are intersected with `menu` membership, so an out-of-menu
  * market is never laid.
@@ -213,22 +214,16 @@ export function allocateLegs(
 
   if (legs.length >= target) return legs.slice(0, target);
 
-  // ── Wrap: distinct universe exhausted but still short → cycle with repeats. ──
-  // Cycle the deterministic universe of priceable pairs in menu order. We wrap
-  // only when the universe has MORE than one entry, so a single available leg is
-  // never duplicated to pad the card.
-  const universe: Leg[] = [];
+  // ── Completion: still short → sweep the priceable universe in menu order for
+  // pairs the role passes didn't take (e.g. a menu market with no role pass).
+  // add() refuses taken pairs, so a (fixture, market) pair is never laid twice;
+  // when the distinct universe is exhausted the card ships short of the target
+  // (the program accepts 3..=6 legs) rather than double-counting a market.
   for (const market of menu) {
     for (const f of ranked) {
-      if (usable(f.fixtureId, market)) universe.push({ fixtureId: f.fixtureId, marketId: market });
+      if (legs.length >= target) return legs;
+      add(f.fixtureId, market);
     }
-  }
-  if (universe.length <= 1) return legs; // nothing to wrap onto without dup-padding
-
-  let cursor = 0;
-  while (legs.length < target) {
-    legs.push({ ...universe[cursor % universe.length] });
-    cursor++;
   }
   return legs;
 }

@@ -180,37 +180,48 @@ describe("allocateLegs (balanced mix)", () => {
     expect(legs.some((l) => l.marketId === 15)).toBe(false);
   });
 
-  it("1 match → Result, Goals, HT-Result, HT-Goals across the menu, then wraps (12, 11)", () => {
+  it("1 match → Result, Goals, HT-Result, HT-Goals across the menu, then STOPS — a pair is never laid twice", () => {
     const ranked = [fx(1, 100)];
     const odds = fullOdds(1);
     const legs = allocateLegs(ranked, odds, 6, DEFAULT_MENU);
 
-    expect(legs).toHaveLength(6);
+    // Only 4 distinct (fixture, market) pairs exist; the card stays short of the
+    // target rather than double-counting one market (the program floor is 3 legs).
+    expect(legs).toHaveLength(4);
     expect(legs.every((l) => l.fixtureId === 1)).toBe(true);
-    // The 4 distinct markets are laid in role order (12, 11, 16, 15) before any repeat.
-    expect(legs.slice(0, 4).map((l) => l.marketId)).toEqual([12, 11, 16, 15]);
-    // Menu exhausted (only 4 markets) but target is 6 → wrap and repeat from the top.
-    expect(legs.slice(4).map((l) => l.marketId)).toEqual([12, 11]);
+    expect(legs.map((l) => l.marketId)).toEqual([12, 11, 16, 15]);
+    expect(new Set(legs.map((l) => `${l.fixtureId}:${l.marketId}`)).size).toBe(4);
   });
 
-  it("skips a market a fixture has no odds for, then wraps to reach the target", () => {
+  it("skips a market a fixture has no odds for and returns short — never invents or repeats", () => {
     const ranked = [fx(1, 100)];
     // Fixture 1 is missing market 16 (HT Result); it should be skipped, not invented.
     const odds = [resultOdds(1, [0.4, 0.3, 0.3]), ouOdds(1, 11), ouOdds(1, 15)];
     const legs = allocateLegs(ranked, odds, 4, DEFAULT_MENU);
-    // distinct markets available = 12, 11, 15 → then wrap to 12 for the 4th.
-    expect(legs.map((l) => l.marketId)).toEqual([12, 11, 15, 12]);
+    // distinct markets available = 12, 11, 15 → stop at 3; no repeat pads the 4th.
+    expect(legs.map((l) => l.marketId)).toEqual([12, 11, 15]);
   });
 
-  it("respects a restricted menu — never lays a market outside it", () => {
+  it("respects a restricted menu — never lays a market outside it, never repeats within it", () => {
     const ranked = [1, 2, 3].map((id) => fx(id, 100));
     const odds = ranked.flatMap((f) => fullOdds(f.fixtureId)); // all markets priceable
     // Menu is Result-only: even though Goals/HT odds exist, only 12 may be laid.
     const legs = allocateLegs(ranked, odds, 6, [12]);
     expect(legs.every((l) => l.marketId === 12)).toBe(true);
-    // 3 distinct Results, then the universe (>1 entry) wraps to reach 6.
-    expect(legs).toHaveLength(6);
-    expect(legs.filter((l) => l.marketId === 12)).toHaveLength(6);
+    // 3 distinct Results and nothing else — no repeat padding toward 6.
+    expect(legs).toHaveLength(3);
+  });
+
+  it("fills un-taken menu pairs the role passes don't know before stopping (widened menu)", () => {
+    const ranked = [fx(1, 100)];
+    // Market 13 is priceable and in the menu but has no dedicated role pass.
+    const odds = [...fullOdds(1), ouOdds(1, 13)];
+    const legs = allocateLegs(ranked, odds, 6, [...DEFAULT_MENU, 13]);
+
+    // The completion pass lays (1, 13) rather than repeating (1, 12).
+    expect(legs).toHaveLength(5);
+    expect(legs.some((l) => l.marketId === 13)).toBe(true);
+    expect(new Set(legs.map((l) => `${l.fixtureId}:${l.marketId}`)).size).toBe(5);
   });
 
   it("never exceeds the available leg universe when target is unreachable", () => {
@@ -432,6 +443,26 @@ describe("pearly card v2", () => {
     const sorted = card.legs.map((l) => l.lockTs).sort((a, b) => a - b);
     expect(card.entriesCloseTs).toBe(sorted[3]);
     expect(card.lockTs).toBe(sorted[0]);
+  });
+
+  it("buildPearlyCard: one-fixture final day → 5 distinct legs (4 markets + chaos), no duplicates", () => {
+    const t0 = 3_000_000;
+    const ko = t0 + 6 * 3600;
+    const fixtures = [fx(21, ko)];
+    const odds = [12, 11, 16, 15].map((m) => neutral(21, m, m === 12 || m === 16 ? 3 : 2));
+    const card = buildPearlyCard(fixtures, odds, {
+      lockTs: t0, windowSecs: 24 * 3600, target: 6, menu: DEFAULT_MENU, maxImplied: 0.82,
+    });
+
+    // 4 distinct markets + the chaos leg — legal for the program (3..=6), and no
+    // (fixture, market) pair appears twice.
+    expect(card.legs).toHaveLength(5);
+    expect(new Set(card.legs.map((l) => `${l.fixtureId}:${l.marketId}`)).size).toBe(5);
+    expect(card.legs.map((l) => l.marketId).sort((a, b) => a - b)).toEqual([11, 12, 15, 16, 17]);
+    expect(card.legs.every((l) => l.fixtureId === 21 && l.lockTs === ko)).toBe(true);
+    // All locks equal → entries close at kickoff; settle after last kickoff + buffer.
+    expect(card.entriesCloseTs).toBe(ko);
+    expect(card.settleAfterTs).toBe(ko + 2 * 3600);
   });
 
   it("buildPearlyCard: no clusterBySpread — a 12h-spread slate keeps all fixtures", () => {
