@@ -13,8 +13,8 @@ export default defineConfig({
       // precache cap; raise it so the service worker generates and precaches it.
       workbox: { maximumFileSizeToCacheInBytes: 4 * 1024 * 1024 },
       manifest: {
-        name: "Streak",
-        short_name: "Streak",
+        name: "BullStake",
+        short_name: "BullStake",
         description: "On-chain parimutuel for World Cup soccer",
         theme_color: "#FF6A1A",
         background_color: "#07090d",

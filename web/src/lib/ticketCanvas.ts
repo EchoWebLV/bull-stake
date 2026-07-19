@@ -150,7 +150,7 @@ export async function shareTicketPng(model: TicketModel): Promise<SharePath | "c
   const path = pickSharePath(caps);
   if (path === "share") {
     try {
-      await navigator.share({ files: [file], title: "Bull Stake", text: "My Sweep card" });
+      await navigator.share({ files: [file], title: "BullStake", text: "My Sweep card" });
       return "share";
     } catch (e) {
       if ((e as Error).name === "AbortError") return "cancelled";

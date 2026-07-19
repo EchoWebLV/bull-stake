@@ -1,8 +1,8 @@
-# Bull Stake
+# BullStake
 
 Real-money on-chain parimutuel football on Solana (devnet today). Two modes, two pots, one wallet.
 
-**Identity in one line: self-resolving on-chain markets on TxODDS data.** Most on-chain prediction products settle with a trusted cron writing answers into an account. Bull Stake settles only what the oracle proves: every result is validated on-chain by `Txoracle.validateStat` against a TxLINE Merkle proof. The crank relays results — it cannot invent them.
+**Identity in one line: self-resolving on-chain markets on TxODDS data.** Most on-chain prediction products settle with a trusted cron writing answers into an account. BullStake settles only what the oracle proves: every result is validated on-chain by `Txoracle.validateStat` against a TxLINE Merkle proof. The crank relays results — it cannot invent them.
 
 ## Two modes
 
@@ -77,7 +77,7 @@ Root `npm run typecheck` covers the Anchor test suite; each package typechecks u
 
 ## Naming, for code navigation
 
-- The product is **Bull Stake**; the repo and Anchor program keep the working name `proofbet`.
+- The product is **BullStake**; the repo and Anchor program keep the working name `proofbet`.
 - **Sweep**'s internal code name is **Pearly**: `PearlyView.tsx`, `pearlyCard.ts`, `/api/card`, and the keeper's Pearly jobs are all the Sweep feature.
 
 ## Hackathon

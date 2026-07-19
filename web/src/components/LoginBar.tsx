@@ -45,7 +45,7 @@ export function LoginBar() {
         <div className="brand-wrap">
           <img src="/bullstake.png" className="brand-logo" alt="" aria-hidden="true" />
           <div className="brand">
-            Bull Sta<span className="accent">ke</span>
+            BullSta<span className="accent">ke</span>
           </div>
         </div>
         {authenticated ? (
