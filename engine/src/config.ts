@@ -54,12 +54,15 @@ export const TEST_FIXTURE_MIN = 9_900_000_000;
 
 /**
  * Competitions eligible for the slate / sweepstake card.
- * Default: World Cup only (what the devnet free tier carries). Year-round
- * operation needs a broader TxLINE entitlement — once it's available, widen via
- *   COMPETITION_ALLOWLIST="World Cup,Premier League,La Liga,…"
- * with no code change. Comparison is against TxLINE's `Competition` string.
+ * Default: World Cup + International Friendlies — the two competitions the devnet
+ * free tier (service level 1) actually carries (confirmed against the live feed +
+ * TxLINE subscription-tiers: club leagues are mainnet-only, $500–$25k/28d). The
+ * World Cup slate is exhausted, so Friendlies are what keep the card composable on
+ * real match-days. Widen further (a broader TxLINE entitlement) with no code change:
+ *   COMPETITION_ALLOWLIST="World Cup,Friendlies,Premier League,…"
+ * Comparison is against TxLINE's `Competition` string.
  */
-export const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup")
+export const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup,Friendlies")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);

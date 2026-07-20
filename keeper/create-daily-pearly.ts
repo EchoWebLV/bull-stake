@@ -110,11 +110,13 @@ const MENU = [...DEFAULT_MENU, 17];
 
 /**
  * Competitions eligible for the card. Mirrors engine/src/config.ts
- * COMPETITION_ALLOWLIST (default: World Cup — what the devnet free tier carries).
- * Inlined (not imported) so we don't pull engine/src/config.ts — a `.ts`-importing
- * engine file — into the keeper's NodeNext typecheck (TS5097).
+ * COMPETITION_ALLOWLIST (default: World Cup + International Friendlies — the two
+ * the devnet free tier carries; the WC slate is exhausted, so Friendlies are what
+ * keep the card composable on real match-days). Inlined (not imported) so we don't
+ * pull engine/src/config.ts — a `.ts`-importing engine file — into the keeper's
+ * NodeNext typecheck (TS5097).
  */
-const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup")
+const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup,Friendlies")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -567,7 +569,7 @@ async function main() {
   // edge isn't dropped before the allocator's own eligibility filter runs.
   const hoursAhead = windowSecs / 3600 + 12;
   const slate = await fetchSlate(ctx, auth, hoursAhead);
-  console.log(`# slate: ${slate.length} in-scope WC fixture(s) in the next ${hoursAhead}h`);
+  console.log(`# slate: ${slate.length} in-scope fixture(s) [${COMPETITION_ALLOWLIST.join(", ")}] in the next ${hoursAhead}h`);
 
   // Map TxLINE slate → allocator Fixture[] (kickoff ms → unix seconds).
   const fixtures: Fixture[] = slate.map((f) => ({

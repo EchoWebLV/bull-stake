@@ -42,8 +42,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *  today+tomorrow; set 2880 to open tomorrow's fixtures a day early too.) */
 export const JOIN_AHEAD_MIN = Number(process.env.JOIN_AHEAD_MIN ?? 1440);
 
-/** Mirrors engine/src/config.ts COMPETITION_ALLOWLIST (inlined — see header). */
-const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup")
+/** Mirrors engine/src/config.ts COMPETITION_ALLOWLIST (inlined — see header):
+ *  World Cup + International Friendlies, the two the devnet free tier carries. */
+const COMPETITION_ALLOWLIST: string[] = (process.env.COMPETITION_ALLOWLIST ?? "World Cup,Friendlies")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
