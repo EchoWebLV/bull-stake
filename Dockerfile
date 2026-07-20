@@ -16,6 +16,8 @@ COPY spike spike
 COPY keeper keeper
 COPY engine engine
 COPY web web
+# Deploy supervisor (repo-root file; note .dockerignore excludes scripts/).
+COPY start-prod.mjs .
 # Anchor IDL: engine/idl/ is the tracked deploy mirror (target/ is gitignored,
 # and railway up drops gitignored paths from the context even when tracked).
 # Placed at the canonical target/idl/ path so every default resolves unchanged.
@@ -31,4 +33,6 @@ RUN cd web && VITE_ENGINE_URL="$VITE_ENGINE_URL" VITE_RPC_URL="$VITE_RPC_URL" VI
 
 ENV WEB_DIST=/app/web/dist
 EXPOSE 8787
-CMD ["npm", "--prefix", "engine", "run", "start"]
+# Supervisor runs the engine (always) + the keeper cron (opt-in via RUN_KEEPER=1).
+# With RUN_KEEPER unset it behaves exactly like `npm --prefix engine run start`.
+CMD ["node", "start-prod.mjs"]
