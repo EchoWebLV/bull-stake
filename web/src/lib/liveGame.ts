@@ -163,28 +163,32 @@ interface CallPresentation {
 }
 /** Map a Call's kind + the match team names to the option labels/colors/codes.
  *  `basePoints` (per option) come from the CallView; `numOptions` slices it. */
-function callPresentation(kind: CallKind, home: string, away: string): CallPresentation {
+function callPresentation(kind: CallKind, home: string, away: string, windowMins?: number | null): CallPresentation {
+  // On the compressed test-match clock the tap window spans real match-minutes —
+  // phrase the question with that horizon ("in the next 4 min?"). Real fixtures
+  // (windowMins null) keep the timeless copy: the countdown bar carries urgency.
+  const inNext = windowMins ? ` in the next ${windowMins} min` : "";
   switch (kind) {
     case "nextGoal":
       return {
-        kind: "Next goal", q: "Who scores next?",
+        kind: "Next goal", q: windowMins ? `Who scores in the next ${windowMins} min?` : "Who scores next?",
         labels: [home, "No goal", away],
         colors: [HOME_COLOR, NEUTRAL_COLOR, AWAY_COLOR],
         codes: [code(home), "—", code(away)],
       };
     case "goalRush":
       return {
-        kind: "Goal rush", q: "A goal soon?",
+        kind: "Goal rush", q: `A goal${inNext}?`,
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
     case "cornerSoon":
       return {
-        kind: "Corner watch", q: "A corner soon?",
+        kind: "Corner watch", q: `A corner${inNext}?`,
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
     case "cardSoon":
       return {
-        kind: "Booking watch", q: "A booking soon?",
+        kind: "Booking watch", q: `A booking${inNext}?`,
         labels: ["Yes", "No"], colors: [YESNO_YES_COLOR, NEUTRAL_COLOR], codes: ["✓", "✕"],
       };
     default:
@@ -298,7 +302,14 @@ export function snapshotFromChain(
   const openCall = data?.openCall ?? null;
   const lastCall = data?.lastCall ?? null;
   const callToShow = openCall ?? (lastCall && resolvedRecently(lastCall, nowMs) ? lastCall : null);
-  const call = buildCall(callToShow, entry, homeName, awayName, nowMs);
+  // Synthetic (test) fixtures play a compressed 90' — recover the duration from
+  // the pool's own timestamps (mirrors engine testMatchDurationSecs) so call
+  // questions can carry an honest match-minute window.
+  const testDurationSecs =
+    pool && pool.fixtureId >= 9_900_000_000
+      ? Math.max(60, pool.settleAfterTs - pool.lockTs - 60)
+      : null;
+  const call = buildCall(callToShow, entry, homeName, awayName, nowMs, testDurationSecs);
 
   // ── standings (top 6, always include your row) ────────────────────────────
   let show = rawStandings.slice(0, 6);
@@ -397,9 +408,15 @@ function buildCall(
   home: string,
   away: string,
   nowMs: number,
+  testDurationSecs: number | null = null,
 ): SnapCall | null {
   if (!openCall) return null;
-  const pres = callPresentation(openCall.kind, home, away);
+  // Test pools compress durationSecs onto a 90' clock — the answer window in
+  // match-minutes is honest there. Real fixtures pass null (no minute claim).
+  const windowMins = testDurationSecs
+    ? Math.max(1, Math.round((openCall.answerSecs * 90) / testDurationSecs))
+    : null;
+  const pres = callPresentation(openCall.kind, home, away, windowMins);
   const n = Math.max(0, Math.min(openCall.numOptions, pres.labels.length));
   const resolved = openCall.state === "resolved";
   const isOpen = openCall.state === "open";

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   snapshotFromChain, preGameFromChain, SCORING_HINT,
   type GameSnapshot, type PreGame,
@@ -50,6 +50,24 @@ export function LiveMatchView({ test = false, active = true, onGoPearly }: { tes
   const [busy, setBusy] = useState<string>("");
   const [flashMsg, setFlashMsg] = useState<string>("");
   const flash = (msg: string) => setFlashMsg(msg);
+
+  // Win/miss fx: when a call you answered resolves, pop the toast (the same
+  // hand-drawn lg-toast the goal flash uses). Keyed per call so a verdict fires
+  // exactly once, not on every 2s poll re-render.
+  const lastVerdictKey = useRef("");
+  const v = snap.call?.verdict ?? null;
+  const vKey = v ? `${snap.call?.q}|${v.tone}|${v.text}` : "";
+  useEffect(() => {
+    if (!vKey || vKey === lastVerdictKey.current) return;
+    lastVerdictKey.current = vKey;
+    if (v?.tone === "win") {
+      const pts = snap.call?.opts.find((o) => o.state === "correct")?.p;
+      flash(`✓ Called it!${pts ? ` +${pts} pts` : ""}`);
+    } else if (v?.tone === "lose") {
+      flash("✕ Missed that one");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vKey]);
 
   // Pearly cross-link (spec §1): a slow, independent /api/card poll — each tab
   // keeps its own card state (PearlyView isn't mounted until first visited). 60s

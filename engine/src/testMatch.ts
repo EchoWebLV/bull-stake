@@ -18,7 +18,8 @@
 
 /** One scripted increment (MIRRORS keeper/test-feed.ts DEFAULT_SCRIPT — keep in sync).
  *  Keys: '1'/'2' home/away goals, '3'/'4' home/away yellows, '7'/'8' home/away corners. */
-const SCRIPT: Array<{ atSec: number; key: "1" | "2" | "3" | "4" | "7" | "8" }> = [
+type ScriptStep = { atSec: number; key: "1" | "2" | "3" | "4" | "7" | "8" };
+const DEFAULT_SCRIPT: ScriptStep[] = [
   { atSec: 40, key: "7" },  // corner, home
   { atSec: 75, key: "1" },  // GOAL home        1-0
   { atSec: 130, key: "4" }, // yellow, away
@@ -32,12 +33,62 @@ const SCRIPT: Array<{ atSec: number; key: "1" | "2" | "3" | "4" | "7" | "8" }> =
 ];
 
 /**
+ * TEST_SCRIPT_JSON env override: a JSON array of {key, atSec} produced by the
+ * keeper's replayScript (a real fixture's history compressed to the match
+ * duration). Lets a `run-test-match --replay <fixtureId>` run keep the panel in
+ * lockstep with the calls it resolves — same steps on both sides. Falls back to
+ * DEFAULT_SCRIPT on absent/invalid input.
+ */
+function loadScript(): ScriptStep[] {
+  const raw = process.env.TEST_SCRIPT_JSON;
+  if (!raw) return DEFAULT_SCRIPT;
+  try {
+    const arr = JSON.parse(raw) as ScriptStep[];
+    if (!Array.isArray(arr) || arr.length === 0) return DEFAULT_SCRIPT;
+    return [...arr].sort((a, b) => a.atSec - b.atSec);
+  } catch {
+    return DEFAULT_SCRIPT;
+  }
+}
+const SCRIPT: ScriptStep[] = loadScript();
+
+/**
  * Test-match display identity. Defaults are clearly synthetic; TEST_HOME /
  * TEST_AWAY env overrides let a replay run (keeper run-test-match --replay)
  * carry the real fixture's team names on the /test page.
  */
 export const TEST_HOME = process.env.TEST_HOME ?? "Streak City";
 export const TEST_AWAY = process.env.TEST_AWAY ?? "Devnet Rovers";
+
+/**
+ * TEST SWEEP roster — the fixed six synthetic matches behind the /test-page
+ * Sweep card (keeper/create-test-sweep.ts creates a Contest over exactly these
+ * fixtureId+marketId legs; the engine's /api/card?test=1 names them from this
+ * same table). Keyed by fixtureId so a leg's team names survive the round-trip
+ * to chain and back (the Contest stores only fixtureId + marketId, no names).
+ *
+ * fixtureIds sit in 10_000_000_00X — above TEST_FIXTURE_MIN (so they read as
+ * test) AND above the live test-match band (9_900_000_000 + secondsOfEra, which
+ * never reaches 100_000_000), so a Sweep leg can never collide with a running
+ * Live test match. marketId picks a catalog market: 12 = Match Result (3-way),
+ * 11 = Total Goals O/U 2.5 (2-way) — a mix so the card reads like a real Sweep.
+ */
+export interface TestSweepLeg { fixtureId: number; home: string; away: string; marketId: number; }
+export const TEST_SWEEP_LEGS: TestSweepLeg[] = [
+  { fixtureId: 10_000_000_001, home: "France", away: "England", marketId: 12 },
+  { fixtureId: 10_000_000_002, home: "Spain", away: "Brazil", marketId: 12 },
+  { fixtureId: 10_000_000_003, home: "Argentina", away: "Germany", marketId: 11 },
+  { fixtureId: 10_000_000_004, home: "Portugal", away: "Netherlands", marketId: 12 },
+  { fixtureId: 10_000_000_005, home: "Croatia", away: "Morocco", marketId: 11 },
+  { fixtureId: 10_000_000_006, home: "Uruguay", away: "Mexico", marketId: 12 },
+];
+
+/** Team names for a test-Sweep leg fixture, or null for any other id (the caller
+ *  then falls back to the single TEST_HOME/TEST_AWAY pair or "#<fixtureId>"). */
+export function testSweepLegName(fixtureId: number): { home: string; away: string } | null {
+  const leg = TEST_SWEEP_LEGS.find((l) => l.fixtureId === fixtureId);
+  return leg ? { home: leg.home, away: leg.away } : null;
+}
 
 export interface TestMatchEvent {
   /** Match minute on the compressed 90' clock ('' for pre-match lines). */

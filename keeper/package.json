@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Settlement keeper: derive a market's winning bucket from TxLINE Merkle proofs and submit settle.",
   "scripts": {
+    "demo": "tsx demo-both.ts",
     "keep": "tsx settle.ts",
     "settle-all": "tsx settle-all.ts",
     "cron": "tsx cron.ts",

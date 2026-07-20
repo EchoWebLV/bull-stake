@@ -53,7 +53,7 @@ function flag(name: string, dflt: number): number {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function main() {
-  const joinMins = flag("join-mins", 3);
+  const joinMins = flag("join-mins", 1);
   const durationMins = flag("duration-mins", 8);
   const resumeFixture = flag("resume", 0); // re-attach to an existing test pool
   const replayFixture = flag("replay", 0); // script = a REAL fixture's history, compressed
@@ -63,7 +63,25 @@ async function main() {
 
   /** With --replay, serve the real fixture's compressed arc instead of DEFAULT_SCRIPT. */
   async function buildScript(ctx: ReturnType<typeof createContext>, durationSecs: number) {
-    if (replayFixture <= 0) return undefined;
+    if (replayFixture <= 0) {
+      // Direct override: drive the EXACT script the engine renders (share its
+      // TEST_SCRIPT_JSON) so the panel and the resolved calls stay in lockstep,
+      // with zero TxLINE fetch at launch. Same shape the engine's loadScript reads.
+      const raw = process.env.TEST_SCRIPT_JSON;
+      if (raw) {
+        try {
+          const arr = JSON.parse(raw) as { key: string; atSec: number }[];
+          if (Array.isArray(arr) && arr.length) {
+            const script = [...arr].sort((a, b) => a.atSec - b.atSec) as ReturnType<typeof replayScript>;
+            console.log(`[test-match] using TEST_SCRIPT_JSON: ${script.length} scripted steps`);
+            return script;
+          }
+        } catch (e) {
+          console.log(`[test-match] TEST_SCRIPT_JSON invalid, ignoring: ${(e as Error).message}`);
+        }
+      }
+      return undefined;
+    }
     const auth = await authenticateCached(ctx);
     const history = await getScoreHistory(ctx, auth, replayFixture);
     const script = replayScript(history, durationSecs);

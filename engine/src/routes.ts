@@ -24,7 +24,7 @@ import {
 import { marketById } from "./markets.ts";
 import { impliedOdds } from "./odds.ts";
 import { M0, JOIN_AHEAD_MIN, TEST_FIXTURE_MIN, PROGRAM_ID } from "./config.ts";
-import { testMatchState, testMatchDurationSecs } from "./testMatch.ts";
+import { testMatchState, testMatchDurationSecs, TEST_HOME, TEST_AWAY, testSweepLegName } from "./testMatch.ts";
 import { livePhase, type LiveStore } from "./live.ts";
 import type { LinesStore } from "./lines.ts";
 
@@ -47,16 +47,36 @@ function loadReplay(): Replay {
  * Returns null when no Open contest exists (caller serves `{ card: null }`).
  *
  * `nowSec` is injected (defaults to wall-clock seconds) so it can be unit-tested.
+ *
+ * `wantTest` splits the audience exactly like /api/live/next's `?test=1`: when
+ * true, ONLY synthetic-fixture contests (contestId >= TEST_FIXTURE_MIN — the
+ * /test page's test Sweep) are considered; when false (default, the prod Sweep
+ * tab), those test contests are EXCLUDED. A test card ALWAYS has lock_ts in the
+ * future (create_contest requires now < lock_ts), so it's never in the
+ * "covering now" group and would always lose selection to a live prod card
+ * without this split — the split is what lets a test Sweep be served at all.
+ *
+ * The two audiences also select DIFFERENTLY. Prod keeps the "in-play window
+ * covering now wins" rule (yesterday's card can still be mid-settlement when
+ * today's opens). Test skips it and simply serves the MOST RECENTLY created card
+ * (latest lock_ts): each `create-test-sweep` run stands up a fresh future-locked
+ * card, and a demo re-take must always land on the newest one — never on a prior
+ * take whose window happens to still cover now.
  */
 export function selectTodaysCard(
   contests: ContestView[],
   nowSec: number = Math.floor(Date.now() / 1000),
+  wantTest = false,
 ): ContestView | null {
-  const open = contests.filter((c) => c.status === "open");
+  const open = contests.filter(
+    (c) => c.status === "open" && (c.contestId >= TEST_FIXTURE_MIN) === wantTest,
+  );
   if (open.length === 0) return null;
   // Latest first: by lockTs desc, then contestId desc (stable, deterministic).
   const byLatest = (a: ContestView, b: ContestView) =>
     (b.lockTs - a.lockTs) || (b.contestId - a.contestId);
+  // Test audience: newest-created card always wins (see doc above).
+  if (wantTest) return [...open].sort(byLatest)[0];
   const covering = open
     .filter((c) => c.lockTs <= nowSec && nowSec <= c.settleAfterTs)
     .sort(byLatest);
@@ -365,15 +385,22 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
   // wallet filter (pure CPU over cached entries) and the leg name/score join
   // (in-memory `store`), so live drama never goes stale on a served-stale bundle.
   const LIVE_BUNDLE_TTL_MS = 5_000;
-  type LiveBundle = {
-    at: number;
-    contests: ContestView[];       // full live set — /api/contest/live
-    card: ContestView | null;      // selectTodaysCard(contests) — /api/card
-    jackpot: string;
+  // One selected card plus its (fail-soft) per-leg results and entry scan. The
+  // bundle carries TWO — the prod card and the /test-page test card — so a demo
+  // Sweep on /test?test=1 is served from the same SWR cache as the real tab.
+  type CardReads = {
+    card: ContestView | null;      // selectTodaysCard(contests, now, wantTest)
     winningBuckets: (number | null)[];
     rawEntries: RawEntryView[];
     legsFailed: boolean;
     entriesFailed: boolean;
+  };
+  type LiveBundle = {
+    at: number;
+    contests: ContestView[];       // full live set — /api/contest/live
+    prod: CardReads;               // /api/card
+    test: CardReads;               // /api/card?test=1 (the /test page)
+    jackpot: string;
   };
   let liveBundle: LiveBundle | null = null;
   let liveBundleInFlight: Promise<LiveBundle> | null = null;
@@ -384,12 +411,11 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
   // read fails soft into a flag (legsFailed / entriesFailed) so a partial blip
   // still yields a usable, visibly-degraded bundle. `readLegWinningBuckets` never
   // rejects (it sets `.failed`); the entry scan and jackpot are wrapped.
-  async function loadLiveBundle(): Promise<LiveBundle> {
-    const at = Date.now();
-    const contests = await readLiveContests();
-    const card = selectTodaysCard(contests);
-    let jackpot = "0";
-    try { jackpot = (await readJackpot()).pot; } catch { jackpot = "0"; }
+  // The heavy per-card reads (per-leg winning buckets + the entry scan), each
+  // fail-soft into a flag so a partial blip still yields a usable, visibly
+  // degraded card. `readLegWinningBuckets` never rejects; the entry scan is
+  // wrapped. A null card (no contest for this audience) skips both cheaply.
+  async function loadCardReads(card: ContestView | null): Promise<CardReads> {
     let winningBuckets: (number | null)[] = [];
     let rawEntries: RawEntryView[] = [];
     let legsFailed = false;
@@ -404,7 +430,18 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
         entriesFailed = true; // fail-soft, but VISIBLY: degraded + aliveCount null, myCard OMITTED
       }
     }
-    return { at, contests, card, jackpot, winningBuckets, rawEntries, legsFailed, entriesFailed };
+    return { card, winningBuckets, rawEntries, legsFailed, entriesFailed };
+  }
+
+  async function loadLiveBundle(): Promise<LiveBundle> {
+    const at = Date.now();
+    const contests = await readLiveContests();
+    const prodCard = selectTodaysCard(contests, undefined, false);
+    const testCard = selectTodaysCard(contests, undefined, true);
+    let jackpot = "0";
+    try { jackpot = (await readJackpot()).pot; } catch { jackpot = "0"; }
+    const [prod, test] = await Promise.all([loadCardReads(prodCard), loadCardReads(testCard)]);
+    return { at, contests, prod, test, jackpot };
   }
 
   // In-flight dedup: many polls (across both routes) can land during one 5–15s
@@ -431,11 +468,16 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
   }
 
   /**
-   * GET /api/card[?wallet=<base58>]
+   * GET /api/card[?wallet=<base58>][&test=1]
    * TODAY's single 6-leg card — the focused view the new web reads. It reuses
    * `readLiveContests` (same per-leg catalog join as `/api/contest/live`) and
    * `selectTodaysCard` to pick the current day's Open contest, then folds in the
    * standalone jackpot pot.
+   *
+   * `?test=1` flips the audience exactly like /api/live/next: ONLY the test Sweep
+   * (synthetic-fixture contest, contestId >= TEST_FIXTURE_MIN — the /test page);
+   * without it, test contests are EXCLUDED so the prod Sweep tab carries only the
+   * real daily card.
    *
    * Shape: `{ contestId, status, lockTs, entriesCloseTs, settleAfterTs, entryPrice,
    *           pot, jackpot, aliveCount, myCard, degraded?,
@@ -492,16 +534,21 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
       return { error: `card read failed: ${(e as Error).message}` };
     }
 
-    const card = bundle.card;
+    // Audience split (same `?test=1` contract as /api/live/next): the /test page
+    // reads the test Sweep (synthetic-fixture contest), the prod tab the real one.
+    const wantTest = (req.query as Record<string, string>).test === "1";
+    const reads = wantTest ? bundle.test : bundle.prod;
+
+    const card = reads.card;
     if (!card) return { card: null }; // 200 + null sentinel: no card for today (yet)
 
     const jackpot = bundle.jackpot;
-    const winningBuckets = bundle.winningBuckets;
-    const rawEntries = bundle.rawEntries;
-    const scanFailed = bundle.entriesFailed;
+    const winningBuckets = reads.winningBuckets;
+    const rawEntries = reads.rawEntries;
+    const scanFailed = reads.entriesFailed;
 
     // degraded → aliveCount null ("couldn't compute"), never a misleading 0.
-    const degraded = bundle.legsFailed || bundle.entriesFailed;
+    const degraded = reads.legsFailed || reads.entriesFailed;
     const aliveCount = degraded
       ? null
       : rawEntries.filter((e) =>
@@ -570,10 +617,17 @@ export function registerRoutes(app: FastifyInstance, store?: LiveStore, linesSto
             },
           }
         : {};
+      // Synthetic (test) fixtures have no TxLINE row — wear a test identity
+      // instead of the "#<fixtureId>" fallback. A test-Sweep leg carries its own
+      // matchup from the TEST_SWEEP_LEGS roster (so the card reads as six
+      // distinct matches); any other synthetic id falls back to the single
+      // TEST_HOME/TEST_AWAY pair (the /test live match).
+      const isTest = leg.fixtureId >= TEST_FIXTURE_MIN;
+      const sweepName = isTest ? testSweepLegName(leg.fixtureId) : null;
       return {
         fixtureId: leg.fixtureId,
-        home: live?.home ?? meta?.home ?? `#${leg.fixtureId}`,
-        away: live?.away ?? meta?.away ?? "",
+        home: live?.home ?? meta?.home ?? sweepName?.home ?? (isTest ? TEST_HOME : `#${leg.fixtureId}`),
+        away: live?.away ?? meta?.away ?? sweepName?.away ?? (isTest ? TEST_AWAY : ""),
         // store carries kickoffMs; the card contract is seconds (null if unknown).
         kickoffTs: live?.kickoffMs != null ? Math.floor(live.kickoffMs / 1000) : null,
         marketId: leg.marketId,

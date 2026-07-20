@@ -40,6 +40,17 @@ test-ledger/
 .txline-auth.json
 **/.txline-auth.json
 
+# Android TWA wrapper (twa/) — signing key + credentials stay local, never in
+# the public repo; gradle build output is disposable
+twa/android.keystore
+twa/keystore-credentials.txt
+twa/build/
+twa/app/build/
+twa/.gradle/
+
 # brainstorming visual companion sessions
 .superpowers/
 *-id.json
+
+# throwaway debug/inspection scripts (never deliverables)
+*.tmp.ts

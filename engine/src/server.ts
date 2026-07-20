@@ -27,6 +27,25 @@ export function buildServer(store?: LiveStore, linesStore?: LinesStore): Fastify
   app.register(cors, { origin: origins });
   app.get("/health", async () => ({ status: "ok" }));
 
+  // Digital Asset Links for the Android TWA wrapper (twa/): Chrome fetches
+  // this to verify the APK's signing cert against the origin, which is what
+  // lets the app run fullscreen without a browser bar. Served as an explicit
+  // route because @fastify/static does not serve dot-directories by default.
+  // Fingerprint = SHA-256 of twa/android.keystore's "android" key (public
+  // info by design — this file must be world-readable).
+  app.get("/.well-known/assetlinks.json", async () => [
+    {
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: {
+        namespace: "android_app",
+        package_name: "com.bullstake.app",
+        sha256_cert_fingerprints: [
+          "4B:34:85:EE:3F:19:DB:7A:CB:7D:1D:A3:EC:1E:C8:6A:F3:2B:D9:72:FA:3C:F3:DD:3D:26:32:B8:12:FD:EF:9C",
+        ],
+      },
+    },
+  ]);
+
   // Use the injected store (tests) or create a bare store (server start wires it).
   const liveStore = store ?? new LiveStore();
   const lines = linesStore ?? new LinesStore();

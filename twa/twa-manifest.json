@@ -1,0 +1,41 @@
+{
+  "packageId": "com.bullstake.app",
+  "host": "bull-stake-production.up.railway.app",
+  "name": "BullStake",
+  "launcherName": "BullStake",
+  "display": "standalone",
+  "themeColor": "#FF6A1A",
+  "themeColorDark": "#000000",
+  "navigationColor": "#07090d",
+  "navigationColorDark": "#07090d",
+  "navigationDividerColor": "#00000000",
+  "navigationDividerColorDark": "#07090d",
+  "backgroundColor": "#07090d",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://bull-stake-production.up.railway.app/pwa-512x512.png",
+  "maskableIconUrl": "https://bull-stake-production.up.railway.app/pwa-512x512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersion": "1",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://bull-stake-production.up.railway.app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": []
+}

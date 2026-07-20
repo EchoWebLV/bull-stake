@@ -62,7 +62,7 @@ export default function App() {
       <LoginBar />
 
       {pane("live", <LiveMatchView test={IS_TEST_PAGE} active={tab === "live"} onGoPearly={() => go("sweepstake")} />)}
-      {pane("sweepstake", <PearlyView active={tab === "sweepstake"} onGoLive={() => go("live")} />)}
+      {pane("sweepstake", <PearlyView active={tab === "sweepstake"} test={IS_TEST_PAGE} onGoLive={() => go("live")} />)}
       {pane("markets", <MarketLinesView />)}
       {pane("bets", <BetsView active={tab === "bets"} />)}
       {pane("wallet", <WalletView active={tab === "wallet"} />)}

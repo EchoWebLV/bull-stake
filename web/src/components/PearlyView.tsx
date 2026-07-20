@@ -51,7 +51,7 @@ function legChip(state: PearlyLegState): { icon: string; label: string; tone: st
   }
 }
 
-export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void; active?: boolean } = {}) {
+export function PearlyView({ onGoLive, active = true, test = false }: { onGoLive?: () => void; active?: boolean; test?: boolean } = {}) {
   const { ready, authenticated } = usePrivy();
   const { login } = useLogin();
   const { address, signAndSend } = usePrivySigner();
@@ -104,7 +104,7 @@ export function PearlyView({ onGoLive, active = true }: { onGoLive?: () => void;
     // the card's alive/dead state can never disagree. This replaces the old
     // /api/contest/live join, whose contest-level winning_buckets stay null until
     // the WHOLE card settles — which left a provably-dead leg reading "in play".
-    const c = await getCard(address ?? undefined).catch(() => undefined);
+    const c = await getCard(address ?? undefined, test).catch(() => undefined);
     if (c === undefined) {
       // Transient fetch failure — keep the last good state on screen, but COUNT
       // it: with no data at all yet, consecutive failures flip the loading card

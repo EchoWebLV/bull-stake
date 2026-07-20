@@ -201,10 +201,14 @@ export interface Card {
 
 /** Today's card, or null when no card is open for today yet (engine returns `{ card: null }`).
  *  Pass `wallet` to also fetch `myCard` (v2 engines only — see `Card.myCard`). */
-export const getCard = (wallet?: string | null): Promise<Card | null> =>
-  fetch(`${ENGINE}/api/card${wallet ? `?wallet=${wallet}` : ""}`).then(json).then((r: Card | { card: null }) =>
+/** `test=true` → the TEST Sweep only (synthetic-fixture contest — the /test page);
+ *  default → the real daily card. Mirrors getLiveNext's `?test=1` audience split. */
+export const getCard = (wallet?: string | null, test = false): Promise<Card | null> => {
+  const params = [wallet ? `wallet=${wallet}` : "", test ? "test=1" : ""].filter(Boolean).join("&");
+  return fetch(`${ENGINE}/api/card${params ? `?${params}` : ""}`).then(json).then((r: Card | { card: null }) =>
     "card" in r ? r.card : r,
   );
+};
 
 // --- Live-match pool (Slice 5) --------------------------------------------
 // View shapes mirror engine/src/chain.ts. LiveEntry is 159 bytes on devnet
